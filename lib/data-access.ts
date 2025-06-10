@@ -317,6 +317,7 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
       SET
         start_date = ${toDateString(profileData.startDate)},
         end_date = ${toDateString(profileData.endDate)},
+        required_hours = ${profileData.requiredHours ? Number(profileData.requiredHours) : 0},
         supervisor_id = (
           SELECT id FROM users
           WHERE (first_name || ' ' || last_name) ILIKE ${profileData.supervisor}

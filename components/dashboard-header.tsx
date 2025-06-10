@@ -13,28 +13,39 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useAuth } from "@/contexts/auth-context"
 
-export function DashboardHeader() {
+interface DashboardHeaderProps {
+  activeTab?: string
+}
+
+const tabTitles: Record<string, { title: string; description: string }> = {
+  dashboard: {
+    title: "Dashboard",
+    description: "View your progress, logs, and internship summary.",
+  },
+  dtr: {
+    title: "Daily Time Record",
+    description: "Review your attendance and working hours.",
+  },
+  profile: {
+    title: "My Profile",
+    description: "Manage your personal and contact information.",
+  },
+}
+
+export function DashboardHeader({ activeTab = "dashboard" }: DashboardHeaderProps) {
   const { user, logout } = useAuth()
 
   if (!user) return null
 
   const initials = `${user.first_name[0] ?? ""}${user.last_name[0] ?? ""}`.toUpperCase()
+  const { title, description } = tabTitles[activeTab] || tabTitles.dashboard
 
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
-          <User className="h-5 w-5 text-blue-600" />
-        </div>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Welcome back, {user.first_name}!
-          </h1>
-          <p className="text-sm text-gray-600">
-            {user.role === "intern"
-              ? "Ready to start your day?"
-              : "Manage intern records and system settings"}
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
+          <p className="text-sm text-gray-600">{description}</p>
         </div>
       </div>
 

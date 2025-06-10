@@ -23,23 +23,35 @@ interface TimeLog {
 
 const REQUIRED_HOURS_PER_DAY = 9
 
+// Helper: Get start (Monday) and end (Sunday) of current week
+function getWeekRange(date = new Date()) {
+  const day = date.getDay()
+  const diffToMonday = (day === 0 ? -6 : 1) - day // Sunday (0) -> last Monday
+  const monday = new Date(date)
+  monday.setDate(date.getDate() + diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+  const sunday = new Date(monday)
+  sunday.setDate(monday.getDate() + 6)
+  sunday.setHours(23, 59, 59, 999)
+  return { monday, sunday }
+}
+
 export function InternDashboardContent() {
   const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
-  const [todayDuration, setTodayDuration] = useState("0h 0m")
-  const [weeklyLogs, setWeeklyLogs] = useState<TimeLog[]>([])
+  const [todayDuration, setTodayDuration] = useState("0h 00m")
+  const [allLogs, setAllLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const [hasTimedOutToday, setHasTimedOutToday] = useState(false)
-  const [stateReady, setStateReady] = useState(false) // <-- Add this
+  const [stateReady, setStateReady] = useState(false)
   const restoredRef = useRef(false)
 
   // On mount, restore hasTimedOutToday and todayDuration from localStorage FIRST
   useEffect(() => {
-    // Prevent double-invocation in dev/StrictMode/Fast Refresh
     if (restoredRef.current) return
     restoredRef.current = true
 
@@ -57,19 +69,18 @@ export function InternDashboardContent() {
 
     const storedDuration = localStorage.getItem("todayDuration")
     let durationDate = today
-    let durationValue = "0h 0m"
+    let durationValue = "0h 00m"
     if (storedDuration) {
       const { date, value } = JSON.parse(storedDuration)
       durationDate = date
       durationValue = value
     }
 
-    // If the stored date is not today, reset state and localStorage
     if (timeoutDate !== today || durationDate !== today) {
       setHasTimedOutToday(false)
-      setTodayDuration("0h 0m")
+      setTodayDuration("0h 00m")
       localStorage.setItem("hasTimedOutToday", JSON.stringify({ date: today, value: false }))
-      localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: "0h 0m" }))
+      localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: "0h 00m" }))
     } else {
       setHasTimedOutToday(timeoutValue)
       setTodayDuration(durationValue)
@@ -91,8 +102,8 @@ export function InternDashboardContent() {
               const diffMs = outDate.getTime() - inDate.getTime() - (todayLog.break_duration || 0) * 60 * 1000
               const hours = Math.floor(diffMs / (1000 * 60 * 60))
               const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-              setTodayDuration(`${hours}h ${minutes}m`)
-              localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: `${hours}h ${minutes}m` }))
+              setTodayDuration(formatDuration(hours, minutes))
+              localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: formatDuration(hours, minutes) }))
             }
             if (todayLog.time_out) {
               setHasTimedOutToday(true)
@@ -132,7 +143,7 @@ export function InternDashboardContent() {
               const diff = now.getTime() - inDate.getTime()
               const hours = Math.floor(diff / (1000 * 60 * 60))
               const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-              setTodayDuration(`${hours}h ${minutes}m`)
+              setTodayDuration(formatDuration(hours, minutes))
               localStorage.setItem(
                 "clockInState",
                 JSON.stringify({
@@ -158,7 +169,7 @@ export function InternDashboardContent() {
             const diff = now.getTime() - inDate.getTime()
             const hours = Math.floor(diff / (1000 * 60 * 60))
             const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-            setTodayDuration(`${hours}h ${minutes}m`)
+            setTodayDuration(formatDuration(hours, minutes))
             console.log("[RESTORE CLOCK STATE] (fallback) Set as timed in, todayDuration:", `${hours}h ${minutes}m`)
           }
         }
@@ -209,10 +220,10 @@ export function InternDashboardContent() {
             const inDate = new Date(log.time_in)
             const outDate = log.time_out ? new Date(log.time_out) : now
             const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
-            hoursWorked = diffMs > 0 ? Number((diffMs / (1000 * 60 * 60)).toFixed(2)) : 0
+            hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
             const hours = Math.floor(diffMs / (1000 * 60 * 60))
             const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-            duration = `${hours}h ${minutes}m`
+            duration = formatDuration(hours, minutes)
           }
 
           return { ...log, hoursWorked, duration }
@@ -223,7 +234,7 @@ export function InternDashboardContent() {
           const bTime = b.time_in ? new Date(b.time_in).getTime() : 0
           return bTime - aTime
         })
-      setWeeklyLogs(logsArr)
+      setAllLogs(logsArr)
     } catch (err: any) {
       setError(err.message || "Failed to load logs")
     } finally {
@@ -247,7 +258,7 @@ export function InternDashboardContent() {
         const diff = now.getTime() - timeInTimestamp.getTime()
         const hours = Math.floor(diff / (1000 * 60 * 60))
         const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
-        setTodayDuration(`${hours}h ${minutes}m`)
+        setTodayDuration(formatDuration(hours, minutes))
       }, 1000)
       return () => clearInterval(timer)
     }
@@ -289,7 +300,7 @@ export function InternDashboardContent() {
     // Restore todayDuration
     const storedDuration = localStorage.getItem("todayDuration")
     let durationDate = today
-    let durationValue = "0h 0m"
+    let durationValue = "0h 00m"
     if (storedDuration) {
       const { date, value } = JSON.parse(storedDuration)
       durationDate = date
@@ -301,9 +312,9 @@ export function InternDashboardContent() {
     if (timeoutDate !== today || durationDate !== today) {
       console.log("[RESTORE] Resetting state and localStorage for new day")
       setHasTimedOutToday(false)
-      setTodayDuration("0h 0m")
+      setTodayDuration("0h 00m")
       localStorage.setItem("hasTimedOutToday", JSON.stringify({ date: today, value: false }))
-      localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: "0h 0m" }))
+      localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: "0h 00m" }))
     } else {
       setHasTimedOutToday(timeoutValue)
       setTodayDuration(durationValue)
@@ -325,9 +336,9 @@ export function InternDashboardContent() {
 
     const timer = setTimeout(() => {
       setHasTimedOutToday(false)
-      setTodayDuration("0h 0m")
+      setTodayDuration("0h 00m")
       localStorage.setItem("hasTimedOutToday", JSON.stringify({ date: getTodayString(), value: false }))
-      localStorage.setItem("todayDuration", JSON.stringify({ date: getTodayString(), value: "0h 0m" }))
+      localStorage.setItem("todayDuration", JSON.stringify({ date: getTodayString(), value: "0h 00m" }))
     }, timeout)
 
     return () => clearTimeout(timer)
@@ -364,7 +375,7 @@ export function InternDashboardContent() {
       const hours = diffMs / (1000 * 60 * 60)
       if (hours < REQUIRED_HOURS_PER_DAY) {
         const confirm = window.confirm(
-          `You have only worked ${hours.toFixed(2)} hours today. Required is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?\n\nNote: You cannot time in again today after timing out.`
+          `You have only worked ${hours.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?\n\nNote: You cannot time in again today after timing out.`
         )
         if (!confirm) return
       }
@@ -419,20 +430,36 @@ export function InternDashboardContent() {
     status: "",
   }
 
-  // Calculate completed hours from logs
-  const completedHours = weeklyLogs
-    .filter((log) => log.status === "approved")
-    .reduce((sum, log) => sum + log.hoursWorked, 0)
+  function getTruncatedDecimalHours(log: TimeLog) {
+    if (!log.time_in || !log.time_out) return 0
+    const inDate = new Date(log.time_in)
+    const outDate = new Date(log.time_out)
+    const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+    const hours = Math.floor(diffMs / (1000 * 60 * 60))
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+    const decimal = hours + minutes / 60
+    return Number(truncateTo2Decimals(decimal))
+  }
+
+  const completedHours = (() => {
+    const total = allLogs
+      .filter((log) => log.status === "approved" && log.time_in && log.time_out)
+      .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+    return Number(truncateTo2Decimals(total))
+  })()
 
   const progressPercentage =
     internshipDetails.required_hours > 0
-      ? (completedHours / internshipDetails.required_hours) * 100
+      ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
       : 0
   const remainingHours =
-    internshipDetails.required_hours - completedHours
-  const weeklyHours = weeklyLogs
-    .filter((log) => log.status === "approved")
-    .reduce((sum, log) => sum + log.hoursWorked, 0)
+    completedHours >= internshipDetails.required_hours
+      ? 0
+      : internshipDetails.required_hours - completedHours
+  // Calculate total days worked so far (approved logs with time_in)
+  const totalDaysWorked = allLogs.filter(
+    (log) => log.status === "approved" && log.time_in
+  ).length
 
   // Render logs with real-time duration for active logs
   const getLogDuration = (log: TimeLog) => {
@@ -442,10 +469,31 @@ export function InternDashboardContent() {
       const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
       const hours = Math.floor(diffMs / (1000 * 60 * 60))
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-      return `${hours}h ${minutes}m`
+      return { duration: formatDuration(hours, minutes), hours, minutes }
     }
     return null
   }
+
+  // Get current week range (Monday to Sunday)
+  const { monday: weekStart, sunday: weekEnd } = getWeekRange()
+
+  // Filter logs for current week (by log.date)
+  const weeklyLogs = allLogs.filter((log) => {
+    if (!log.date) return false
+    const logDate = new Date(log.date)
+    // log.date may be string "YYYY-MM-DD" or ISO string
+    return logDate >= weekStart && logDate <= weekEnd
+  })
+
+  // Calculate weekly hours and days worked from weeklyLogs
+  const weeklyHours = weeklyLogs
+    .filter((log) => log.status === "approved" && log.time_in && log.time_out)
+    .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+
+  // Calculate weekly days worked
+  const weeklyDaysWorked = weeklyLogs.filter(
+    (log) => log.status === "approved" && log.time_in
+  ).length
 
   if (!user) {
     return (
@@ -460,77 +508,83 @@ export function InternDashboardContent() {
       {/* Internship Progress Overview */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <GraduationCap className="h-5 w-5" />
-          Internship Progress
-        </CardTitle>
+          <CardHeader className="pb-0">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <GraduationCap className="h-5 w-5" />
+              Internship Progress
+            </CardTitle>
           </CardHeader>
           <CardContent>
-        <div className="space-y-3">
-          <div className="flex justify-between text-sm">
-            <span>Completed</span>
-            <span className="font-medium">
-          {completedHours}h / {internshipDetails.required_hours}h
-            </span>
-          </div>
-          <Progress value={progressPercentage} className="h-2" />
-          <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">{progressPercentage.toFixed(1)}%</div>
-            <p className="text-sm text-gray-600">{remainingHours}h remaining</p>
-          </div>
-        </div>
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span>Completed</span>
+                <span className="font-medium">
+                  {completedHours.toFixed(2)}h / {internshipDetails.required_hours}h
+                </span>
+              </div>
+              <Progress value={progressPercentage} className="h-2" />
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{progressPercentage.toFixed(1)}%</div>
+                {/* Only show remaining hours if greater than 0 */}
+                {remainingHours > 0 && (
+                  <p className="text-sm text-gray-600">{remainingHours}h remaining</p>
+                )}
+                <Badge variant="outline" className="mt-2">
+                  {totalDaysWorked} days worked
+                </Badge>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <Building className="h-5 w-5" />
-          Internship Details
-        </CardTitle>
+          <CardHeader className="pb-0">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Building className="h-5 w-5" />
+              Internship Details
+            </CardTitle>
           </CardHeader>
           <CardContent>
-        <div className="space-y-2 text-sm">
-          <div>
-            <span className="font-medium">School:</span>
-            <p className="text-gray-600">{internshipDetails.school?.name ?? "N/A"}</p>
-          </div>
-          <div>
-            <span className="font-medium">Department:</span>
-            <p className="text-gray-600">{internshipDetails.department?.name ?? "N/A"}</p>
-          </div>
-          <div>
-            <span className="font-medium">Duration:</span>
-            <p className="text-gray-600">
-          {internshipDetails.start_date
-            ? new Date(internshipDetails.start_date).toLocaleDateString()
-            : "N/A"}{" "}
-          -{" "}
-          {internshipDetails.end_date
-            ? new Date(internshipDetails.end_date).toLocaleDateString()
-            : "N/A"}
-            </p>
-          </div>
-        </div>
+            <div className="space-y-2 text-sm">
+              <div>
+                <span className="font-medium">University:</span>
+                <p className="text-gray-600">{internshipDetails.school?.name ?? "N/A"}</p>
+              </div>
+              <div>
+                <span className="font-medium">Assigned Department:</span>
+                <p className="text-gray-600">{internshipDetails.department?.name ?? "N/A"}</p>
+              </div>
+              <div>
+                <span className="font-medium">Duration:</span>
+                <p className="text-gray-600">
+                  {internshipDetails.start_date
+                    ? new Date(internshipDetails.start_date).toLocaleDateString()
+                    : "N/A"}{" "}
+                  -{" "}
+                  {internshipDetails.end_date
+                    ? new Date(internshipDetails.end_date).toLocaleDateString()
+                    : "N/A"}
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="pb-3">
-        <CardTitle className="text-lg flex items-center gap-2">
-          <TrendingUp className="h-5 w-5" />
-          This Week
-        </CardTitle>
+          <CardHeader className="pb-0">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <TrendingUp className="h-5 w-5" />
+              This Week
+            </CardTitle>
           </CardHeader>
           <CardContent>
-        <div className="text-center">
-          <div className="text-2xl font-bold text-green-600">{weeklyHours.toFixed(1)}h</div>
-          <p className="text-sm text-gray-600 mt-1">Total this week</p>
-          <Badge variant="outline" className="mt-2">
-            {weeklyLogs.filter((log) => log.status === "approved").length} days worked
-          </Badge>
-        </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{weeklyHours.toFixed(2)}h</div>
+              <p className="text-sm text-gray-600 mt-1">Total this week</p>
+              <Badge variant="outline" className="mt-2">
+                {weeklyDaysWorked} days worked
+              </Badge>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -644,9 +698,18 @@ export function InternDashboardContent() {
                   {weeklyLogs.map((log) => (
                     <TableRow key={log.id}>
                       <TableCell className="font-medium">
-                        {log.time_in
-                          ? formatLogDate(log.time_in)
-                          : "--"}
+                        {log.time_in ? (
+                          <div className="flex flex-col items-start">
+                            <span className="text-xs text-gray-500">
+                              {new Date(log.time_in).toLocaleDateString("en-US", { weekday: "short" })}
+                            </span>
+                            <span>
+                              {formatLogDate(log.time_in)}
+                            </span>
+                          </div>
+                        ) : (
+                          "--"
+                        )}
                       </TableCell>
                       <TableCell>
                         {log.time_in ? (
@@ -674,7 +737,9 @@ export function InternDashboardContent() {
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {getLogDuration(log) ? (
-                          <span className="font-semibold">{getLogDuration(log)}</span>
+                          <span className="font-semibold">
+                            {getLogDuration(log)!.duration}
+                          </span>
                         ) : log.status === "pending" ? (
                           <Badge variant="outline" className="bg-blue-50 text-blue-700">
                             In Progress
@@ -686,7 +751,15 @@ export function InternDashboardContent() {
                       <TableCell className="text-right font-mono">
                         {log.time_in && log.time_out ? (
                           <span className="font-semibold text-blue-600">
-                            {((new Date(log.time_out).getTime() - new Date(log.time_in).getTime() - (log.break_duration || 0) * 60 * 1000) / (1000 * 60 * 60)).toFixed(2)}h
+                            {(() => {
+                              const inDate = new Date(log.time_in)
+                              const outDate = new Date(log.time_out)
+                              const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+                              const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                              const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                              const decimal = hours + minutes / 60
+                              return `${truncateTo2Decimals(decimal)}h`
+                            })()}
                           </span>
                         ) : log.time_in && !log.time_out ? (
                           <Badge variant="outline" className="bg-blue-50 text-blue-700">Active</Badge>
@@ -704,4 +777,13 @@ export function InternDashboardContent() {
       </Card>
     </div>
   )
+}
+
+function truncateTo2Decimals(val: number) {
+  const [int, dec = ""] = val.toString().split(".")
+  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
+}
+
+function formatDuration(hours: number, minutes: number) {
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
 }

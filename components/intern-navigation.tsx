@@ -1,39 +1,41 @@
 "use client"
 
 import { useState } from "react"
-import { Clock, Menu, User } from "lucide-react"
+import { Clock, User, LayoutDashboard, Menu } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
+import React from "react"
 
-interface InternNavigationProps {
+export interface InternNavigationProps {
   activeTab: string
   onTabChange: (tab: string) => void
+  tabs: { key: string; label: string }[]
 }
 
-const navigationItems = [
-  { id: "dashboard", label: "Dashboard", icon: Clock },
-  { id: "profile", label: "My Profile", icon: User },
-]
+const tabIcons: Record<string, React.ReactNode> = {
+  dashboard: <LayoutDashboard className="w-4 h-4 mr-2" />,
+  dtr: <Clock className="w-4 h-4 mr-2" />,
+  profile: <User className="w-4 h-4 mr-2" />,
+}
 
-export function InternNavigation({ activeTab, onTabChange }: InternNavigationProps) {
+export function InternNavigation({ activeTab, onTabChange, tabs }: InternNavigationProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (
     <nav className={cn("space-y-2", mobile && "px-4")}>
-      {navigationItems.map((item) => {
-        const Icon = item.icon
+      {tabs.map((item) => {
         return (
           <Button
-            key={item.id}
-            variant={activeTab === item.id ? "default" : "ghost"}
-            className={cn("w-full justify-start", activeTab === item.id && "bg-blue-600 text-white hover:bg-blue-700")}
+            key={item.key}
+            variant={activeTab === item.key ? "default" : "ghost"}
+            className={cn("w-full justify-start", activeTab === item.key && "bg-blue-600 text-white hover:bg-blue-700")}
             onClick={() => {
-              onTabChange(item.id)
+              onTabChange(item.key)
               if (mobile) setIsMobileMenuOpen(false)
             }}
           >
-            <Icon className="mr-2 h-4 w-4" />
+            {tabIcons[item.key] ?? null}
             {item.label}
           </Button>
         )

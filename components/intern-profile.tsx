@@ -161,7 +161,7 @@ export function InternProfile() {
   const safeFormat = (dateString: string) => {
     if (!dateString) return "Select date"
     const date = parseISO(dateString)
-    return isValid(date) ? format(date, "PPP") : "Select date"
+    return isValid(date) ? format(date, "MMMM dd, yyyy") : "Select date"
   }
 
   if (!user) return null
@@ -173,30 +173,6 @@ export function InternProfile() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Profile</h1>
-          <p className="text-gray-600">View and manage your personal information</p>
-        </div>
-        {!isEditing ? (
-          <Button onClick={() => setIsEditing(true)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit Profile
-          </Button>
-        ) : (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleCancel}>
-              <X className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={loading}>
-              <Save className="mr-2 h-4 w-4" />
-              Save Changes
-            </Button>
-          </div>
-        )}
-      </div>
-
       {/* Profile Header Card */}
       <Card>
         <CardContent className="p-6">
@@ -572,6 +548,17 @@ export function InternProfile() {
                       )}
                     </Popover>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="requiredHours">Required Hours</Label>
+                    <Input
+                      id="requiredHours"
+                      type="number"
+                      min={0}
+                      value={profileData.requiredHours}
+                      onChange={(e) => handleInputChange("requiredHours", e.target.value)}
+                      disabled={!isEditing}
+                    />
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -815,6 +802,25 @@ export function InternProfile() {
           </Card>
         </TabsContent>
       </Tabs>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
+        {!isEditing ? (
+          <Button onClick={() => setIsEditing(true)}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit Profile
+          </Button>
+        ) : (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleCancel}>
+              <X className="mr-2 h-4 w-4" />
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={loading}>
+              <Save className="mr-2 h-4 w-4" />
+              Save Changes
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
