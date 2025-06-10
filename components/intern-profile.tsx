@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -27,6 +27,7 @@ export function InternProfile() {
   const [profileData, setProfileData] = useState<any>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(true)
+  const [supervisors, setSupervisors] = useState<{ id: number; name: string }[]>([])
 
   // Fetch real profile data from API
   useEffect(() => {
@@ -45,15 +46,13 @@ export function InternProfile() {
           phone: data.profile?.phone || "",
           address: data.profile?.address || "",
           city: data.profile?.city || "",
-          state: data.profile?.state || "",
+          country: data.profile?.country || "",
           zipCode: data.profile?.zip_code || "",
           dateOfBirth: data.profile?.date_of_birth || "",
           bio: data.profile?.bio || "",
           // Education
           school: data.internship?.school?.name || "",
           degree: data.profile?.degree || "",
-          major: data.profile?.major || "",
-          minor: data.profile?.minor || "",
           gpa: data.profile?.gpa?.toString() || "",
           graduationDate: data.profile?.graduation_date || "",
           // Skills & Interests
@@ -67,6 +66,7 @@ export function InternProfile() {
           // Internship Details
           department: data.internship?.department?.name || "",
           supervisor: data.internship?.supervisor_name || "",
+          supervisorId: data.internship?.supervisor_id || "",
           startDate: data.internship?.start_date || "",
           endDate: data.internship?.end_date || "",
           requiredHours: data.internship?.required_hours || 0,
@@ -106,14 +106,52 @@ export function InternProfile() {
     fetchLogs()
   }, [])
 
-  // Calculate completed hours from logs
-  const completedHours = logs
-    .filter((log) => log.status === "approved")
-    .reduce((sum, log) => sum + log.hoursWorked, 0)
+  // Fetch supervisors for dropdown
+  useEffect(() => {
+    if (!isEditing) return
+    fetch("/api/supervisors")
+      .then(res => res.json())
+      .then(data => {
+        // Assume API returns [{ id, first_name, last_name }]
+        setSupervisors(
+          data.map((sup: any) => ({
+            id: sup.id,
+            name: `${sup.first_name} ${sup.last_name}`,
+          }))
+        )
+      })
+      .catch(() => setSupervisors([]))
+  }, [isEditing])
+
+  // Helper for truncating to 2 decimals (same as dashboard/DTR)
+  function truncateTo2Decimals(val: number) {
+    const [int, dec = ""] = val.toString().split(".")
+    return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
+  }
+
+  // Helper for log hours (same as dashboard/DTR)
+  function getTruncatedDecimalHours(log: any) {
+    if (!log.time_in || !log.time_out) return 0
+    const inDate = new Date(log.time_in)
+    const outDate = new Date(log.time_out)
+    const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+    const hours = Math.floor(diffMs / (1000 * 60 * 60))
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+    const decimal = hours + minutes / 60
+    return Number(truncateTo2Decimals(decimal))
+  }
+
+  // Calculate completed hours from logs (match dashboard/DTR)
+  const completedHours = (() => {
+    const total = logs
+      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
+      .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+    return Number(truncateTo2Decimals(total))
+  })()
 
   const requiredHours = profileData?.requiredHours || 0
   const progressPercentage =
-    requiredHours > 0 ? (completedHours / requiredHours) * 100 : 0
+    requiredHours > 0 ? Math.min((completedHours / requiredHours) * 100, 100) : 0
 
   // For all date fields, store as "YYYY-MM-DD" string in state
   const handleInputChange = (field: string, value: string | string[]) => {
@@ -298,11 +336,11 @@ export function InternProfile() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
+                    <Label htmlFor="country">Country</Label>
                     <Input
-                      id="state"
-                      value={profileData.state}
-                      onChange={(e) => handleInputChange("state", e.target.value)}
+                      id="country"
+                      value={profileData.country}
+                      onChange={(e) => handleInputChange("country", e.target.value)}
                       disabled={!isEditing}
                     />
                   </div>
@@ -377,7 +415,7 @@ export function InternProfile() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="school">School/University</Label>
+                  <Label htmlFor="school">University</Label>
                   <Input
                     id="school"
                     value={profileData.school}
@@ -391,24 +429,6 @@ export function InternProfile() {
                     id="degree"
                     value={profileData.degree}
                     onChange={(e) => handleInputChange("degree", e.target.value)}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="major">Major</Label>
-                  <Input
-                    id="major"
-                    value={profileData.major}
-                    onChange={(e) => handleInputChange("major", e.target.value)}
-                    disabled={!isEditing}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="minor">Minor (Optional)</Label>
-                  <Input
-                    id="minor"
-                    value={profileData.minor}
-                    onChange={(e) => handleInputChange("minor", e.target.value)}
                     disabled={!isEditing}
                   />
                 </div>
@@ -469,12 +489,33 @@ export function InternProfile() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="supervisor">Supervisor</Label>
-                    <Input
-                      id="supervisor"
-                      value={profileData.supervisor}
-                      onChange={(e) => handleInputChange("supervisor", e.target.value)}
-                      disabled={!isEditing}
-                    />
+                    {isEditing ? (
+                      <Select
+                        value={profileData.supervisorId?.toString() || ""}
+                        onValueChange={value => {
+                          const selected = supervisors.find(s => s.id.toString() === value)
+                          handleInputChange("supervisor", selected ? selected.name : "")
+                          handleInputChange("supervisorId", value)
+                        }}
+                      >
+                        <SelectTrigger id="supervisor">
+                          <SelectValue placeholder="Select" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {supervisors.map(sup => (
+                            <SelectItem key={sup.id} value={sup.id.toString()}>
+                              {sup.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="supervisor"
+                        value={profileData.supervisor}
+                        disabled
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Start Date</Label>

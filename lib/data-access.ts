@@ -45,16 +45,16 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
       SELECT ip.*, 
              s.id as school_id, s.name AS school_name, 
              d.id as department_id, d.name AS department_name,
-             u.id as supervisor_id, u.first_name AS supervisor_first_name, u.last_name AS supervisor_last_name
+             sup.id as supervisor_id, sup.first_name AS supervisor_first_name, sup.last_name AS supervisor_last_name
       FROM internship_programs ip
       LEFT JOIN schools s ON ip.school_id = s.id
       LEFT JOIN departments d ON ip.department_id = d.id
-      LEFT JOIN users u ON ip.supervisor_id = u.id
+      LEFT JOIN supervisors sup ON ip.supervisor_id = sup.id
       WHERE ip.user_id = ${userIdNum}
       ORDER BY ip.created_at DESC
       LIMIT 1
     `
-    let internship: (InternshipProgram & { school: School; department: Department }) | undefined = undefined
+    let internship: (InternshipProgram & { school: School; department: Department; supervisor_name?: string }) | undefined = undefined
     if (internshipRes.length > 0) {
       const row = internshipRes[0]
       internship = {
@@ -67,6 +67,9 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
         start_date: row.start_date,
         end_date: row.end_date,
         supervisor_id: row.supervisor_id,
+        supervisor_name: row.supervisor_first_name && row.supervisor_last_name
+          ? `${row.supervisor_first_name} ${row.supervisor_last_name}`
+          : "",
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -79,9 +82,9 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 
     // Fetch completed hours
     const completedHoursRes = await sql`
-      SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600) - SUM(break_duration)/60, 0) AS completed_hours
+      SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
       FROM time_logs
-      WHERE user_id = ${userIdNum} AND status = 'approved'
+      WHERE user_id = ${userIdNum} AND status = 'completed'
     `
     const completedHours = Number(completedHoursRes[0]?.completed_hours || 0)
 
@@ -122,8 +125,8 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 export async function clockIn(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
-    const today = new Date().toISOString().split("T")[0]
-    // Check if any log exists for today
+    const today = new Date().toISOString().slice(0, 10)
+    // Check if already clocked in today
     const existing = await sql`
       SELECT * FROM time_logs
       WHERE user_id = ${userIdNum} AND date = ${today}
@@ -132,8 +135,8 @@ export async function clockIn(userId: string): Promise<{ success: boolean; error
       return { success: false, error: "Already clocked in and out today" }
     }
     await sql`
-      INSERT INTO time_logs (user_id, date, time_in, break_duration, status, created_at, updated_at)
-      VALUES (${userIdNum}, ${today}, NOW(), 0, 'pending', NOW(), NOW())
+      INSERT INTO time_logs (user_id, date, time_in, status, created_at, updated_at)
+      VALUES (${userIdNum}, ${today}, NOW(), 'pending', NOW(), NOW())
     `
     return { success: true }
   } catch (error) {
@@ -148,7 +151,7 @@ export async function clockOut(userId: string): Promise<{ success: boolean; erro
     const today = new Date().toISOString().split("T")[0]
     const res = await sql`
       UPDATE time_logs
-      SET time_out = NOW(), status = 'approved', updated_at = NOW()
+      SET time_out = NOW(), status = 'completed', updated_at = NOW()
       WHERE user_id = ${userIdNum} AND date = ${today} AND time_out IS NULL
       RETURNING *
     `
@@ -162,14 +165,13 @@ export async function clockOut(userId: string): Promise<{ success: boolean; erro
   }
 }
 
-export async function getTimeLogsForUser(userId: string, limit = 10): Promise<TimeLog[]> {
+export async function getTimeLogsForUser(userId: string): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
     const res = await sql`
       SELECT * FROM time_logs
       WHERE user_id = ${userIdNum}
       ORDER BY date DESC
-      LIMIT ${limit}
     `
     return res.map(row => ({
       id: row.id,
@@ -292,13 +294,11 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
         phone = ${profileData.phone},
         address = ${profileData.address},
         city = ${profileData.city},
-        state = ${profileData.state},
+        country = ${profileData.country}, -- changed from state to country
         zip_code = ${profileData.zipCode},
         date_of_birth = ${toDateString(profileData.dateOfBirth)},
         bio = ${profileData.bio},
         degree = ${profileData.degree},
-        major = ${profileData.major},
-        minor = ${profileData.minor},
         gpa = ${profileData.gpa ? Number(profileData.gpa) : null},
         graduation_date = ${toDateString(profileData.graduationDate)},
         skills = ${profileData.skills},
@@ -318,11 +318,7 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
         start_date = ${toDateString(profileData.startDate)},
         end_date = ${toDateString(profileData.endDate)},
         required_hours = ${profileData.requiredHours ? Number(profileData.requiredHours) : 0},
-        supervisor_id = (
-          SELECT id FROM users
-          WHERE (first_name || ' ' || last_name) ILIKE ${profileData.supervisor}
-          LIMIT 1
-        ),
+        supervisor_id = ${profileData.supervisorId ? Number(profileData.supervisorId) : null},
         updated_at = NOW()
       WHERE user_id = ${userIdNum}
     `

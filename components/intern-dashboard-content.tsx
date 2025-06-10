@@ -16,7 +16,7 @@ interface TimeLog {
   time_out: string | null
   break_duration: number
   notes?: string
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "completed"
   hoursWorked: number
   duration: string | null
 }
@@ -443,7 +443,7 @@ export function InternDashboardContent() {
 
   const completedHours = (() => {
     const total = allLogs
-      .filter((log) => log.status === "approved" && log.time_in && log.time_out)
+      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
     return Number(truncateTo2Decimals(total))
   })()
@@ -455,10 +455,10 @@ export function InternDashboardContent() {
   const remainingHours =
     completedHours >= internshipDetails.required_hours
       ? 0
-      : internshipDetails.required_hours - completedHours
-  // Calculate total days worked so far (approved logs with time_in)
+      : Number(truncateTo2Decimals(internshipDetails.required_hours - completedHours))
+  // Calculate total days worked so far (completed logs with time_in)
   const totalDaysWorked = allLogs.filter(
-    (log) => log.status === "approved" && log.time_in
+    (log) => log.status === "completed" && log.time_in
   ).length
 
   // Render logs with real-time duration for active logs
@@ -487,12 +487,12 @@ export function InternDashboardContent() {
 
   // Calculate weekly hours and days worked from weeklyLogs
   const weeklyHours = weeklyLogs
-    .filter((log) => log.status === "approved" && log.time_in && log.time_out)
+    .filter((log) => log.status === "completed" && log.time_in && log.time_out)
     .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
 
   // Calculate weekly days worked
   const weeklyDaysWorked = weeklyLogs.filter(
-    (log) => log.status === "approved" && log.time_in
+    (log) => log.status === "completed" && log.time_in
   ).length
 
   if (!user) {
@@ -527,7 +527,9 @@ export function InternDashboardContent() {
                 <div className="text-2xl font-bold text-blue-600">{progressPercentage.toFixed(1)}%</div>
                 {/* Only show remaining hours if greater than 0 */}
                 {remainingHours > 0 && (
-                  <p className="text-sm text-gray-600">{remainingHours}h remaining</p>
+                  <p className="text-sm text-gray-600">
+                    {truncateTo2Decimals(remainingHours)}h remaining
+                  </p>
                 )}
                 <Badge variant="outline" className="mt-2">
                   {totalDaysWorked} days worked
@@ -730,7 +732,9 @@ export function InternDashboardContent() {
                               : "--"}
                           </Badge>
                         ) : log.time_in && log.status === "pending" ? (
-                          <Badge variant="secondary">In Progress</Badge>
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                            In Progress
+                          </Badge>
                         ) : (
                           <span className="text-gray-400">--</span>
                         )}
@@ -741,7 +745,7 @@ export function InternDashboardContent() {
                             {getLogDuration(log)!.duration}
                           </span>
                         ) : log.status === "pending" ? (
-                          <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
                             In Progress
                           </Badge>
                         ) : (

@@ -20,16 +20,25 @@ CREATE TABLE IF NOT EXISTS schools (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- SUPERVISORS TABLE
+CREATE TABLE IF NOT EXISTS supervisors (
+    id SERIAL PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- DEPARTMENTS TABLE
 CREATE TABLE IF NOT EXISTS departments (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    supervisor_id INTEGER REFERENCES users(id),
+    supervisor_id INTEGER REFERENCES supervisors(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- INTERNSHIP PROGRAMS
+-- INTERNSHIP PROGRAMS TABLE
 CREATE TABLE IF NOT EXISTS internship_programs (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -38,7 +47,7 @@ CREATE TABLE IF NOT EXISTS internship_programs (
     required_hours INTEGER NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    supervisor_id INTEGER REFERENCES users(id),
+    supervisor_id INTEGER REFERENCES supervisors(id),
     status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'suspended')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -51,11 +60,8 @@ CREATE TABLE IF NOT EXISTS time_logs (
     date DATE NOT NULL,
     time_in TIMESTAMP WITH TIME ZONE,
     time_out TIMESTAMP WITH TIME ZONE,
-    break_duration INTEGER DEFAULT 0,
-    notes TEXT,
-    status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-    approved_by INTEGER REFERENCES users(id),
-    approved_at TIMESTAMP WITH TIME ZONE,
+    task TEXT,
+    status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     UNIQUE(user_id, date)
@@ -68,13 +74,11 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     phone VARCHAR(50),
     address TEXT,
     city VARCHAR(100),
-    state VARCHAR(50),
+    country VARCHAR(50),
     zip_code VARCHAR(20),
     date_of_birth DATE,
     bio TEXT,
     degree VARCHAR(255),
-    major VARCHAR(255),
-    minor VARCHAR(255),
     gpa DECIMAL(3,2),
     graduation_date DATE,
     skills TEXT[],
@@ -112,7 +116,6 @@ CREATE TABLE IF NOT EXISTS intern_project_assignments (
     UNIQUE(user_id, project_id)
 );
 
--- ───────────────────────────────────────────────
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON time_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_time_logs_date ON time_logs(date);
@@ -125,7 +128,6 @@ CREATE INDEX IF NOT EXISTS idx_intern_project_assignments_project_id ON intern_p
 CREATE INDEX IF NOT EXISTS idx_projects_department_id ON projects(department_id);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 
--- ───────────────────────────────────────────────
 -- TRIGGER FUNCTION & TRIGGERS
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$

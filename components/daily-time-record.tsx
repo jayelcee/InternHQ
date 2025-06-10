@@ -14,7 +14,7 @@ interface TimeLog {
   time_in: string | null
   time_out: string | null
   break_duration: number
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "completed"
   notes?: string
 }
 
@@ -95,7 +95,7 @@ export function DailyTimeRecord() {
   // Internship Progress calculation (sum of Hours Worked from the table, each truncated, then sum truncated)
   const completedHours = (() => {
     const total = logs
-      .filter((log) => log.status === "approved" && log.time_in && log.time_out)
+      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
     return Number(truncateTo2Decimals(total))
   })()
@@ -265,9 +265,15 @@ export function DailyTimeRecord() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                          {log.time_in && log.time_out ? `${truncateTo2Decimals(overtime)}h` : "0.00h"}
-                        </Badge>
+                        {log.time_in && log.time_out && Number(truncateTo2Decimals(overtime)) > 0 ? (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                            {`${truncateTo2Decimals(overtime)}h`}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+                            0.00h
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   )

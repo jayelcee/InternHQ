@@ -81,7 +81,7 @@ export interface TimeLog {
   time_out?: string
   break_duration: number
   notes?: string
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "completed"
   approved_by?: number
   approved_at?: string
   created_at: string
