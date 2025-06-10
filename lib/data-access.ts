@@ -12,6 +12,7 @@ import type {
   InternshipProgram,
 } from "./database"
 import { sql } from "./database"
+import { format } from "date-fns"
 
 // Helper for projects
 async function getProjectById(projectId: number): Promise<Project | null> {
@@ -235,7 +236,7 @@ export async function getInternProjects(userId: string): Promise<(InternProjectA
           start_date: "",
           end_date: "",
           status: "active",
-          department_id: 0, // Use 0 as a fallback for number
+          department_id: 0,
           created_at: "",
           updated_at: "",
         },
@@ -294,7 +295,7 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
         phone = ${profileData.phone},
         address = ${profileData.address},
         city = ${profileData.city},
-        country = ${profileData.country}, -- changed from state to country
+        country = ${profileData.country},
         zip_code = ${profileData.zipCode},
         date_of_birth = ${toDateString(profileData.dateOfBirth)},
         bio = ${profileData.bio},
@@ -331,6 +332,159 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
 }
 
 export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]> {
-  // Implement your admin logs logic here
-  return []
+  const rows = await sql`
+    SELECT
+      tl.id,
+      tl.user_id,
+      tl.date,
+      tl.time_in,
+      tl.time_out,
+      tl.status,
+      tl.created_at,
+      tl.updated_at,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.role,
+      u.created_at as user_created_at,
+      u.updated_at as user_updated_at,
+      d.name AS department,
+      s.name AS school
+    FROM time_logs tl
+    LEFT JOIN users u ON tl.user_id = u.id
+    LEFT JOIN internship_programs ip ON ip.user_id = u.id
+    LEFT JOIN departments d ON ip.department_id = d.id
+    LEFT JOIN schools s ON ip.school_id = s.id
+    ORDER BY tl.date DESC, tl.time_in DESC
+  `
+
+  return rows.map(row => ({
+    id: row.id,
+    internId: row.user_id,
+    internName: `${row.first_name} ${row.last_name}`,
+    user_id: row.user_id,
+    user: {
+      id: row.user_id,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+      role: row.role,
+      created_at: row.user_created_at,
+      updated_at: row.user_updated_at,
+      department: row.department || "",
+      school: row.school || "",
+    },
+    date: row.date,
+    timeIn: row.time_in,
+    timeOut: row.time_out,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    duration: row.time_in && row.time_out
+      ? calculateDuration(row.time_in, row.time_out)
+      : null,
+    hoursWorked: row.time_in && row.time_out
+      ? calculateHours(row.time_in, row.time_out)
+      : 0,
+    department: row.department || "",
+    school: row.school || "",
+    // break_duration REMOVED
+  })) as TimeLogWithDetails[]
+}
+
+// Helper functions
+function calculateDuration(timeIn: string, timeOut: string) {
+  const inDate = new Date(timeIn)
+  const outDate = new Date(timeOut)
+  const diffMs = outDate.getTime() - inDate.getTime()
+  const hours = Math.floor(diffMs / (1000 * 60 * 60))
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+}
+
+function calculateHours(timeIn: string, timeOut: string) {
+  const inDate = new Date(timeIn)
+  const outDate = new Date(timeOut)
+  const diffMs = outDate.getTime() - inDate.getTime()
+  return Number((diffMs / (1000 * 60 * 60)).toFixed(2))
+}
+
+export async function getAllInterns() {
+  try {
+    const result = await sql`
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        d.name AS department,
+        s.name AS school,
+        ip.required_hours,
+        ip.start_date,
+        ip.end_date
+      FROM users u
+      LEFT JOIN internship_programs ip ON u.id = ip.user_id
+      LEFT JOIN departments d ON ip.department_id = d.id
+      LEFT JOIN schools s ON ip.school_id = s.id
+      WHERE u.role = 'intern'
+    `
+
+    const today = format(new Date(), "yyyy-MM-dd")
+
+    const interns = await Promise.all(result.map(async (row: any) => {
+      // Calculate completed hours
+      const logsRes = await sql`
+        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
+        FROM time_logs
+        WHERE user_id = ${row.id} AND status = 'completed' AND time_in IS NOT NULL AND time_out IS NOT NULL
+      `
+      const completedHours = Number(logsRes[0]?.completed_hours || 0)
+
+      // Check today's log for status
+      const todayLogRes = await sql`
+        SELECT time_in, time_out, status
+        FROM time_logs
+        WHERE user_id = ${row.id} AND date = ${today}
+        ORDER BY id DESC
+        LIMIT 1
+      `
+      let status: "in" | "out" = "out"
+      let lastActivity = ""
+      if (todayLogRes.length > 0) {
+        const log = todayLogRes[0]
+        if (log.status === "pending" && log.time_in && !log.time_out) {
+          status = "in"
+          lastActivity = `Clocked in at ${log.time_in.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        } else if (log.status === "completed" && log.time_out) {
+          status = "out"
+          lastActivity = `Clocked out at ${log.time_out.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        }
+      }
+
+      return {
+        id: row.id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email,
+        department: row.department || "",
+        school: row.school || "",
+        todayHours: "0",
+        status,
+        timeIn: todayLogRes.length > 0 ? todayLogRes[0].time_in : null,
+        timeOut: todayLogRes.length > 0 ? todayLogRes[0].time_out : null,
+        lastActivity,
+        internshipDetails: {
+          requiredHours: row.required_hours || 0,
+          completedHours,
+          startDate: row.start_date ? row.start_date.toISOString().slice(0, 10) : "",
+          endDate: row.end_date ? row.end_date.toISOString().slice(0, 10) : "",
+        }
+      }
+    }))
+
+    return interns
+  } catch (err) {
+    console.error("getAllInterns error:", err)
+    throw err
+  }
 }

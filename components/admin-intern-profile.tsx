@@ -29,8 +29,6 @@ interface InternProfileData {
     date_of_birth?: string
     bio?: string
     degree?: string
-    major?: string
-    minor?: string
     gpa?: number
     graduation_date?: string
     skills?: string[]
@@ -68,18 +66,20 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
   const [internData, setInternData] = useState<InternProfileData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [supervisorName, setSupervisorName] = useState<string | null>(null)
+  const [supervisors, setSupervisors] = useState<{ id: number; name: string }[]>([])
 
   useEffect(() => {
     const fetchIntern = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(`/api/interns/${internId}`)
+        const res = await fetch(`/api/admin/interns/${internId}`)
         if (!res.ok) {
           throw new Error("Failed to fetch intern data")
         }
         const data = await res.json()
-        setInternData(data)
+        setInternData(data.intern)
       } catch (err: any) {
         setError(err.message || "Failed to load intern data")
       } finally {
@@ -88,6 +88,41 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
     }
     fetchIntern()
   }, [internId])
+
+  // Fetch supervisor name if supervisor_id is present and name is not included
+  useEffect(() => {
+    const fetchSupervisorName = async () => {
+      if (internData?.internship?.supervisor_id) {
+        try {
+          const res = await fetch(`/api/supervisors/${internData.internship.supervisor_id}`)
+          if (res.ok) {
+            const data = await res.json()
+            setSupervisorName(data.name)
+          } else {
+            setSupervisorName(null)
+          }
+        } catch {
+          setSupervisorName(null)
+        }
+      }
+    }
+    fetchSupervisorName()
+  }, [internData?.internship?.supervisor_id])
+
+  // Fetch supervisors for dropdown (even if not editing, for consistent display)
+  useEffect(() => {
+    fetch("/api/supervisors")
+      .then(res => res.json())
+      .then(data => {
+        setSupervisors(
+          data.map((sup: any) => ({
+            id: sup.id,
+            name: `${sup.first_name} ${sup.last_name}`,
+          }))
+        )
+      })
+      .catch(() => setSupervisors([]))
+  }, [])
 
   if (loading) {
     return <div className="p-8 text-center text-gray-500">Loading intern profile...</div>
@@ -109,14 +144,21 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
   const initials = `${internData.first_name[0]}${internData.last_name[0]}`.toUpperCase()
   const profile = internData.profile || {}
   const internship = internData.internship
+  const completedHours =
+    internship?.completedHours ??
+    internData.completedHours ??
+    0
+  const requiredHours = internship?.required_hours ?? 0
   const progressPercentage =
-    internship && internship.completedHours && internship.required_hours
-      ? (internship.completedHours / internship.required_hours) * 100
-      : 0
+    requiredHours > 0 ? (completedHours / requiredHours) * 100 : 0
 
   const handleGenerateReport = () => {
     alert(`Generating report for ${internData.first_name} ${internData.last_name}...`)
   }
+
+  // Get supervisor name from list using supervisor_id
+  const supervisorDisplayName =
+    supervisors.find(s => s.id === internship?.supervisor_id)?.name || "N/A"
 
   return (
     <div className="space-y-6">
@@ -130,10 +172,6 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
             <p className="text-gray-600">Viewing complete profile information</p>
           </div>
         </div>
-        <Button onClick={handleGenerateReport} className="bg-blue-600 hover:bg-blue-700">
-          <FileText className="mr-2 h-4 w-4" />
-          Generate Report
-        </Button>
       </div>
 
       {/* Profile Header Card */}
@@ -181,11 +219,23 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
                   <div className="text-sm">
                     <span className="font-medium">Internship Progress:</span>{" "}
                     <span>
-                      {internship.completedHours ?? 0} of {internship.required_hours} hours ({progressPercentage.toFixed(1)}%)
+                      {typeof completedHours === "number"
+                        ? completedHours.toFixed(2)
+                        : "0.00"} of {requiredHours} hours ({progressPercentage.toFixed(1)}%)
                     </span>
                   </div>
-                  <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${progressPercentage}%` }}></div>
+                  <div
+                    className="bg-primary/20 relative w-full overflow-hidden rounded-full h-2"
+                    role="progressbar"
+                    aria-valuenow={progressPercentage}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="bg-primary h-full transition-all"
+                      style={{ width: `${progressPercentage}%` }}
+                      data-slot="progress-indicator"
+                    />
                   </div>
                 </div>
               )}
@@ -211,43 +261,87 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
               <CardTitle>Personal Information</CardTitle>
               <CardDescription>Basic personal details</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Full Name</h3>
-                  <p>
-                    {internData.first_name} {internData.last_name}
-                  </p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="firstName">First Name</label>
+                  <input
+                    id="firstName"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={internData.first_name}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Email</h3>
-                  <p>{internData.email}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="lastName">Last Name</label>
+                  <input
+                    id="lastName"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={internData.last_name}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                {profile.phone && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">Phone</h3>
-                    <p>{profile.phone}</p>
-                  </div>
-                )}
-                {profile.date_of_birth && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">Date of Birth</h3>
-                    <p>{format(new Date(profile.date_of_birth), "PPP")}</p>
-                  </div>
-                )}
-                {(profile.address || profile.city || profile.state || profile.zip_code) && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">Address</h3>
-                    <p>
-                      {[profile.address, profile.city, profile.state, profile.zip_code].filter(Boolean).join(", ")}
-                    </p>
-                  </div>
-                )}
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="email">Email</label>
+                  <input
+                    id="email"
+                    type="email"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={internData.email}
+                    disabled
+                    readOnly
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="phone">Phone Number</label>
+                  <input
+                    id="phone"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.phone || ""}
+                    disabled
+                    readOnly
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="address">Address</label>
+                  <input
+                    id="address"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={
+                      [profile.address, profile.city, profile.state, profile.zip_code]
+                        .filter(Boolean)
+                        .join(", ")
+                    }
+                    disabled
+                    readOnly
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500">Date of Birth</label>
+                  <input
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={
+                      profile.date_of_birth
+                        ? format(new Date(profile.date_of_birth), "MMMM dd, yyyy")
+                        : ""
+                    }
+                    disabled
+                    readOnly
+                  />
+                </div>
               </div>
               {profile.bio && (
-                <div className="mt-4 pt-4 border-t">
-                  <h3 className="font-medium text-sm text-gray-500">Bio</h3>
-                  <p className="mt-1">{profile.bio}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="bio">Bio</label>
+                  <textarea
+                    id="bio"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700 min-h-32"
+                    value={profile.bio}
+                    disabled
+                    readOnly
+                  />
                 </div>
               )}
             </CardContent>
@@ -261,74 +355,129 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
               <CardTitle>Education Information</CardTitle>
               <CardDescription>Academic background and details</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {internship?.school?.name && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">School/University</h3>
-                    <p>{internship.school.name}</p>
-                  </div>
-                )}
-                {profile.degree && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">Degree</h3>
-                    <p>{profile.degree}</p>
-                  </div>
-                )}
-                {profile.major && (
-                  <div>
-                    <h3 className="font-medium text-sm text-gray-500">Major</h3>
-                    <p>{profile.major}</p>
-                  </div>
-                )}
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Minor</h3>
-                  <p>{profile.minor || "N/A"}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="school">University</label>
+                  <input
+                    id="school"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={internship?.school?.name || ""}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">GPA</h3>
-                  <p>{profile.gpa ?? "N/A"}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="degree">Degree Program</label>
+                  <input
+                    id="degree"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.degree || ""}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Expected Graduation</h3>
-                  <p>
-                    {profile.graduation_date
-                      ? format(new Date(profile.graduation_date), "PPP")
-                      : "N/A"}
-                  </p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="gpa">GPA</label>
+                  <input
+                    id="gpa"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.gpa ?? ""}
+                    disabled
+                    readOnly
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="graduationDate">Expected Graduation</label>
+                  <input
+                    id="graduationDate"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={
+                      profile.graduation_date
+                        ? format(new Date(profile.graduation_date), "MMMM dd, yyyy")
+                        : ""
+                    }
+                    disabled
+                    readOnly
+                  />
                 </div>
               </div>
-
               {/* Internship Details */}
               {internship && (
-                <div className="mt-4 pt-4 border-t">
+                <div className="pt-4 border-t">
                   <h3 className="text-lg font-medium mb-4">Internship Details</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {internship.department?.name && (
-                      <div>
-                        <h3 className="font-medium text-sm text-gray-500">Department</h3>
-                        <p>{internship.department.name}</p>
-                      </div>
-                    )}
-                    <div>
-                      <h3 className="font-medium text-sm text-gray-500">Supervisor</h3>
-                      <p>{internship.supervisor_id ?? "N/A"}</p>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="department">Department</label>
+                      <input
+                        id="department"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={internship.department?.name || ""}
+                        disabled
+                        readOnly
+                      />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm text-gray-500">Start Date</h3>
-                      <p>{format(new Date(internship.start_date), "PPP")}</p>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="supervisor">Supervisor</label>
+                      <input
+                        id="supervisor"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={supervisorDisplayName}
+                        disabled
+                        readOnly
+                      />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm text-gray-500">End Date</h3>
-                      <p>{format(new Date(internship.end_date), "PPP")}</p>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="startDate">Start Date</label>
+                      <input
+                        id="startDate"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={
+                          internship.start_date
+                            ? format(new Date(internship.start_date), "MMMM dd, yyyy")
+                            : ""
+                        }
+                        disabled
+                        readOnly
+                      />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm text-gray-500">Required Hours</h3>
-                      <p>{internship.required_hours} hours</p>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="endDate">End Date</label>
+                      <input
+                        id="endDate"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={
+                          internship.end_date
+                            ? format(new Date(internship.end_date), "MMMM dd, yyyy")
+                            : ""
+                        }
+                        disabled
+                        readOnly
+                      />
                     </div>
-                    <div>
-                      <h3 className="font-medium text-sm text-gray-500">Completed Hours</h3>
-                      <p>{internship.completedHours ?? 0} hours</p>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="requiredHours">Required Hours</label>
+                      <input
+                        id="requiredHours"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={internship.required_hours}
+                        disabled
+                        readOnly
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="font-medium text-sm text-gray-500" htmlFor="completedHours">Completed Hours</label>
+                      <input
+                        id="completedHours"
+                        className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                        value={
+                          typeof completedHours === "number"
+                            ? completedHours.toFixed(2)
+                            : "0.00"
+                        }
+                        disabled
+                        readOnly
+                      />
                     </div>
                   </div>
                 </div>
@@ -390,17 +539,35 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Contact Name</h3>
-                  <p>{profile.emergency_contact_name ?? "N/A"}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="emergencyContactName">Contact Name</label>
+                  <input
+                    id="emergencyContactName"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.emergency_contact_name ?? ""}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Relationship</h3>
-                  <p>{profile.emergency_contact_relation ?? "N/A"}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="emergencyContactRelation">Relationship</label>
+                  <input
+                    id="emergencyContactRelation"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.emergency_contact_relation ?? ""}
+                    disabled
+                    readOnly
+                  />
                 </div>
-                <div>
-                  <h3 className="font-medium text-sm text-gray-500">Phone Number</h3>
-                  <p>{profile.emergency_contact_phone ?? "N/A"}</p>
+                <div className="space-y-2">
+                  <label className="font-medium text-sm text-gray-500" htmlFor="emergencyContactPhone">Phone Number</label>
+                  <input
+                    id="emergencyContactPhone"
+                    className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-700"
+                    value={profile.emergency_contact_phone ?? ""}
+                    disabled
+                    readOnly
+                  />
                 </div>
               </div>
             </CardContent>
@@ -441,7 +608,7 @@ export function AdminInternProfile({ internId, onBack }: InternProfileViewProps)
                   <p className="text-sm text-gray-500 mt-2">
                     Evaluation date:{" "}
                     {internData.evaluationDate
-                      ? format(new Date(internData.evaluationDate), "PPP")
+                      ? format(new Date(internData.evaluationDate), "MMMM dd, yyyy")
                       : "N/A"}
                   </p>
                 </div>

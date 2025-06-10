@@ -6,7 +6,6 @@ import { InternDashboard } from "@/components/intern-dashboard"
 
 // Add imports for the new dashboard components
 import { HRAdminDashboard } from "@/components/hr-admin-dashboard"
-import { ReportsDashboard } from "@/components/reports-dashboard"
 import { SettingsDashboard } from "@/components/settings-dashboard"
 import { Navigation } from "@/components/navigation"
 import { useState } from "react"
@@ -39,8 +38,6 @@ function AppContent() {
       switch (activeTab) {
         case "dashboard":
           return <HRAdminDashboard />
-        case "reports":
-          return <ReportsDashboard />
         case "manage-interns":
           return <ManageInternsDashboard />
         case "settings":

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { BarChart3, Home, Menu, Settings, Users } from "lucide-react"
+import { Home, Menu, Settings, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
@@ -13,7 +13,6 @@ interface NavigationProps {
 
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
-  { id: "reports", label: "Reports", icon: BarChart3 },
   { id: "manage-interns", label: "Manage Interns", icon: Users },
   { id: "settings", label: "Settings", icon: Settings },
 ]

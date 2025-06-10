@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Search, Download, Clock, Users, TrendingUp, Calendar, FileText, Eye } from "lucide-react"
+import { Search, Download, Clock, Users, TrendingUp, Calendar, FileText, UserCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -48,11 +48,40 @@ interface TimeLog {
   school: string
 }
 
+function getTodayString() {
+  const now = new Date()
+  return now.toISOString().split("T")[0]
+}
+
+function getTodayLog(logs: TimeLog[], internId: number) {
+  const today = getTodayString()
+  return logs.find(
+    (log) =>
+      log.internId === internId &&
+      log.date &&
+      log.date.slice(0, 10) === today
+  )
+}
+
+function getRealTimeHours(log: TimeLog | undefined) {
+  if (!log || !log.timeIn) return 0
+  const inDate = new Date(log.timeIn)
+  const outDate = log.timeOut ? new Date(log.timeOut) : new Date()
+  const diffMs = outDate.getTime() - inDate.getTime()
+  const hours = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
+  return Number(hours.toFixed(2))
+}
+
+// Add this helper to format duration as "Xh YYm"
+function formatDurationHM(hours: number, minutes: number) {
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+}
+
 export function HRAdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedInternId, setSelectedInternId] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
 
@@ -62,6 +91,12 @@ export function HRAdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
@@ -69,17 +104,35 @@ export function HRAdminDashboard() {
       try {
         // Fetch interns
         const internsRes = await fetch("/api/interns")
-        if (!internsRes.ok) throw new Error("Failed to fetch interns")
+        if (!internsRes.ok) {
+          const errorText = await internsRes.text()
+          throw new Error("Failed to fetch interns: " + errorText)
+        }
         const internsData = await internsRes.json()
+        console.log("Fetched interns:", internsData) // <-- LOG
         setInterns(internsData)
 
         // Fetch logs
         const logsRes = await fetch("/api/time-logs")
-        if (!logsRes.ok) throw new Error("Failed to fetch time logs")
+        if (!logsRes.ok) {
+          const errorText = await logsRes.text()
+          setLogs([])
+          throw new Error("Failed to fetch time logs: " + errorText)
+        }
         const logsData = await logsRes.json()
-        setLogs(logsData)
+        console.log("Fetched logs (raw):", logsData)
+        const logsArray = Array.isArray(logsData) ? logsData : logsData.logs
+        const normalizedLogs = Array.isArray(logsArray)
+          ? logsArray.map(log => ({
+              ...log,
+              timeIn: log.timeIn || log.time_in,
+              timeOut: log.timeOut || log.time_out,
+            }))
+          : []
+        setLogs(normalizedLogs)
       } catch (err: any) {
         setError(err.message || "Failed to load dashboard data")
+        console.error("Dashboard fetch error:", err) // <-- LOG
       } finally {
         setLoading(false)
       }
@@ -120,15 +173,38 @@ export function HRAdminDashboard() {
 
   // Filter logs based on search and filters
   const filteredLogs = useMemo(() => {
-    return logs.filter((log) => {
+    // Helper: get local date string as 'YYYY-MM-DD'
+    function getLocalDateString(date: Date | string) {
+      const d = typeof date === "string" ? new Date(date) : date
+      const year = d.getFullYear()
+      const month = String(d.getMonth() + 1).padStart(2, "0")
+      const day = String(d.getDate()).padStart(2, "0")
+      return `${year}-${month}-${day}`
+    }
+
+    const filterBySearchAndDept = (log: TimeLog) => {
       const matchesSearch =
-        log.internName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.department.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.school.toLowerCase().includes(searchTerm.toLowerCase())
+        (log.internName ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.department ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (log.school ?? "").toLowerCase().includes(searchTerm.toLowerCase())
       const matchesDepartment = departmentFilter === "all" || log.department === departmentFilter
       return matchesSearch && matchesDepartment
-    })
-  }, [logs, searchTerm, departmentFilter])
+    }
+
+    if (viewMode === "overview") {
+      const todayLocal = getLocalDateString(new Date())
+      return logs.filter(
+        log => log.date && getLocalDateString(log.date) === todayLocal
+      )
+    }
+
+    let result = logs.filter(filterBySearchAndDept)
+    if (viewMode === "logs" && selectedDate) {
+      const selectedLocal = getLocalDateString(selectedDate)
+      result = result.filter(log => log.date && getLocalDateString(log.date) === selectedLocal)
+    }
+    return result
+  }, [logs, selectedDate, viewMode, searchTerm, departmentFilter])
 
   const handleExportAllPDF = () => {
     alert("Exporting all intern records as PDF...")
@@ -144,11 +220,14 @@ export function HRAdminDashboard() {
 
   const formatLogDate = (dateString: string) => {
     const date = new Date(dateString)
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    })
+    const month = String(date.getMonth() + 1).padStart(2, "0")
+    const dayNum = String(date.getDate()).padStart(2, "0")
+    const year = date.getFullYear()
+    return (
+      <div className="flex items-center">
+        <span className="font-mono tabular-nums">{`${month}-${dayNum}-${year}`}</span>
+      </div>
+    )
   }
 
   const departments = Array.from(new Set(interns.map((intern) => intern.department)))
@@ -165,6 +244,10 @@ export function HRAdminDashboard() {
     return <div className="p-8 text-center text-red-500">{error}</div>
   }
 
+  if (viewMode === "logs") {
+    console.log("All Logs tab - logs:", logs)
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -179,10 +262,6 @@ export function HRAdminDashboard() {
           </Button>
           <Button variant={viewMode === "logs" ? "default" : "outline"} onClick={() => setViewMode("logs")}>
             All Logs
-          </Button>
-          <Button onClick={handleExportAllPDF} className="bg-green-600 hover:bg-green-700">
-            <Download className="mr-2 h-4 w-4" />
-            Export PDF
           </Button>
         </div>
       </div>
@@ -217,8 +296,8 @@ export function HRAdminDashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalCompletedHours}h</div>
-            <p className="text-xs text-muted-foreground">of {stats.totalRequiredHours}h required</p>
+            <div className="text-2xl font-bold">{stats.totalCompletedHours.toFixed(2)}h</div>
+            <p className="text-xs text-muted-foreground">of {stats.totalRequiredHours.toFixed(2)}h required</p>
           </CardContent>
         </Card>
 
@@ -282,19 +361,38 @@ export function HRAdminDashboard() {
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full sm:w-48">
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-48"
+                  disabled={viewMode === "overview"}
+                >
                   <Calendar className="mr-2 h-4 w-4" />
-                  {format(selectedDate, "MMM dd, yyyy")}
+                  {viewMode === "overview"
+                    ? format(new Date(), "MMM dd, yyyy") // Always show today in overview
+                    : selectedDate
+                      ? format(selectedDate, "MMM dd, yyyy")
+                      : "All Dates"}
                 </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarComponent
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => date && setSelectedDate(date)}
-                  initialFocus
-                />
-              </PopoverContent>
+              {viewMode !== "overview" && (
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    mode="single"
+                    selected={selectedDate ?? undefined}
+                    onSelect={(date) => setSelectedDate(date ?? null)}
+                    initialFocus
+                  />
+                  <div className="p-2">
+                    <Button
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => setSelectedDate(null)}
+                    >
+                      All Dates
+                    </Button>
+                  </div>
+                </PopoverContent>
+              )}
             </Popover>
           </div>
         </CardContent>
@@ -317,10 +415,9 @@ export function HRAdminDashboard() {
                   <TableRow>
                     <TableHead>Intern Details</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Today's Hours</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Required Hours</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead>Today's Duration</TableHead>
+                    <TableHead>Internship Progress</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -332,7 +429,6 @@ export function HRAdminDashboard() {
                         <TableCell>
                           <div className="space-y-1">
                             <div className="font-medium">{intern.first_name} {intern.last_name}</div>
-                            <div className="text-sm text-gray-500">{intern.email}</div>
                             <div className="flex gap-2">
                               <Badge variant="outline" className="text-xs">
                                 {intern.department}
@@ -344,54 +440,81 @@ export function HRAdminDashboard() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-1">
-                            <Badge
-                              variant={intern.status === "in" ? "default" : "secondary"}
-                              className={cn(
-                                intern.status === "in"
-                                  ? "bg-green-100 text-green-800 hover:bg-green-200"
-                                  : "bg-gray-100 text-gray-800 hover:bg-gray-200",
-                              )}
-                            >
-                              {intern.status === "in" ? "Clocked In" : "Clocked Out"}
+                          {intern.status === "in" && intern.timeIn ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700">
+                              Clocked in at {new Date(intern.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </Badge>
-                            <div className="text-xs text-gray-500">{intern.lastActivity}</div>
-                          </div>
+                          ) : intern.status === "out" && intern.timeOut ? (
+                            <Badge variant="outline" className="bg-red-50 text-red-700">
+                              Clocked out at {new Date(intern.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </Badge>
+                          ) : (
+                            <span className="text-gray-400">--</span>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <span className="font-mono font-semibold">{intern.todayHours}</span>
+                          <span className="font-mono font-semibold">
+                            {(() => {
+                              const todayLog = logs.find(
+                                (log) =>
+                                  log.internId === intern.id &&
+                                  log.date &&
+                                  log.date.slice(0, 10) === getTodayString()
+                              )
+                              if (todayLog && todayLog.timeIn && todayLog.timeOut) {
+                                const inDate = new Date(todayLog.timeIn)
+                                const outDate = new Date(todayLog.timeOut)
+                                const diffMs = outDate.getTime() - inDate.getTime()
+                                const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                                const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                                return formatDurationHM(hours, minutes)
+                              }
+                              if (todayLog && todayLog.timeIn && !todayLog.timeOut) {
+                                const inDate = new Date(todayLog.timeIn)
+                                const outDate = new Date()
+                                const diffMs = outDate.getTime() - inDate.getTime()
+                                const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                                const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                                return formatDurationHM(hours, minutes)
+                              }
+                              return "0h 00m"
+                            })()}
+                          </span>
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-2 min-w-32">
+                          <div className="space-y-2 min-w-48">
                             <div className="flex justify-between text-sm">
-                              <span>{intern.internshipDetails.completedHours}h</span>
-                              <span>{progressPercentage.toFixed(1)}%</span>
+                              <span className="font-medium">
+                                {intern.internshipDetails.completedHours < intern.internshipDetails.requiredHours
+                                  ? "Ongoing"
+                                  : "Completed"}
+                              </span>
+                              <span>
+                                {intern.internshipDetails.completedHours.toFixed(2)}h / {intern.internshipDetails.requiredHours}h
+                              </span>
                             </div>
                             <Progress value={progressPercentage} className="h-2" />
                           </div>
                         </TableCell>
-                        <TableCell>
-                          <div className="text-center">
-                            <div className="font-semibold">{intern.internshipDetails.requiredHours}h</div>
-                            <div className="text-xs text-gray-500">
-                              {intern.internshipDetails.requiredHours - intern.internshipDetails.completedHours}h
-                              remaining
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={() => handleViewInternDetails(intern.id)}>
-                              <Eye className="h-3 w-3 mr-1" />
-                              View
+                        <TableCell className="text-right">
+                          <div className="flex gap-2 justify-end w-full">
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              title="View Profile"
+                              onClick={() => handleViewInternDetails(intern.id)}
+                            >
+                              <UserCircle className="h-4 w-4" />
                             </Button>
                             <Button
-                              size="sm"
-                              onClick={() => handleGenerateIndividualReport(intern.id, `${intern.first_name} ${intern.last_name}`)}
-                              className="bg-blue-600 hover:bg-blue-700"
+                              size="icon"
+                              variant="outline"
+                              title="View DTR"
+                              onClick={() => {
+                                // Implement your DTR view logic here
+                              }}
                             >
-                              <FileText className="h-3 w-3 mr-1" />
-                              Report
+                              <FileText className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -429,7 +552,7 @@ export function HRAdminDashboard() {
                     <TableHead>Time Out</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead className="text-right">Hours</TableHead>
-                    <TableHead>Department</TableHead>
+                    <TableHead className="text-right">Department</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -438,18 +561,13 @@ export function HRAdminDashboard() {
                     .map((log) => (
                       <TableRow key={log.id}>
                         <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">{log.internName}</div>
-                            <Badge variant="outline" className="text-xs">
-                              {log.school}
-                            </Badge>
-                          </div>
+                          <div className="font-medium">{log.internName}</div>
                         </TableCell>
                         <TableCell className="font-medium">{formatLogDate(log.date)}</TableCell>
                         <TableCell>
                           {log.timeIn ? (
                             <Badge variant="outline" className="bg-green-50 text-green-700">
-                              {log.timeIn}
+                              {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </Badge>
                           ) : (
                             <span className="text-gray-400">--</span>
@@ -458,29 +576,67 @@ export function HRAdminDashboard() {
                         <TableCell>
                           {log.timeOut ? (
                             <Badge variant="outline" className="bg-red-50 text-red-700">
-                              {log.timeOut}
+                              {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </Badge>
                           ) : log.timeIn ? (
-                            <Badge variant="secondary">In Progress</Badge>
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                              In Progress
+                            </Badge>
                           ) : (
                             <span className="text-gray-400">--</span>
                           )}
                         </TableCell>
                         <TableCell className="font-mono">
-                          {log.duration ? (
-                            <span className="font-semibold">{log.duration}</span>
+                          {/* Duration */}
+                          {log.timeIn && log.timeOut ? (
+                            // Completed log: show static duration
+                            <span className="font-semibold">
+                              {(() => {
+                                const inDate = new Date(log.timeIn)
+                                const outDate = new Date(log.timeOut)
+                                const diffMs = outDate.getTime() - inDate.getTime()
+                                const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                                const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                                return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+                              })()}
+                            </span>
+                          ) : log.timeIn && !log.timeOut ? (
+                            // Active log: show real-time duration
+                            <span className="font-semibold">
+                              {(() => {
+                                const inDate = new Date(log.timeIn)
+                                const now = new Date()
+                                const diffMs = now.getTime() - inDate.getTime()
+                                const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                                const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                                return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+                              })()}
+                            </span>
                           ) : (
                             <span className="text-gray-400">--</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {log.hoursWorked > 0 ? (
-                            <span className="font-semibold text-blue-600">{log.hoursWorked.toFixed(2)}h</span>
+                          {/* Hours */}
+                          {log.timeIn && log.timeOut ? (
+                            <span className="font-semibold text-blue-600">
+                              {(() => {
+                                const inDate = new Date(log.timeIn)
+                                const outDate = new Date(log.timeOut)
+                                const diffMs = outDate.getTime() - inDate.getTime()
+                                const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                                const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                                const decimal = hours + minutes / 60
+                                return `${decimal.toFixed(2)}h`
+                              })()}
+                            </span>
+                          ) : log.timeIn && !log.timeOut ? (
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700">Active</Badge>
                           ) : (
                             <span className="text-gray-400">--</span>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-right">
                           <Badge variant="outline">{log.department}</Badge>
                         </TableCell>
                       </TableRow>

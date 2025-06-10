@@ -93,7 +93,7 @@ export function InternProfile() {
           if (log.time_in && log.time_out) {
             const inDate = new Date(log.time_in)
             const outDate = new Date(log.time_out)
-            const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+            const diffMs = outDate.getTime() - inDate.getTime()
             hoursWorked = diffMs > 0 ? Number((diffMs / (1000 * 60 * 60)).toFixed(2)) : 0
           }
           return { ...log, hoursWorked }
@@ -134,7 +134,7 @@ export function InternProfile() {
     if (!log.time_in || !log.time_out) return 0
     const inDate = new Date(log.time_in)
     const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+    const diffMs = outDate.getTime() - inDate.getTime()
     const hours = Math.floor(diffMs / (1000 * 60 * 60))
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
     const decimal = hours + minutes / 60
@@ -263,14 +263,34 @@ export function InternProfile() {
 
       {/* Profile Details Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-4 mb-4">
-          <TabsTrigger value="personal">Personal</TabsTrigger>
-          <TabsTrigger value="education">Education</TabsTrigger>
-          <TabsTrigger value="skills">Skills</TabsTrigger>
-          <TabsTrigger value="emergency">Emergency</TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between mb-4">
+          <TabsList className="grid grid-cols-4">
+            <TabsTrigger value="personal">Personal</TabsTrigger>
+            <TabsTrigger value="education">Education</TabsTrigger>
+            <TabsTrigger value="skills">Skills</TabsTrigger>
+            <TabsTrigger value="emergency">Emergency</TabsTrigger>
+          </TabsList>
+          <div>
+            {!isEditing ? (
+              <Button onClick={() => setIsEditing(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit Profile
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={handleCancel}>
+                  <X className="mr-2 h-4 w-4" />
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} disabled={loading}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Save Changes
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
 
-        {/* Personal Information Tab */}
         <TabsContent value="personal" className="space-y-4">
           <Card>
             <CardHeader>
@@ -424,7 +444,7 @@ export function InternProfile() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="degree">Degree</Label>
+                  <Label htmlFor="degree">Degree Program</Label>
                   <Input
                     id="degree"
                     value={profileData.degree}
@@ -598,6 +618,15 @@ export function InternProfile() {
                       value={profileData.requiredHours}
                       onChange={(e) => handleInputChange("requiredHours", e.target.value)}
                       disabled={!isEditing}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="completedHours">Completed Hours</Label>
+                    <Input
+                      id="completedHours"
+                      value={completedHours}
+                      disabled
+                      readOnly
                     />
                   </div>
                 </div>
@@ -843,25 +872,6 @@ export function InternProfile() {
           </Card>
         </TabsContent>
       </Tabs>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
-        {!isEditing ? (
-          <Button onClick={() => setIsEditing(true)}>
-            <Pencil className="mr-2 h-4 w-4" />
-            Edit Profile
-          </Button>
-        ) : (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleCancel}>
-              <X className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={loading}>
-              <Save className="mr-2 h-4 w-4" />
-              Save Changes
-            </Button>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

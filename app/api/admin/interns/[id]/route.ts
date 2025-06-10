@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { getUserWithDetails, deleteIntern } from "@/lib/data-access"
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, context: { params: { id: string } }) {
   try {
     const token = request.cookies.get("auth-token")?.value
 
@@ -12,10 +12,12 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Await params if required by your Next.js version/runtime
+    const params = await context.params
     const intern = await getUserWithDetails(params.id)
 
     if (!intern || intern.role !== "intern") {
@@ -29,7 +31,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, context: { params: { id: string } }) {
   try {
     const token = request.cookies.get("auth-token")?.value
 
@@ -39,10 +41,12 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Await params if required by your Next.js version/runtime
+    const params = await context.params
     const result = await deleteIntern(params.id)
 
     if (!result.success) {

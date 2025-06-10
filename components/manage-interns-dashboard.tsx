@@ -313,45 +313,10 @@ export function ManageInternsDashboard() {
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Total Interns</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{interns.length}</div>
-            <p className="text-sm text-gray-600">Active internships</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Total Projects</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{availableProjects.length}</div>
-            <p className="text-sm text-gray-600">Available projects</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Assignments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
-              {interns.reduce((total, intern) => total + (intern.projects?.length || 0), 0)}
-            </div>
-            <p className="text-sm text-gray-600">Project assignments</p>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Filters */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Search & Filter</CardTitle>
+          <CardTitle className="text-lg">Filters & Search</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">

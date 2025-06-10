@@ -13,7 +13,6 @@ interface TimeLog {
   date: string
   time_in: string | null
   time_out: string | null
-  break_duration: number
   status: "pending" | "completed"
   notes?: string
 }
@@ -22,7 +21,7 @@ function getTruncatedDecimalHours(log: TimeLog) {
   if (!log.time_in || !log.time_out) return 0
   const inDate = new Date(log.time_in)
   const outDate = new Date(log.time_out)
-  const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+  const diffMs = outDate.getTime() - inDate.getTime()
   const hours = Math.floor(diffMs / (1000 * 60 * 60))
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
   const decimal = hours + minutes / 60
@@ -41,7 +40,7 @@ const getHoursAndOvertime = (log: TimeLog) => {
   if (!log.time_in || !log.time_out) return { hours: 0, overtime: 0 }
   const inDate = new Date(log.time_in)
   const outDate = new Date(log.time_out)
-  const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+  const diffMs = outDate.getTime() - inDate.getTime()
   const totalHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
   const hours = Math.min(totalHoursRaw, STANDARD_SHIFT_HOURS)
   const overtime = totalHoursRaw > STANDARD_SHIFT_HOURS ? totalHoursRaw - STANDARD_SHIFT_HOURS : 0

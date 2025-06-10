@@ -14,7 +14,6 @@ interface TimeLog {
   date: string
   time_in: string | null
   time_out: string | null
-  break_duration: number
   notes?: string
   status: "pending" | "completed"
   hoursWorked: number
@@ -99,7 +98,7 @@ export function InternDashboardContent() {
             if (todayLog.time_in) {
               const inDate = new Date(todayLog.time_in)
               const outDate = todayLog.time_out ? new Date(todayLog.time_out) : new Date()
-              const diffMs = outDate.getTime() - inDate.getTime() - (todayLog.break_duration || 0) * 60 * 1000
+              const diffMs = outDate.getTime() - inDate.getTime()
               const hours = Math.floor(diffMs / (1000 * 60 * 60))
               const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
               setTodayDuration(formatDuration(hours, minutes))
@@ -219,7 +218,7 @@ export function InternDashboardContent() {
           if (log.time_in) {
             const inDate = new Date(log.time_in)
             const outDate = log.time_out ? new Date(log.time_out) : now
-            const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+            const diffMs = outDate.getTime() - inDate.getTime()
             hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
             const hours = Math.floor(diffMs / (1000 * 60 * 60))
             const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
@@ -434,7 +433,7 @@ export function InternDashboardContent() {
     if (!log.time_in || !log.time_out) return 0
     const inDate = new Date(log.time_in)
     const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+    const diffMs = outDate.getTime() - inDate.getTime()
     const hours = Math.floor(diffMs / (1000 * 60 * 60))
     const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
     const decimal = hours + minutes / 60
@@ -466,7 +465,7 @@ export function InternDashboardContent() {
     if (log.time_in) {
       const inDate = new Date(log.time_in)
       const outDate = log.time_out ? new Date(log.time_out) : new Date()
-      const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+      const diffMs = outDate.getTime() - inDate.getTime()
       const hours = Math.floor(diffMs / (1000 * 60 * 60))
       const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
       return { duration: formatDuration(hours, minutes), hours, minutes }
@@ -758,7 +757,7 @@ export function InternDashboardContent() {
                             {(() => {
                               const inDate = new Date(log.time_in)
                               const outDate = new Date(log.time_out)
-                              const diffMs = outDate.getTime() - inDate.getTime() - (log.break_duration || 0) * 60 * 1000
+                              const diffMs = outDate.getTime() - inDate.getTime()
                               const hours = Math.floor(diffMs / (1000 * 60 * 60))
                               const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
                               const decimal = hours + minutes / 60
