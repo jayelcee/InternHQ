@@ -3,21 +3,10 @@
 import { AuthProvider, useAuth } from "@/contexts/auth-context"
 import { LoginForm } from "@/components/login-form"
 import { InternDashboard } from "@/components/intern/intern-dashboard"
-
-// Add imports for the new dashboard components
-import { HRAdminDashboard } from "@/components/admin/admin-dashboard-content"
-import { SettingsDashboard } from "@/components/admin/settings"
-import { AdminNavigation } from "@/components/admin/admin-navigation"
-import { useState } from "react"
-import { DashboardHeader } from "@/components/intern/intern-dashboard-header"
-import { ManageInternsDashboard } from "@/components/admin/manage-interns"
-import { AdminDashboardHeader } from "@/components/admin/admin-dashboard-header"
 import { AdminDashboard } from "@/components/admin/admin-dashboard"
 
-// Update the AppContent component to handle different user roles and navigation
 function AppContent() {
   const { user, isLoading } = useAuth()
-  const [activeTab, setActiveTab] = useState("dashboard")
 
   if (isLoading) {
     return (
