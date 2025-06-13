@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, UserPlus, Trash2, Eye, Plus, X } from "lucide-react"
+import { Search, UserPlus, Trash2, UserCircle, Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -20,6 +20,20 @@ import {
 import { InternProfile } from "@/components/intern/intern-profile"
 import { format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
+import { Progress } from "@/components/ui/progress"
+
+interface TimeLog {
+  id: number
+  user_id: number
+  internId?: number
+  timeIn?: string
+  timeOut?: string
+  time_in?: string
+  time_out?: string
+  status: string
+  hoursWorked?: number
+  // ...other fields as needed
+}
 
 interface Intern {
   id: string
@@ -33,21 +47,6 @@ interface Intern {
     startDate: string
     endDate: string
   }
-  projects?: {
-    id: string
-    name: string
-    role?: string
-  }[]
-}
-
-interface Department {
-  id: string
-  name: string
-}
-
-interface Project {
-  id: string
-  name: string
 }
 
 export function ManageInternsDashboard() {
@@ -56,20 +55,15 @@ export function ManageInternsDashboard() {
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [selectedInternId, setSelectedInternId] = useState<string | null>(null)
   const [isAddInternDialogOpen, setIsAddInternDialogOpen] = useState(false)
-  const [isAssignProjectDialogOpen, setIsAssignProjectDialogOpen] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
+  const [logs, setLogs] = useState<TimeLog[]>([])
   const [interns, setInterns] = useState<Intern[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [availableProjects, setAvailableProjects] = useState<Project[]>([])
-  const [selectedInternForProject, setSelectedInternForProject] = useState<string | null>(null)
-  const [projectName, setProjectName] = useState("")
-  const [internRole, setInternRole] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
 
   // Form states for adding new intern
   const [newIntern, setNewIntern] = useState({
     name: "",
     email: "",
-    password: "intern123", // Default password
+    password: "intern123",
     school: "",
     department: "",
     requiredHours: 480,
@@ -77,71 +71,86 @@ export function ManageInternsDashboard() {
     endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
   })
 
-  useEffect(() => {
-    fetchDepartments()
-    fetchProjects()
-    fetchInterns()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const fetchDepartments = async () => {
-    try {
-      const res = await fetch("/api/departments")
-      if (!res.ok) throw new Error("Failed to fetch departments")
-      const data = await res.json()
-      setDepartments(data)
-    } catch {
-      setDepartments([])
-    }
-  }
-
-  const fetchProjects = async () => {
-    try {
-      const res = await fetch("/api/projects")
-      if (!res.ok) throw new Error("Failed to fetch projects")
-      const data = await res.json()
-      setAvailableProjects(data)
-    } catch {
-      setAvailableProjects([])
-    }
-  }
-
-  const fetchInterns = async () => {
+  // Move fetchAll to a named function so it can be reused
+  const fetchAll = async () => {
     setIsLoading(true)
     try {
-      const res = await fetch("/api/interns")
-      if (!res.ok) throw new Error("Failed to fetch interns")
-      const data = await res.json()
-      // Map API data to Intern[]
-      const mapped: Intern[] = data.map((intern: any) => ({
-        id: intern.id.toString(),
-        name: `${intern.first_name} ${intern.last_name}`,
-        email: intern.email,
-        department: intern.internship?.department?.name || "",
-        school: intern.internship?.school?.name || "",
-        internshipDetails: {
-          requiredHours: intern.internship?.required_hours || 0,
-          completedHours: intern.completedHours || 0,
-          startDate: intern.internship?.start_date || "",
-          endDate: intern.internship?.end_date || "",
-        },
-        projects: intern.projects?.map((p: any) => ({
-          id: p.id.toString(),
-          name: p.name,
-          role: p.role,
-        })) || [],
-      }))
+      // 1. Fetch logs first
+      const logsRes = await fetch("/api/time-logs")
+      const logsData = await logsRes.json()
+      const logsArr = Array.isArray(logsData) ? logsData : logsData.logs
+      setLogs(logsArr)
+
+      // 2. Fetch interns
+      const internsRes = await fetch("/api/interns")
+      const internsData = await internsRes.json()
+
+      // 3. Map interns and calculate completedHours using logs (match dashboard)
+      const truncateTo2Decimals = (val: number) => {
+        const [int, dec = ""] = val.toString().split(".")
+        return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
+      }
+
+      const getTruncatedDecimalHours = (log: any) => {
+        const timeIn = log.timeIn || log.time_in
+        const timeOut = log.timeOut || log.time_out
+        if (!timeIn || !timeOut) return 0
+        const inDate = new Date(timeIn)
+        const outDate = new Date(timeOut)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        const hours = Math.floor(diffMs / (1000 * 60 * 60))
+        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+        const decimal = hours + minutes / 60
+        return Number(truncateTo2Decimals(decimal))
+      }
+
+      const mapped: Intern[] = internsData.map((intern: any) => {
+        const internId = Number(intern.id)
+        // Find all completed logs for this intern
+        const internLogs = logsArr.filter(
+          (log: any) =>
+            (log.user_id === internId || log.internId === internId) &&
+            log.status === "completed"
+        )
+        // Sum using getTruncatedDecimalHours (dashboard logic)
+        const completedHours = internLogs
+          .filter((log: any) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
+          .reduce((sum: number, log: any) => sum + getTruncatedDecimalHours(log), 0)
+
+        return {
+          id: intern.id.toString(),
+          name: `${intern.first_name} ${intern.last_name}`,
+          email: intern.email,
+          department: intern.department || intern.internship?.department?.name || "",
+          school: intern.school || intern.internship?.school?.name || "",
+          internshipDetails: {
+            requiredHours: intern.internshipDetails?.requiredHours || intern.internship?.required_hours || 0,
+            completedHours: Number(completedHours.toFixed(2)),
+            startDate: intern.internshipDetails?.startDate || intern.internship?.start_date || "",
+            endDate: intern.internshipDetails?.endDate || intern.internship?.end_date || "",
+          },
+        }
+      })
       setInterns(mapped)
     } catch {
-      toast({
-        title: "Error",
-        description: "Failed to fetch interns",
-        variant: "destructive",
-      })
+      setInterns([])
+      setLogs([])
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Fetch logs and interns in sequence
+  useEffect(() => {
+    fetchAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Build department list from intern data
+  const departments = Array.from(new Set(interns.map(i => i.department).filter(Boolean))).map(d => ({
+    id: d,
+    name: d,
+  }))
 
   const handleAddIntern = async () => {
     try {
@@ -154,7 +163,7 @@ export function ManageInternsDashboard() {
         })
         return
       }
-      const res = await fetch("/api/interns", {
+      const res = await fetch("/api/admin/interns", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newIntern),
@@ -175,7 +184,7 @@ export function ManageInternsDashboard() {
         startDate: format(new Date(), "yyyy-MM-dd"),
         endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
       })
-      fetchInterns()
+      fetchAll()
     } catch {
       toast({
         title: "Error",
@@ -193,84 +202,17 @@ export function ManageInternsDashboard() {
     }
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/interns/${internId}`, { method: "DELETE" })
+      const res = await fetch(`/api/admin/interns/${internId}`, { method: "DELETE" })
       if (!res.ok) throw new Error("Failed to delete intern")
       toast({
         title: "Success",
         description: "Intern deleted successfully",
       })
-      fetchInterns()
+      fetchAll()
     } catch {
       toast({
         title: "Error",
         description: "Failed to delete intern",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleAssignProject = async () => {
-    try {
-      setIsLoading(true)
-      if (!selectedInternForProject || !projectName) {
-        toast({
-          title: "Error",
-          description: "Please select an intern and enter a project name",
-          variant: "destructive",
-        })
-        return
-      }
-      const res = await fetch("/api/intern-project-assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: selectedInternForProject,
-          project_name: projectName,
-          role: internRole,
-        }),
-      })
-      if (!res.ok) throw new Error("Failed to assign project")
-      toast({
-        title: "Success",
-        description: "Project assigned successfully",
-      })
-      setSelectedInternForProject(null)
-      setProjectName("")
-      setInternRole("")
-      setIsAssignProjectDialogOpen(false)
-      fetchInterns()
-    } catch {
-      toast({
-        title: "Error",
-        description: "Failed to assign project",
-        variant: "destructive",
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleRemoveProjectAssignment = async (internId: string, projectId: string) => {
-    if (!confirm("Are you sure you want to remove this project assignment?")) {
-      return
-    }
-    setIsLoading(true)
-    try {
-      const res = await fetch(`/api/intern-project-assignments/${internId}/${projectId}`, {
-        method: "DELETE",
-      })
-      if (!res.ok) throw new Error("Failed to remove project assignment")
-      toast({
-        title: "Success",
-        description: "Project assignment removed successfully",
-      })
-      fetchInterns()
-    } catch {
-      toast({
-        title: "Error",
-        description: "Failed to remove project assignment",
         variant: "destructive",
       })
     } finally {
@@ -306,10 +248,6 @@ export function ManageInternsDashboard() {
           <Button onClick={() => setIsAddInternDialogOpen(true)}>
             <UserPlus className="mr-2 h-4 w-4" />
             Add Intern
-          </Button>
-          <Button onClick={() => setIsAssignProjectDialogOpen(true)} variant="outline">
-            <Plus className="mr-2 h-4 w-4" />
-            Assign Project
           </Button>
         </div>
       </div>
@@ -365,21 +303,21 @@ export function ManageInternsDashboard() {
                 <TableRow>
                   <TableHead>Intern Details</TableHead>
                   <TableHead>Department</TableHead>
-                  <TableHead>Assigned Projects</TableHead>
                   <TableHead>Progress</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="pl-20">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredInterns.map((intern) => {
-                  const progressPercentage =
-                    (intern.internshipDetails.completedHours / intern.internshipDetails.requiredHours) * 100
+                  // Calculate progress and format completed hours to 2 decimals
+                  const completed = Number(intern.internshipDetails.completedHours || 0)
+                  const required = Number(intern.internshipDetails.requiredHours || 0)
+                  const progressPercentage = required > 0 ? (completed / required) * 100 : 0
                   return (
                     <TableRow key={intern.id}>
                       <TableCell>
                         <div className="space-y-1">
                           <div className="font-medium">{intern.name}</div>
-                          <div className="text-sm text-gray-500">{intern.email}</div>
                           <Badge variant="outline" className="text-xs">
                             {intern.school}
                           </Badge>
@@ -389,52 +327,26 @@ export function ManageInternsDashboard() {
                         <Badge variant="secondary">{intern.department}</Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          {intern.projects && intern.projects.length > 0 ? (
-                            intern.projects.map((project) => (
-                              <div key={project.id} className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {project.name}
-                                </Badge>
-                                {project.role && <span className="text-xs text-gray-500">({project.role})</span>}
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-4 w-4 p-0 text-red-500 hover:text-red-700"
-                                  onClick={() => handleRemoveProjectAssignment(intern.id, project.id)}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            ))
-                          ) : (
-                            <span className="text-sm text-gray-400">No projects assigned</span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="text-sm">
-                            {intern.internshipDetails.completedHours}h / {intern.internshipDetails.requiredHours}h
+                        <div className="space-y-2 min-w-48">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium">
+                              {completed < required ? "Ongoing" : "Completed"}
+                            </span>
+                            <span>
+                              {completed.toFixed(2)}h / {required}h
+                            </span>
                           </div>
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full"
-                              style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-                            ></div>
-                          </div>
+                          <Progress value={progressPercentage} className="h-2" />
                           <div className="text-xs text-gray-500">{progressPercentage.toFixed(1)}%</div>
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="pl-20">
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" onClick={() => setSelectedInternId(intern.id)}>
-                            <Eye className="h-3 w-3 mr-1" />
-                            View
+                          <Button size="icon" variant="outline" title="View Profile" onClick={() => setSelectedInternId(intern.id)}>
+                            <UserCircle className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="destructive" onClick={() => handleDeleteIntern(intern.id)}>
-                            <Trash2 className="h-3 w-3 mr-1" />
-                            Delete
+                          <Button size="icon" variant="destructive" title="Remove Intern" onClick={() => handleDeleteIntern(intern.id)}>
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </TableCell>
@@ -561,74 +473,6 @@ export function ManageInternsDashboard() {
             </Button>
             <Button type="button" onClick={handleAddIntern} disabled={isLoading}>
               {isLoading ? "Adding..." : "Add Intern"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Assign Project Dialog */}
-      <Dialog open={isAssignProjectDialogOpen} onOpenChange={setIsAssignProjectDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Assign Project to Intern</DialogTitle>
-            <DialogDescription>
-              Select an intern and enter project details to create a new assignment.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="intern" className="text-right">
-                Intern
-              </Label>
-              <Select value={selectedInternForProject || ""} onValueChange={setSelectedInternForProject}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select intern" />
-                </SelectTrigger>
-                <SelectContent>
-                  {interns.map((intern) => (
-                    <SelectItem key={intern.id} value={intern.id}>
-                      {intern.name} - {intern.department}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="project" className="text-right">
-                Project
-              </Label>
-              <Select value={projectName} onValueChange={setProjectName}>
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.name}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="role" className="text-right">
-                Role
-              </Label>
-              <Input
-                id="role"
-                value={internRole}
-                onChange={(e) => setInternRole(e.target.value)}
-                className="col-span-3"
-                placeholder="e.g., Frontend Developer"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsAssignProjectDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={handleAssignProject} disabled={isLoading}>
-              {isLoading ? "Assigning..." : "Assign Project"}
             </Button>
           </DialogFooter>
         </DialogContent>

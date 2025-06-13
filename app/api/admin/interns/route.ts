@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
-import { getAllInternsWithDetails, createIntern } from "@/lib/data-access"
+import { getAllInterns, createIntern } from "@/lib/data-access"
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const interns = await getAllInternsWithDetails()
+    const interns = await getAllInterns()
 
     return NextResponse.json({ interns })
   } catch (error) {

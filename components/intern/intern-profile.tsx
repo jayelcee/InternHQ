@@ -166,12 +166,22 @@ export function InternProfile({
 
   // Calculate completed hours from logs (match dashboard/DTR)
   // --- FIX: Use profileData.completedHours as fallback until logs are loaded and processed ---
+  // Get the current intern's user ID (as string or number)
+  const currentInternId = internId ?? user?.id
+
   const completedHours =
     logsLoading || !profileData
       ? 0
       : logs.length > 0
         ? logs
-            .filter((log) => log.time_in && log.time_out)
+            .filter(
+              (log) =>
+                log.time_in &&
+                log.time_out &&
+                // Filter by user_id or internId matching the current intern
+                (log.user_id?.toString() === currentInternId?.toString() ||
+                  log.internId?.toString() === currentInternId?.toString())
+            )
             .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
         : profileData.completedHours || 0
 
@@ -229,7 +239,7 @@ export function InternProfile({
   const safeFormat = (dateString: string) => {
     if (!dateString) return "Select date"
     const date = parseISO(dateString)
-    return isValid(date) ? format(date, "MMMM dd, yyyy") : "Select date"
+    return isValid(date) ? format(date, "MMMM d, yyyy") : "Select date"
   }
 
   if (!user) return null
@@ -274,7 +284,7 @@ export function InternProfile({
                   <span>
                     {logsLoading
                       ? "Loading..."
-                      : `${completedHours.toFixed(2)} of ${requiredHours.toFixed(2)} hours (${progressPercentage.toFixed(1)}%)`}
+                      : `${completedHours.toFixed(2)} of ${requiredHours.toFixed(0)}h (${progressPercentage.toFixed(1)}%)`}
                   </span>
                 </div>
                 <div
@@ -341,6 +351,7 @@ export function InternProfile({
                     value={profileData.firstName}
                     onChange={(e) => handleInputChange("firstName", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="First Name"
                   />
                 </div>
                 <div className="space-y-2">
@@ -350,6 +361,7 @@ export function InternProfile({
                     value={profileData.lastName}
                     onChange={(e) => handleInputChange("lastName", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Last Name"
                   />
                 </div>
                 <div className="space-y-2">
@@ -360,6 +372,7 @@ export function InternProfile({
                     value={profileData.email}
                     onChange={(e) => handleInputChange("email", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Email Address"
                   />
                 </div>
                 <div className="space-y-2">
@@ -369,6 +382,7 @@ export function InternProfile({
                     value={profileData.phone}
                     onChange={(e) => handleInputChange("phone", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Phone Number"
                   />
                 </div>
                 <div className="space-y-2">
@@ -378,6 +392,7 @@ export function InternProfile({
                     value={profileData.address}
                     onChange={(e) => handleInputChange("address", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Address"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -388,6 +403,7 @@ export function InternProfile({
                       value={profileData.city}
                       onChange={(e) => handleInputChange("city", e.target.value)}
                       disabled={!isEditing}
+                      placeholder="City"
                     />
                   </div>
                   <div className="space-y-2">
@@ -397,6 +413,7 @@ export function InternProfile({
                       value={profileData.country}
                       onChange={(e) => handleInputChange("country", e.target.value)}
                       disabled={!isEditing}
+                      placeholder="Country"
                     />
                   </div>
                 </div>
@@ -407,6 +424,7 @@ export function InternProfile({
                     value={profileData.zipCode}
                     onChange={(e) => handleInputChange("zipCode", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Zip Code"
                   />
                 </div>
                 <div className="space-y-2">
@@ -454,6 +472,7 @@ export function InternProfile({
                   onChange={(e) => handleInputChange("bio", e.target.value)}
                   disabled={!isEditing}
                   className="min-h-32"
+                  placeholder="Tell us about yourself..."
                 />
               </div>
             </CardContent>
@@ -476,6 +495,7 @@ export function InternProfile({
                     value={profileData.school}
                     onChange={(e) => handleInputChange("school", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="School/University"
                   />
                 </div>
                 <div className="space-y-2">
@@ -485,6 +505,7 @@ export function InternProfile({
                     value={profileData.degree}
                     onChange={(e) => handleInputChange("degree", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Degree Program"
                   />
                 </div>
                 <div className="space-y-2">
@@ -494,6 +515,7 @@ export function InternProfile({
                     value={profileData.gpa}
                     onChange={(e) => handleInputChange("gpa", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="GPA"
                   />
                 </div>
                 <div className="space-y-2">
@@ -540,6 +562,7 @@ export function InternProfile({
                       value={profileData.department}
                       onChange={(e) => handleInputChange("department", e.target.value)}
                       disabled={!isEditing}
+                      placeholder="Department"
                     />
                   </div>
                   <div className="space-y-2">
@@ -569,6 +592,7 @@ export function InternProfile({
                         id="supervisor"
                         value={profileData.supervisor}
                         disabled
+                        placeholder="Supervisor"
                       />
                     )}
                   </div>
@@ -650,9 +674,10 @@ export function InternProfile({
                       id="requiredHours"
                       type="number"
                       min={0}
-                      value={Number(profileData.requiredHours).toFixed(2)}
+                      value={Number(profileData.requiredHours).toFixed(0)}
                       onChange={(e) => handleInputChange("requiredHours", e.target.value)}
                       disabled={!isEditing}
+                      placeholder="Required Hours"
                     />
                   </div>
                   <div className="space-y-2">
@@ -662,6 +687,7 @@ export function InternProfile({
                       value={completedHours.toFixed(2)}
                       disabled
                       readOnly
+                      placeholder="Completed Hours"
                     />
                   </div>
                 </div>
@@ -865,6 +891,7 @@ export function InternProfile({
                     value={profileData.emergencyContactName}
                     onChange={(e) => handleInputChange("emergencyContactName", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Contact Name"
                   />
                 </div>
                 <div className="space-y-2">
@@ -875,7 +902,7 @@ export function InternProfile({
                     disabled={!isEditing}
                   >
                     <SelectTrigger id="emergencyContactRelation">
-                      <SelectValue placeholder="Select relationship" />
+                      <SelectValue placeholder="Select" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Mother">Mother</SelectItem>
@@ -895,6 +922,7 @@ export function InternProfile({
                     value={profileData.emergencyContactPhone}
                     onChange={(e) => handleInputChange("emergencyContactPhone", e.target.value)}
                     disabled={!isEditing}
+                    placeholder="Phone Number"
                   />
                 </div>
               </div>

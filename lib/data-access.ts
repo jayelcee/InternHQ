@@ -493,3 +493,79 @@ export async function getAllInterns() {
 
   return interns
 }
+
+export async function createIntern(data: {
+  name: string
+  email: string
+  password?: string
+  school: string
+  department: string
+  requiredHours: number
+  startDate: string
+  endDate: string
+}) {
+  try {
+    // Split name into first and last
+    const [first_name, ...rest] = data.name.trim().split(" ")
+    const last_name = rest.join(" ") || ""
+    const password = data.password || "intern123"
+
+    // Check if user already exists
+    const existing = await sql`SELECT id FROM users WHERE email = ${data.email}`
+    if (existing.length > 0) {
+      return { success: false, error: "Email already exists" }
+    }
+
+    // Find or create school
+    let schoolRes = await sql`SELECT id FROM schools WHERE name = ${data.school}`
+    let schoolId: number
+    if (schoolRes.length === 0) {
+      const insertSchool = await sql`
+        INSERT INTO schools (name) VALUES (${data.school}) RETURNING id
+      `
+      schoolId = insertSchool[0].id
+    } else {
+      schoolId = schoolRes[0].id
+    }
+
+    // Find or create department
+    let deptRes = await sql`SELECT id FROM departments WHERE name = ${data.department}`
+    let deptId: number
+    if (deptRes.length === 0) {
+      const insertDept = await sql`
+        INSERT INTO departments (name) VALUES (${data.department}) RETURNING id
+      `
+      deptId = insertDept[0].id
+    } else {
+      deptId = deptRes[0].id
+    }
+
+    // Insert user
+    const userRes = await sql`
+      INSERT INTO users (email, password_hash, first_name, last_name, role)
+      VALUES (
+        ${data.email},
+        crypt(${password}, gen_salt('bf')),
+        ${first_name},
+        ${last_name},
+        'intern'
+      )
+      RETURNING id
+    `
+    const userId = userRes[0].id
+
+    // Insert internship_programs
+    await sql`
+      INSERT INTO internship_programs (
+        user_id, school_id, department_id, required_hours, start_date, end_date
+      ) VALUES (
+        ${userId}, ${schoolId}, ${deptId}, ${data.requiredHours}, ${data.startDate}, ${data.endDate}
+      )
+    `
+
+    return { success: true, intern: { id: userId, email: data.email, first_name, last_name } }
+  } catch (error: any) {
+    console.error("Error creating intern:", error)
+    return { success: false, error: error.message || "Failed to create intern" }
+  }
+}
