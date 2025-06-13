@@ -27,10 +27,6 @@ const tabTitles: Record<string, { title: string; description: string }> = {
     title: "Manage Interns",
     description: "Add, remove, and assign projects to interns",
   },
-  settings: {
-    title: "Settings",
-    description: "Configure admin preferences and system settings.",
-  },
 }
 
 export function AdminDashboardHeader({ activeTab = "dashboard" }: AdminDashboardHeaderProps) {

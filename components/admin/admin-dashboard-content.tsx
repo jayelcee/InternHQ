@@ -14,7 +14,7 @@ import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { InternProfile } from "@/components/intern/intern-profile"
-import React from "react"
+import { DailyTimeRecord } from "@/components/intern/daily-time-record"
 
 // If not already defined elsewhere:
 type TodayLog = {
@@ -100,6 +100,7 @@ export function HRAdminDashboard() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedInternId, setSelectedInternId] = useState<number | null>(null)
+  const [selectedDTRInternId, setSelectedDTRInternId] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc")
 
@@ -321,14 +322,29 @@ export function HRAdminDashboard() {
     }
   }, [viewMode])
 
-  return (
-    selectedInternId ? (
+  if (selectedInternId) {
+    return (
       <InternProfile
         internId={String(selectedInternId)}
         onBack={() => setSelectedInternId(null)}
         editable={true}
       />
-    ) : loading ? (
+    )
+  }
+
+  if (selectedDTRInternId) {
+    return (
+      <div>
+        <Button variant="outline" onClick={() => setSelectedDTRInternId(null)} className="mb-4">
+          ← Back to Dashboard
+        </Button>
+        <DailyTimeRecord internId={String(selectedDTRInternId)} />
+      </div>
+    )
+  }
+
+  return (
+    loading ? (
       <div className="p-8 text-center text-gray-500">Loading dashboard...</div>
     ) : error ? (
       <div className="p-8 text-center text-red-500">{error}</div>
@@ -596,9 +612,7 @@ export function HRAdminDashboard() {
                                 size="icon"
                                 variant="outline"
                                 title="View DTR"
-                                onClick={() => {
-                                  // Implement your DTR view logic here
-                                }}
+                                onClick={() => setSelectedDTRInternId(intern.id)}
                               >
                                 <FileText className="h-4 w-4" />
                               </Button>

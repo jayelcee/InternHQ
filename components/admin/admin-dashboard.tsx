@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { HRAdminDashboard } from "./admin-dashboard-content"
 import { ManageInternsDashboard } from "./manage-interns"
-import { SettingsDashboard } from "./settings"
 import { AdminNavigation } from "./admin-navigation"
 import { AdminDashboardHeader } from "./admin-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
@@ -20,8 +19,6 @@ export function AdminDashboard() {
         return <HRAdminDashboard />
       case "manage-interns":
         return <ManageInternsDashboard />
-      case "settings":
-        return <SettingsDashboard />
       default:
         return <HRAdminDashboard />
     }

@@ -253,7 +253,7 @@ export function InternProfile({
     <div className="space-y-6">
       {onBack && (
         <Button variant="outline" onClick={onBack} className="mb-4">
-          <X className="mr-2 h-4 w-4" /> Back
+          ← Back to Dashboard
         </Button>
       )}
       {/* Profile Header Card */}

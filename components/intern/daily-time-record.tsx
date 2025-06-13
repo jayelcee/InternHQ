@@ -35,21 +35,38 @@ function truncateTo2Decimals(val: number) {
   return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
 }
 
-export function DailyTimeRecord() {
+export function DailyTimeRecord({ internId }: { internId?: string }) {
   const { user } = useAuth()
   const [logs, setLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [profile, setProfile] = useState<any>(null)
+  const [profileLoading, setProfileLoading] = useState(true)
 
+  // Fetch logs
   useEffect(() => {
     const fetchLogs = async () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch("/api/time-logs")
+        let url = "/api/time-logs"
+        if (internId) {
+          url += `?userId=${internId}`
+        }
+        const res = await fetch(url)
         if (!res.ok) throw new Error("Failed to fetch logs")
         const data = await res.json()
-        setLogs(Array.isArray(data) ? data : data.logs || [])
+        const logsArray = Array.isArray(data) ? data : data.logs || []
+        const normalizedLogs = logsArray.map((log: any) => ({
+          ...log,
+          time_in: log.time_in ?? log.timeIn ?? null,
+          time_out: log.time_out ?? log.timeOut ?? null,
+          date:
+            log.date && /^\d{4}-\d{2}-\d{2}/.test(log.date)
+              ? log.date.slice(0, 10)
+              : (log.time_in ?? log.timeIn ?? "").slice(0, 10),
+        }))
+        setLogs(normalizedLogs)
       } catch (err: any) {
         setError(err.message || "Failed to load logs")
       } finally {
@@ -57,16 +74,32 @@ export function DailyTimeRecord() {
       }
     }
     fetchLogs()
-  }, [])
+  }, [internId])
 
-  // Helper for MM-DD-YYYY format
-  const formatLogDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
-  }
+  // Fetch profile for admin view
+  useEffect(() => {
+    const fetchProfile = async () => {
+      setProfileLoading(true)
+      try {
+        if (internId) {
+          const res = await fetch(`/api/profile?userId=${internId}`)
+          if (!res.ok) throw new Error("Failed to fetch profile")
+          const data = await res.json()
+          setProfile(data)
+        } else {
+          setProfile(user)
+        }
+      } catch (err) {
+        setProfile(null)
+      } finally {
+        setProfileLoading(false)
+      }
+    }
+    fetchProfile()
+  }, [internId, user])
 
-  // Internship details from user object
-  const internshipDetails = user?.internship ?? {
+  // Use profile for display
+  const internshipDetails = profile?.internship ?? {
     school: { name: "N/A" },
     department: { name: "N/A" },
     supervisor: "N/A",
@@ -77,8 +110,17 @@ export function DailyTimeRecord() {
   }
 
   // Internship Progress calculation (sum of Hours Worked from the table, each truncated, then sum truncated)
+  // --- FIX: Only sum logs for the selected intern (if internId is set) ---
   const completedHours = (() => {
-    const total = logs
+    // Filter logs for the selected intern if internId is provided
+    const filteredLogs = internId
+      ? logs.filter(
+          log =>
+            (log as any).user_id?.toString() === internId.toString() ||
+            (log as any).internId?.toString() === internId.toString()
+        )
+      : logs
+    const total = filteredLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
     return Number(truncateTo2Decimals(total))
@@ -106,7 +148,7 @@ export function DailyTimeRecord() {
                 <div>
                   <span className="font-medium text-base">Name:</span>
                   <div className="text-gray-600 text-base">
-                    {user?.first_name || ""} {user?.last_name || ""}
+                    {profile?.first_name || ""} {profile?.last_name || ""}
                   </div>
                 </div>
                 <div>
@@ -199,21 +241,34 @@ export function DailyTimeRecord() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groupLogsByDate(logs).map(([date, logsForDate]) => {
-                // Calculate total hours for the day (sum all logs)
-                const rawTotalHours = logsForDate.reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
-                // Hours worked is max 9
-                const hoursWorked = Math.min(rawTotalHours, STANDARD_SHIFT_HOURS)
-                // Overtime is total hours - 9, never less than 0
-                const overtime = Math.max(0, rawTotalHours - STANDARD_SHIFT_HOURS)
+              {groupLogsByDate(
+                internId
+                  ? logs.filter(
+                      log =>
+                        (log as any).user_id?.toString() === internId.toString() ||
+                        (log as any).internId?.toString() === internId.toString()
+                    )
+                  : logs
+              ).map(([key, logsForDate]) => {
+                // Extract date part from the group key (format: "internId-YYYY-MM-DD")
+                const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
+
+                // Calculate total hours worked for this date group
+                const hoursWorked = logsForDate
+                  .filter(log => log.time_in && log.time_out)
+                  .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+
+                // Calculate overtime for this date group
+                const overtime = Math.max(0, hoursWorked - STANDARD_SHIFT_HOURS)
+
                 return (
-                  <TableRow key={date}>
+                  <TableRow key={key}>
                     <TableCell className="font-medium">
                       <div className="flex flex-col items-start">
                         <span className="text-xs text-gray-500">
-                          {new Date(date).toLocaleDateString("en-US", { weekday: "short" })}
+                          {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
                         </span>
-                        <span>{formatLogDate(date)}</span>
+                        <span>{formatLogDate(datePart)}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -276,17 +331,33 @@ export function DailyTimeRecord() {
 function groupLogsByDate(logs: TimeLog[]) {
   const map = new Map<string, TimeLog[]>()
   logs.forEach(log => {
+    // Use intern id + date as key to separate different interns' logs
+    const internId = (log as any).user_id ?? (log as any).internId ?? ""
     const dateKey = log.time_in
       ? log.time_in.slice(0, 10)
       : log.date?.slice(0, 10)
     if (!dateKey) return
-    if (!map.has(dateKey)) map.set(dateKey, [])
-    map.get(dateKey)!.push(log)
+    const key = `${internId}-${dateKey}`
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(log)
   })
-  // Sort logs within each date by time_in
+  // Sort logs within each group by time_in
   map.forEach(arr => arr.sort((a, b) =>
     new Date(a.time_in ?? a.date).getTime() - new Date(b.time_in ?? b.date).getTime()
   ))
-  // Return as array of [date, logs[]], sorted by date ascending
-  return Array.from(map.entries()).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+  // Return as array of [key, logs[]], sorted by date ascending
+  return Array.from(map.entries()).sort((a, b) => {
+    // Extract date part for sorting
+    const aDate = a[1][0].time_in?.slice(0, 10) || a[1][0].date?.slice(0, 10) || ""
+    const bDate = b[1][0].time_in?.slice(0, 10) || b[1][0].date?.slice(0, 10) || ""
+    return new Date(aDate).getTime() - new Date(bDate).getTime()
+  })
+}
+
+// Add this utility function near the bottom of the file (before or after groupLogsByDate)
+function formatLogDate(date: string) {
+  if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return "N/A"
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return date
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit" })
 }

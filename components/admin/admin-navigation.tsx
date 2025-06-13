@@ -14,7 +14,6 @@ interface NavigationProps {
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
   { id: "manage-interns", label: "Manage Interns", icon: Users },
-  { id: "settings", label: "Settings", icon: Settings },
 ]
 
 export function AdminNavigation({ activeTab, onTabChange }: NavigationProps) {
