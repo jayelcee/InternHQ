@@ -35,21 +35,6 @@ function truncateTo2Decimals(val: number) {
   return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
 }
 
-// Helper to get hours worked and overtime, both truncated to 2 decimals
-const getHoursAndOvertime = (log: TimeLog) => {
-  if (!log.time_in || !log.time_out) return { hours: 0, overtime: 0 }
-  const inDate = new Date(log.time_in)
-  const outDate = new Date(log.time_out)
-  const diffMs = outDate.getTime() - inDate.getTime()
-  const totalHoursRaw = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
-  const hours = Math.min(totalHoursRaw, STANDARD_SHIFT_HOURS)
-  const overtime = totalHoursRaw > STANDARD_SHIFT_HOURS ? totalHoursRaw - STANDARD_SHIFT_HOURS : 0
-  return {
-    hours: Number(truncateTo2Decimals(hours)),
-    overtime: Number(truncateTo2Decimals(overtime)),
-  }
-}
-
 export function DailyTimeRecord() {
   const { user } = useAuth()
   const [logs, setLogs] = useState<TimeLog[]>([])
@@ -214,73 +199,94 @@ export function DailyTimeRecord() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[...logs]
-                .sort((a, b) => {
-                  const aDate = a.time_in ? new Date(a.time_in).getTime() : 0
-                  const bDate = b.time_in ? new Date(b.time_in).getTime() : 0
-                  return aDate - bDate
-                })
-                .map((log) => {
-                  const { hours, overtime } = getHoursAndOvertime(log)
-                  return (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-medium">
-                        {log.time_in ? (
-                          <div className="flex flex-col items-start">
-                            <span className="text-xs text-gray-500">
-                              {new Date(log.time_in).toLocaleDateString("en-US", { weekday: "short" })}
-                            </span>
-                            <span>
-                              {formatLogDate(log.time_in)}
-                            </span>
-                          </div>
-                        ) : (
-                          "--"
+              {groupLogsByDate(logs).map(([date, logsForDate]) => {
+                // Calculate total hours for the day (sum all logs)
+                const rawTotalHours = logsForDate.reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+                // Hours worked is max 9
+                const hoursWorked = Math.min(rawTotalHours, STANDARD_SHIFT_HOURS)
+                // Overtime is total hours - 9, never less than 0
+                const overtime = Math.max(0, rawTotalHours - STANDARD_SHIFT_HOURS)
+                return (
+                  <TableRow key={date}>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col items-start">
+                        <span className="text-xs text-gray-500">
+                          {new Date(date).toLocaleDateString("en-US", { weekday: "short" })}
+                        </span>
+                        <span>{formatLogDate(date)}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {logsForDate.map((log, idx) =>
+                          log.time_in ? (
+                            <Badge key={idx} variant="outline" className="bg-green-50 text-green-700">
+                              {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </Badge>
+                          ) : (
+                            <span key={idx} className="text-gray-400">--</span>
+                          )
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {log.time_in ? (
-                          <Badge variant="outline" className="bg-green-50 text-green-700">
-                            {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-400">--</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        {logsForDate.map((log, idx) =>
+                          log.time_out ? (
+                            <Badge key={idx} variant="outline" className="bg-red-50 text-red-700">
+                              {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </Badge>
+                          ) : log.time_in && log.status === "pending" ? (
+                            <Badge key={idx} variant="outline" className="bg-yellow-50 text-yellow-700">
+                              In Progress
+                            </Badge>
+                          ) : (
+                            <span key={idx} className="text-gray-400">--</span>
+                          )
                         )}
-                      </TableCell>
-                      <TableCell>
-                        {log.time_out ? (
-                          <Badge variant="outline" className="bg-red-50 text-red-700">
-                            {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </Badge>
-                        ) : log.time_in && log.status === "pending" ? (
-                          <Badge variant="secondary">In Progress</Badge>
-                        ) : (
-                          <span className="text-gray-400">--</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                          {log.time_in && log.time_out ? `${truncateTo2Decimals(hours)}h` : "0.00h"}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                        {truncateTo2Decimals(hoursWorked)}h
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-mono">
+                      {Number(truncateTo2Decimals(overtime)) > 0 ? (
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                          {truncateTo2Decimals(overtime)}h
                         </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {log.time_in && log.time_out && Number(truncateTo2Decimals(overtime)) > 0 ? (
-                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                            {`${truncateTo2Decimals(overtime)}h`}
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
-                            0.00h
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                      ) : (
+                        <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+                          0.00h
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         </div>
       )}
     </div>
   )
+}
+
+function groupLogsByDate(logs: TimeLog[]) {
+  const map = new Map<string, TimeLog[]>()
+  logs.forEach(log => {
+    const dateKey = log.time_in
+      ? log.time_in.slice(0, 10)
+      : log.date?.slice(0, 10)
+    if (!dateKey) return
+    if (!map.has(dateKey)) map.set(dateKey, [])
+    map.get(dateKey)!.push(log)
+  })
+  // Sort logs within each date by time_in
+  map.forEach(arr => arr.sort((a, b) =>
+    new Date(a.time_in ?? a.date).getTime() - new Date(b.time_in ?? b.date).getTime()
+  ))
+  // Return as array of [date, logs[]], sorted by date ascending
+  return Array.from(map.entries()).sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
 }

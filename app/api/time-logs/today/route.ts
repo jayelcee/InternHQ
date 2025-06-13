@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const timeLog = await getTodayTimeLog(userId)
+    const timeLog = await getTodayTimeLog(String(userId))
 
     return NextResponse.json({ timeLog })
   } catch (error) {

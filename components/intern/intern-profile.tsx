@@ -18,7 +18,15 @@ import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Progress } from "@/components/ui/progress"
 
-export function InternProfile() {
+export function InternProfile({
+  internId,
+  onBack,
+  editable = true,
+}: {
+  internId?: string
+  onBack?: () => void
+  editable?: boolean
+}) {
   const { user, refreshUser } = useAuth()
   const [isEditing, setIsEditing] = useState(false)
   const [activeTab, setActiveTab] = useState("personal")
@@ -35,9 +43,12 @@ export function InternProfile() {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch("/api/profile")
+        const url = internId ? `/api/profile?userId=${internId}` : "/api/profile"
+        console.log("[InternProfile] Fetching profile from:", url)
+        const res = await fetch(url)
         if (!res.ok) throw new Error("Failed to fetch profile")
         const data = await res.json()
+        console.log("[InternProfile] Profile API response:", data)
         setProfileData({
           // Personal
           firstName: data.first_name || "",
@@ -51,7 +62,7 @@ export function InternProfile() {
           dateOfBirth: data.profile?.date_of_birth || "",
           bio: data.profile?.bio || "",
           // Education
-          school: data.internship?.school?.name || "",
+          school: data.internship?.school?.name || data.internship?.school_name || "",
           degree: data.profile?.degree || "",
           gpa: data.profile?.gpa?.toString() || "",
           graduationDate: data.profile?.graduation_date || "",
@@ -64,13 +75,19 @@ export function InternProfile() {
           emergencyContactRelation: data.profile?.emergency_contact_relation || "",
           emergencyContactPhone: data.profile?.emergency_contact_phone || "",
           // Internship Details
-          department: data.internship?.department?.name || "",
+          department: data.internship?.department?.name || data.internship?.department_name || "",
+          departmentId: data.internship?.department_id || "",
+          schoolId: data.internship?.school_id || "",
           supervisor: data.internship?.supervisor_name || "",
           supervisorId: data.internship?.supervisor_id || "",
           startDate: data.internship?.start_date || "",
           endDate: data.internship?.end_date || "",
           requiredHours: data.internship?.required_hours || 0,
-          completedHours: data.internship?.completedHours || 0,
+          completedHours: Number(data.completedHours) || 0,
+          internshipStatus: data.internship?.status || "",
+          internshipId: data.internship?.id || "",
+          todayStatus: data.todayStatus || "",
+          projects: data.projects || [],
         })
       } catch (err: any) {
         setError(err.message || "Failed to load profile")
@@ -79,32 +96,39 @@ export function InternProfile() {
       }
     }
     fetchProfile()
-  }, [])
+  }, [internId])
 
   // Fetch logs for progress calculation
   useEffect(() => {
     const fetchLogs = async () => {
       setLogsLoading(true)
       try {
-        const res = await fetch("/api/time-logs")
+        const url = internId ? `/api/time-logs?userId=${internId}` : "/api/time-logs"
+        console.log("[InternProfile] Fetching logs from:", url)
+        const res = await fetch(url)
         const data = await res.json()
+        console.log("[InternProfile] Logs API response:", data)
         const logsArr = (Array.isArray(data) ? data : data.logs || []).map((log: any) => {
+          // Normalize keys for consistency
+          const time_in = log.time_in || log.timeIn || null
+          const time_out = log.time_out || log.timeOut || null
           let hoursWorked = 0
-          if (log.time_in && log.time_out) {
-            const inDate = new Date(log.time_in)
-            const outDate = new Date(log.time_out)
+          if (time_in && time_out) {
+            const inDate = new Date(time_in)
+            const outDate = new Date(time_out)
             const diffMs = outDate.getTime() - inDate.getTime()
             hoursWorked = diffMs > 0 ? Number((diffMs / (1000 * 60 * 60)).toFixed(2)) : 0
           }
-          return { ...log, hoursWorked }
+          return { ...log, time_in, time_out, hoursWorked }
         })
+        console.log("[InternProfile] Normalized logs:", logsArr)
         setLogs(logsArr)
       } finally {
         setLogsLoading(false)
       }
     }
     fetchLogs()
-  }, [])
+  }, [internId])
 
   // Fetch supervisors for dropdown
   useEffect(() => {
@@ -112,7 +136,6 @@ export function InternProfile() {
     fetch("/api/supervisors")
       .then(res => res.json())
       .then(data => {
-        // Assume API returns [{ id, first_name, last_name }]
         setSupervisors(
           data.map((sup: any) => ({
             id: sup.id,
@@ -142,12 +165,21 @@ export function InternProfile() {
   }
 
   // Calculate completed hours from logs (match dashboard/DTR)
-  const completedHours = (() => {
-    const total = logs
-      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-      .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
-    return Number(truncateTo2Decimals(total))
-  })()
+  // --- FIX: Use profileData.completedHours as fallback until logs are loaded and processed ---
+  const completedHours =
+    logsLoading || !profileData
+      ? 0
+      : logs.length > 0
+        ? logs
+            .filter((log) => log.time_in && log.time_out)
+            .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+        : profileData.completedHours || 0
+
+  useEffect(() => {
+    console.log("[InternProfile] completedHours (logs):", logs)
+    console.log("[InternProfile] completedHours (profileData.completedHours):", profileData?.completedHours)
+    console.log("[InternProfile] completedHours used:", completedHours)
+  }, [logs, profileData, completedHours])
 
   const requiredHours = profileData?.requiredHours || 0
   const progressPercentage =
@@ -174,7 +206,6 @@ export function InternProfile() {
     setLoading(true)
     setError(null)
     try {
-      // Save to backend, all date fields as "YYYY-MM-DD" strings
       const res = await fetch("/api/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -192,7 +223,6 @@ export function InternProfile() {
 
   const handleCancel = () => {
     setIsEditing(false)
-    // Optionally refetch to reset
   }
 
   // Helper for safe date display
@@ -211,6 +241,11 @@ export function InternProfile() {
 
   return (
     <div className="space-y-6">
+      {onBack && (
+        <Button variant="outline" onClick={onBack} className="mb-4">
+          <X className="mr-2 h-4 w-4" /> Back
+        </Button>
+      )}
       {/* Profile Header Card */}
       <Card>
         <CardContent className="p-6">
@@ -231,7 +266,7 @@ export function InternProfile() {
               <div className="flex flex-wrap gap-2 justify-center md:justify-start">
                 <Badge variant="outline">{profileData.department}</Badge>
                 <Badge variant="outline">{profileData.school}</Badge>
-                <Badge variant="secondary">Intern</Badge>
+                <Badge variant="secondary">{profileData.internshipStatus || "Intern"}</Badge>
               </div>
               <div className="space-y-1">
                 <div className="text-sm">
@@ -239,7 +274,7 @@ export function InternProfile() {
                   <span>
                     {logsLoading
                       ? "Loading..."
-                      : `${completedHours} of ${requiredHours} hours (${progressPercentage.toFixed(1)}%)`}
+                      : `${completedHours.toFixed(2)} of ${requiredHours.toFixed(2)} hours (${progressPercentage.toFixed(1)}%)`}
                   </span>
                 </div>
                 <div
@@ -272,7 +307,7 @@ export function InternProfile() {
           </TabsList>
           <div>
             {!isEditing ? (
-              <Button onClick={() => setIsEditing(true)}>
+              <Button onClick={() => setIsEditing(true)} disabled={!editable}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit Profile
               </Button>
@@ -615,7 +650,7 @@ export function InternProfile() {
                       id="requiredHours"
                       type="number"
                       min={0}
-                      value={profileData.requiredHours}
+                      value={Number(profileData.requiredHours).toFixed(2)}
                       onChange={(e) => handleInputChange("requiredHours", e.target.value)}
                       disabled={!isEditing}
                     />
@@ -624,7 +659,7 @@ export function InternProfile() {
                     <Label htmlFor="completedHours">Completed Hours</Label>
                     <Input
                       id="completedHours"
-                      value={completedHours}
+                      value={completedHours.toFixed(2)}
                       disabled
                       readOnly
                     />

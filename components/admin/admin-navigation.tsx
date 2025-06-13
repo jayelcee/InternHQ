@@ -17,7 +17,7 @@ const navigationItems = [
   { id: "settings", label: "Settings", icon: Settings },
 ]
 
-export function Navigation({ activeTab, onTabChange }: NavigationProps) {
+export function AdminNavigation({ activeTab, onTabChange }: NavigationProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (

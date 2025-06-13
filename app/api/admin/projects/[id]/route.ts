@@ -12,7 +12,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -39,7 +39,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -67,7 +67,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

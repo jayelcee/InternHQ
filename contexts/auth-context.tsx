@@ -113,13 +113,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       })
 
-      // Check if response is ok first
       if (!response.ok) {
         console.error("Login failed with status:", response.status)
         return { success: false, error: "Login failed" }
       }
 
-      // Try to parse JSON
       let data
       try {
         data = await response.json()
@@ -128,7 +126,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { success: false, error: "Invalid response format" }
       }
 
-      if (data.success && data.user) {
+      if (data.success) {
+        // Immediately fetch the full user details from /api/auth/me
+        const meRes = await fetch("/api/auth/me", {
+          method: "GET",
+          credentials: "include",
+        })
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          if (meData.user) {
+            setUser(meData.user)
+            return { success: true }
+          }
+        }
+        // fallback: still set minimal user if /me fails
         setUser(data.user)
         return { success: true }
       } else {

@@ -4,7 +4,7 @@ import { useState } from "react"
 import { InternNavigation } from "./intern-navigation"
 import { InternDashboardContent } from "./intern-dashboard-content"
 import { InternProfile } from "./intern-profile"
-import { DashboardHeader } from "./dashboard-header"
+import { DashboardHeader } from "./intern-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
 import { DailyTimeRecord } from "./daily-time-record"
 

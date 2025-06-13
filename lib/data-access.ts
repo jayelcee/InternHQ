@@ -18,7 +18,6 @@ import { format } from "date-fns"
 async function getProjectById(projectId: number): Promise<Project | null> {
   const res = await sql`SELECT * FROM projects WHERE id = ${projectId}`
   if (res.length === 0) return null
-  // Cast to Project
   return res[0] as Project
 }
 
@@ -26,7 +25,6 @@ async function getProjectById(projectId: number): Promise<Project | null> {
 export async function getUserWithDetails(userId: string): Promise<UserWithDetails | null> {
   try {
     const userIdNum = Number(userId)
-    // Fetch user
     const userRes = await sql`
       SELECT id, email, first_name, last_name, role, created_at, updated_at
       FROM users
@@ -35,13 +33,11 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
     if (userRes.length === 0) return null
     const user = userRes[0] as User
 
-    // Fetch profile
     const profileRes = await sql`
       SELECT * FROM user_profiles WHERE user_id = ${userIdNum}
     `
     const profile = profileRes.length > 0 ? (profileRes[0] as UserProfile) : undefined
 
-    // Fetch internship
     const internshipRes = await sql`
       SELECT ip.*, 
              s.id as school_id, s.name AS school_name, 
@@ -59,7 +55,6 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
     if (internshipRes.length > 0) {
       const row = internshipRes[0]
       internship = {
-        // InternshipProgram fields
         id: row.id,
         user_id: row.user_id,
         school_id: row.school_id,
@@ -74,14 +69,11 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
-        // School and Department objects
         school: { id: row.school_id, name: row.school_name, created_at: "", address: undefined, contact_email: undefined, contact_phone: undefined },
         department: { id: row.department_id, name: row.department_name, created_at: "", description: undefined, supervisor_id: row.supervisor_id },
-        // Optionally, you can add supervisor fields to the root object or as a separate property if you extend the type
       }
     }
 
-    // Fetch completed hours
     const completedHoursRes = await sql`
       SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
       FROM time_logs
@@ -89,17 +81,15 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
     `
     const completedHours = Number(completedHoursRes[0]?.completed_hours || 0)
 
-    // Fetch today's status
     const today = new Date().toISOString().split("T")[0]
     const todayLogRes = await sql`
-      SELECT * FROM time_logs WHERE user_id = ${userIdNum} AND date = ${today}
+      SELECT * FROM time_logs WHERE user_id = ${userIdNum} AND time_in::date = ${today}
     `
     let todayStatus: "in" | "out" = "out"
     if (todayLogRes.length > 0 && todayLogRes[0].time_in && !todayLogRes[0].time_out) {
       todayStatus = "in"
     }
 
-    // Fetch projects
     const projects = await getInternProjects(userId)
 
     return {
@@ -126,18 +116,16 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 export async function clockIn(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
-    const today = new Date().toISOString().slice(0, 10)
-    // Check if already clocked in today
     const existing = await sql`
       SELECT * FROM time_logs
-      WHERE user_id = ${userIdNum} AND date = ${today}
+      WHERE user_id = ${userIdNum} AND status = 'pending'
     `
     if (existing.length > 0) {
-      return { success: false, error: "Already clocked in and out today" }
+      return { success: false, error: "You are already clocked in. Please clock out before clocking in again." }
     }
     await sql`
-      INSERT INTO time_logs (user_id, date, time_in, status, created_at, updated_at)
-      VALUES (${userIdNum}, ${today}, NOW(), 'pending', NOW(), NOW())
+      INSERT INTO time_logs (user_id, time_in, status, created_at, updated_at)
+      VALUES (${userIdNum}, NOW(), 'pending', NOW(), NOW())
     `
     return { success: true }
   } catch (error) {
@@ -149,15 +137,14 @@ export async function clockIn(userId: string): Promise<{ success: boolean; error
 export async function clockOut(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
-    const today = new Date().toISOString().split("T")[0]
     const res = await sql`
       UPDATE time_logs
       SET time_out = NOW(), status = 'completed', updated_at = NOW()
-      WHERE user_id = ${userIdNum} AND date = ${today} AND time_out IS NULL
+      WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL
       RETURNING *
     `
     if (res.length === 0) {
-      return { success: false, error: "No active clock-in found for today" }
+      return { success: false, error: "No active clock-in found" }
     }
     return { success: true }
   } catch (error) {
@@ -172,12 +159,11 @@ export async function getTimeLogsForUser(userId: string): Promise<TimeLog[]> {
     const res = await sql`
       SELECT * FROM time_logs
       WHERE user_id = ${userIdNum}
-      ORDER BY date DESC
+      ORDER BY time_in DESC
     `
     return res.map(row => ({
       id: row.id,
       user_id: row.user_id,
-      date: row.date,
       time_in: row.time_in,
       time_out: row.time_out,
       break_duration: row.break_duration,
@@ -197,7 +183,10 @@ export async function getTodayTimeLog(userId: string): Promise<TimeLog | null> {
     const userIdNum = Number(userId)
     const today = new Date().toISOString().split("T")[0]
     const res = await sql`
-      SELECT * FROM time_logs WHERE user_id = ${userIdNum} AND date = ${today}
+      SELECT * FROM time_logs
+      WHERE user_id = ${userIdNum} AND time_in::date = ${today}
+      ORDER BY time_in DESC
+      LIMIT 1
     `
     return res.length > 0 ? (res[0] as TimeLog) : null
   } catch (error) {
@@ -213,7 +202,6 @@ export async function getInternProjects(userId: string): Promise<(InternProjectA
     const assignmentsRes = await sql`
       SELECT * FROM intern_project_assignments WHERE user_id = ${userIdNum}
     `
-    // Map each row to InternProjectAssignment
     const assignments = assignmentsRes.map(row => ({
       id: row.id,
       user_id: row.user_id,
@@ -278,7 +266,6 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
       return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
     }
 
-    // Update users table
     await sql`
       UPDATE users
       SET first_name = ${profileData.firstName},
@@ -288,7 +275,6 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
       WHERE id = ${userIdNum}
     `
 
-    // Update user_profiles table
     await sql`
       UPDATE user_profiles
       SET
@@ -312,7 +298,6 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
       WHERE user_id = ${userIdNum}
     `
 
-    // Update internship_programs table (education info)
     await sql`
       UPDATE internship_programs
       SET
@@ -336,7 +321,6 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     SELECT
       tl.id,
       tl.user_id,
-      tl.date,
       tl.time_in,
       tl.time_out,
       tl.status,
@@ -355,7 +339,7 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     LEFT JOIN internship_programs ip ON ip.user_id = u.id
     LEFT JOIN departments d ON ip.department_id = d.id
     LEFT JOIN schools s ON ip.school_id = s.id
-    ORDER BY tl.date DESC, tl.time_in DESC
+    ORDER BY tl.time_in DESC
   `
 
   return rows.map(row => ({
@@ -374,7 +358,6 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
       department: row.department || "",
       school: row.school || "",
     },
-    date: row.date,
     timeIn: row.time_in,
     timeOut: row.time_out,
     status: row.status,
@@ -388,7 +371,6 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
       : 0,
     department: row.department || "",
     school: row.school || "",
-    // break_duration REMOVED
   })) as TimeLogWithDetails[]
 }
 
@@ -410,81 +392,104 @@ function calculateHours(timeIn: string, timeOut: string) {
 }
 
 export async function getAllInterns() {
-  try {
-    const result = await sql`
-      SELECT
-        u.id,
-        u.first_name,
-        u.last_name,
-        u.email,
-        d.name AS department,
-        s.name AS school,
-        ip.required_hours,
-        ip.start_date,
-        ip.end_date
-      FROM users u
-      LEFT JOIN internship_programs ip ON u.id = ip.user_id
-      LEFT JOIN departments d ON ip.department_id = d.id
-      LEFT JOIN schools s ON ip.school_id = s.id
-      WHERE u.role = 'intern'
+  const today = new Date().toISOString().split("T")[0]
+  const result = await sql`
+    SELECT
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.role,
+      ip.required_hours,
+      ip.start_date,
+      ip.end_date,
+      d.name AS department,
+      s.name AS school
+    FROM users u
+    LEFT JOIN internship_programs ip ON ip.user_id = u.id
+    LEFT JOIN departments d ON ip.department_id = d.id
+    LEFT JOIN schools s ON ip.school_id = s.id
+    WHERE u.role = 'intern'
+    ORDER BY u.id ASC
+  `
+
+  const interns = await Promise.all(result.map(async (row: any) => {
+    // Calculate completed hours
+    const logsRes = await sql`
+      SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
+      FROM time_logs
+      WHERE user_id = ${row.id} AND status = 'completed' AND time_in IS NOT NULL AND time_out IS NOT NULL
+    `
+    const completedHours = Number(logsRes[0]?.completed_hours || 0)
+
+    // Get all today's logs
+    const todayLogRes = await sql`
+      SELECT time_in, time_out, status
+      FROM time_logs
+      WHERE user_id = ${row.id} AND time_in::date = ${today}
+      ORDER BY time_in ASC
     `
 
-    const today = format(new Date(), "yyyy-MM-dd")
-
-    const interns = await Promise.all(result.map(async (row: any) => {
-      // Calculate completed hours
-      const logsRes = await sql`
-        SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
-        FROM time_logs
-        WHERE user_id = ${row.id} AND status = 'completed' AND time_in IS NOT NULL AND time_out IS NOT NULL
-      `
-      const completedHours = Number(logsRes[0]?.completed_hours || 0)
-
-      // Check today's log for status
-      const todayLogRes = await sql`
-        SELECT time_in, time_out, status
-        FROM time_logs
-        WHERE user_id = ${row.id} AND date = ${today}
-        ORDER BY id DESC
-        LIMIT 1
-      `
-      let status: "in" | "out" = "out"
-      let lastActivity = ""
-      if (todayLogRes.length > 0) {
-        const log = todayLogRes[0]
-        if (log.status === "pending" && log.time_in && !log.time_out) {
-          status = "in"
-          lastActivity = `Clocked in at ${log.time_in.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-        } else if (log.status === "completed" && log.time_out) {
-          status = "out"
-          lastActivity = `Clocked out at ${log.time_out.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-        }
-      }
-
-      return {
-        id: row.id,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        email: row.email,
-        department: row.department || "",
-        school: row.school || "",
-        todayHours: "0",
-        status,
-        timeIn: todayLogRes.length > 0 ? todayLogRes[0].time_in : null,
-        timeOut: todayLogRes.length > 0 ? todayLogRes[0].time_out : null,
-        lastActivity,
-        internshipDetails: {
-          requiredHours: row.required_hours || 0,
-          completedHours,
-          startDate: row.start_date ? row.start_date.toISOString().slice(0, 10) : "",
-          endDate: row.end_date ? row.end_date.toISOString().slice(0, 10) : "",
-        }
-      }
+    // Collect all today's logs as an array
+    const todayLogs = todayLogRes.map((log: any) => ({
+      timeIn: log.time_in,
+      timeOut: log.time_out,
+      status: log.status,
+      label: log.time_in && log.time_out
+        ? `Clocked in at ${new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, Clocked out at ${new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : log.time_in
+          ? `Clocked in at ${new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+          : log.time_out
+            ? `Clocked out at ${new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            : ""
     }))
 
-    return interns
-  } catch (err) {
-    console.error("getAllInterns error:", err)
-    throw err
-  }
+    // Calculate today's total hours
+    let todayHours = 0
+    for (const log of todayLogRes) {
+      if (log.time_in && log.time_out) {
+        const inDate = new Date(log.time_in)
+        const outDate = new Date(log.time_out)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        todayHours += diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0
+      }
+    }
+    todayHours = Number(todayHours.toFixed(2))
+
+    // Determine current status and last activity
+    let status: "in" | "out" = "out"
+    let lastActivity = ""
+    if (todayLogRes.length > 0) {
+      const lastLog = todayLogRes[todayLogRes.length - 1]
+      if (lastLog.status === "pending" && lastLog.time_in && !lastLog.time_out) {
+        status = "in"
+      } else if (lastLog.status === "completed" && lastLog.time_out) {
+        status = "out"
+      }
+      lastActivity = todayLogs.length > 0 ? todayLogs[todayLogs.length - 1].label : ""
+    }
+
+    return {
+      id: row.id,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+      department: row.department || "",
+      school: row.school || "",
+      todayHours,
+      status,
+      timeIn: todayLogRes.length > 0 ? todayLogRes[0].time_in : null,
+      timeOut: todayLogRes.length > 0 ? todayLogRes[0].time_out : null,
+      lastActivity,
+      todayLogs,
+      internshipDetails: {
+        requiredHours: row.required_hours || 0,
+        completedHours,
+        startDate: row.start_date ? row.start_date.toISOString().slice(0, 10) : "",
+        endDate: row.end_date ? row.end_date.toISOString().slice(0, 10) : "",
+      }
+    }
+  }))
+
+  return interns
 }

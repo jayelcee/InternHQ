@@ -11,13 +11,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { valid, userId } = await verifyToken(token)
+    const { valid, userId, role } = await verifyToken(token)
 
     if (!valid || !userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const user = await getUserWithDetails(String(userId))
+    // Support ?userId= for admin
+    const searchId = request.nextUrl.searchParams.get("userId") || userId
+
+    // Only allow admin to fetch other users' profiles
+    if (searchId !== userId && role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
+    const user = await getUserWithDetails(String(searchId))
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }

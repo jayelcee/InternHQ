@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     const { valid, userId, role } = await verifyToken(token)
 
-    if (!valid || !userId || role !== "hr_admin") {
+    if (!valid || !userId || role !== "admin") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 

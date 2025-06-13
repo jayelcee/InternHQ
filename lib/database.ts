@@ -76,7 +76,6 @@ export interface InternshipProgram {
 export interface TimeLog {
   id: number
   user_id: number
-  date: string
   time_in?: string
   time_out?: string
   notes?: string

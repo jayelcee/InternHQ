@@ -17,7 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { AdminInternProfile } from "./admin-intern-profile"
+import { InternProfile } from "@/components/intern/intern-profile"
 import { format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 
@@ -77,11 +77,11 @@ export function ManageInternsDashboard() {
     endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
   })
 
-  // Fetch departments, projects, and interns from API
   useEffect(() => {
     fetchDepartments()
     fetchProjects()
     fetchInterns()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchDepartments = async () => {
@@ -90,7 +90,7 @@ export function ManageInternsDashboard() {
       if (!res.ok) throw new Error("Failed to fetch departments")
       const data = await res.json()
       setDepartments(data)
-    } catch (error) {
+    } catch {
       setDepartments([])
     }
   }
@@ -101,7 +101,7 @@ export function ManageInternsDashboard() {
       if (!res.ok) throw new Error("Failed to fetch projects")
       const data = await res.json()
       setAvailableProjects(data)
-    } catch (error) {
+    } catch {
       setAvailableProjects([])
     }
   }
@@ -132,7 +132,7 @@ export function ManageInternsDashboard() {
         })) || [],
       }))
       setInterns(mapped)
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to fetch interns",
@@ -176,7 +176,7 @@ export function ManageInternsDashboard() {
         endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
       })
       fetchInterns()
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to add intern",
@@ -200,7 +200,7 @@ export function ManageInternsDashboard() {
         description: "Intern deleted successfully",
       })
       fetchInterns()
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to delete intern",
@@ -241,7 +241,7 @@ export function ManageInternsDashboard() {
       setInternRole("")
       setIsAssignProjectDialogOpen(false)
       fetchInterns()
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to assign project",
@@ -267,7 +267,7 @@ export function ManageInternsDashboard() {
         description: "Project assignment removed successfully",
       })
       fetchInterns()
-    } catch (error) {
+    } catch {
       toast({
         title: "Error",
         description: "Failed to remove project assignment",
@@ -278,7 +278,6 @@ export function ManageInternsDashboard() {
     }
   }
 
-  // Filter interns based on search and filters
   const filteredInterns = interns.filter((intern) => {
     const matchesSearch =
       intern.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -288,19 +287,21 @@ export function ManageInternsDashboard() {
     return matchesSearch && matchesDepartment
   })
 
-  // If an intern is selected, show their profile
+  // If an intern is selected, show their profile using the reusable InternProfile component
   if (selectedInternId) {
-    return <AdminInternProfile internId={selectedInternId} onBack={() => setSelectedInternId(null)} />
+    return (
+      <InternProfile
+        internId={selectedInternId}
+        onBack={() => setSelectedInternId(null)}
+        editable={true}
+      />
+    )
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Manage Interns</h1>
-          <p className="text-gray-600">Add, remove, and assign projects to interns</p>
-        </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
         <div className="flex gap-2">
           <Button onClick={() => setIsAddInternDialogOpen(true)}>
             <UserPlus className="mr-2 h-4 w-4" />

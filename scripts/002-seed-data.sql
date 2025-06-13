@@ -86,11 +86,10 @@ SELECT 'Seed data inserted.';
 
 -- Insert time logs for Jasmine Camasura
 INSERT INTO time_logs (
-    user_id, date, time_in, time_out, task, status
+    user_id, time_in, time_out, task, status
 )
 SELECT
     iu.id,
-    d::date,
     (d::date || ' ' || t_in)::timestamp,
     (d::date || ' ' || t_out)::timestamp,
     'Internship work',
@@ -131,5 +130,8 @@ FROM
         ('2025-06-05', '09:01:00', '21:00:00'),
         ('2025-06-06', '09:00:00', '21:00:00'),
         ('2025-06-07', '09:16:00', '20:07:00'),
-        ('2025-06-09', '09:00:00', '21:01:00')
+        ('2025-06-09', '09:00:00', '21:01:00'),
+        ('2025-06-10', '09:00:00', '21:00:00'),
+        ('2025-06-11', '09:00:00', '18:37:00'),
+        ('2025-06-12', '09:00:00', '18:33:00')
     ) AS logs(d, t_in, t_out);

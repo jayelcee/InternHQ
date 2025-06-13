@@ -61,7 +61,7 @@ interface InternProfileData {
   evaluationDate?: string
 }
 
-export function AdminInternProfile({ internId, onBack }: InternProfileViewProps) {
+export function ViewInternProfile({ internId, onBack }: InternProfileViewProps) {
   const [activeTab, setActiveTab] = useState("personal")
   const [internData, setInternData] = useState<InternProfileData | null>(null)
   const [loading, setLoading] = useState(true)

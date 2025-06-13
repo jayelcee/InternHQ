@@ -2,15 +2,17 @@
 
 import { AuthProvider, useAuth } from "@/contexts/auth-context"
 import { LoginForm } from "@/components/login-form"
-import { InternDashboard } from "@/components/intern-dashboard"
+import { InternDashboard } from "@/components/intern/intern-dashboard"
 
 // Add imports for the new dashboard components
-import { HRAdminDashboard } from "@/components/hr-admin-dashboard"
-import { SettingsDashboard } from "@/components/settings-dashboard"
-import { Navigation } from "@/components/navigation"
+import { HRAdminDashboard } from "@/components/admin/admin-dashboard-content"
+import { SettingsDashboard } from "@/components/admin/settings"
+import { AdminNavigation } from "@/components/admin/admin-navigation"
 import { useState } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { ManageInternsDashboard } from "@/components/manage-interns-dashboard"
+import { DashboardHeader } from "@/components/intern/intern-dashboard-header"
+import { ManageInternsDashboard } from "@/components/admin/manage-interns"
+import { AdminDashboardHeader } from "@/components/admin/admin-dashboard-header"
+import { AdminDashboard } from "@/components/admin/admin-dashboard"
 
 // Update the AppContent component to handle different user roles and navigation
 function AppContent() {
@@ -34,32 +36,7 @@ function AppContent() {
 
   // For HR Admin users, show the admin interface with navigation
   if (user.role === "admin") {
-    const renderContent = () => {
-      switch (activeTab) {
-        case "dashboard":
-          return <HRAdminDashboard />
-        case "manage-interns":
-          return <ManageInternsDashboard />
-        case "settings":
-          return <SettingsDashboard />
-        default:
-          return <HRAdminDashboard />
-      }
-    }
-
-    return (
-      <>
-        <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
-        <div className="md:pl-64">
-          <div className="min-h-screen bg-gray-50 p-4 md:p-6">
-            <div className="mx-auto max-w-7xl">
-              <DashboardHeader />
-              <div className="mt-6">{renderContent()}</div>
-            </div>
-          </div>
-        </div>
-      </>
-    )
+    return <AdminDashboard />
   }
 
   // For intern users, show the simple intern dashboard (no navigation tabs)

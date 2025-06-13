@@ -57,15 +57,18 @@ CREATE TABLE IF NOT EXISTS internship_programs (
 CREATE TABLE IF NOT EXISTS time_logs (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-    date DATE NOT NULL,
     time_in TIMESTAMP WITH TIME ZONE,
     time_out TIMESTAMP WITH TIME ZONE,
     task TEXT,
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(user_id, date)
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Only one active (pending) log per user at a time (optional, recommended)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_time_logs_user_pending
+ON time_logs (user_id)
+WHERE status = 'pending';
 
 -- USER PROFILES TABLE
 CREATE TABLE IF NOT EXISTS user_profiles (
@@ -118,7 +121,6 @@ CREATE TABLE IF NOT EXISTS intern_project_assignments (
 
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON time_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_time_logs_date ON time_logs(date);
 CREATE INDEX IF NOT EXISTS idx_time_logs_status ON time_logs(status);
 CREATE INDEX IF NOT EXISTS idx_internship_programs_user_id ON internship_programs(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
