@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
-import { Search, Download, Clock, Users, TrendingUp, Calendar, FileText, UserCircle } from "lucide-react"
+import { useState, useMemo, useEffect, useRef } from "react"
+import { Search, Clock, Users, TrendingUp, Calendar, FileText, UserCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -12,11 +12,12 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
-import { cn } from "@/lib/utils"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/daily-time-record"
 
-// If not already defined elsewhere:
+/**
+ * Types for intern logs and intern records
+ */
 type TodayLog = {
   timeIn: string | null
   timeOut: string | null
@@ -58,12 +59,17 @@ type TimeLog = {
   school: string
 }
 
+/**
+ * Utility: Get today's date as YYYY-MM-DD string
+ */
 function getTodayString() {
   const now = new Date()
   return now.toISOString().split("T")[0]
 }
 
-// Helper: Sums all completed logs for today for a given intern
+/**
+ * Utility: Sum all completed logs for today for a given intern
+ */
 function getTodayTotalDurationForIntern(logs: TimeLog[], internId: number) {
   const today = getTodayString()
   let totalMs = 0
@@ -90,11 +96,39 @@ function getTodayTotalDurationForIntern(logs: TimeLog[], internId: number) {
   return formatDurationHM(hours, minutes)
 }
 
+/**
+ * Utility: Format duration as "Xh YYm"
+ */
 function formatDurationHM(hours: number, minutes: number) {
   return `${hours}h ${minutes.toString().padStart(2, "0")}m`
 }
 
+/**
+ * Utility: Format log date as MM-DD-YYYY
+ */
+function formatLogDate(dateString: string) {
+  if (!dateString) return ""
+  const date = new Date(dateString)
+  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
+}
+
+/**
+ * Utility: Get unique departments from interns
+ */
+function getDepartments(interns: InternRecord[]): string[] {
+  const set = new Set<string>()
+  interns.forEach((intern) => {
+    if (intern.department) set.add(intern.department)
+  })
+  return Array.from(set)
+}
+
+/**
+ * HRAdminDashboard
+ * Main dashboard component for HR/Admins to view and manage interns and logs.
+ */
 export function HRAdminDashboard() {
+  // --- State ---
   const [searchTerm, setSearchTerm] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -104,25 +138,19 @@ export function HRAdminDashboard() {
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc")
 
-  // Real data state
   const [interns, setInterns] = useState<InternRecord[]>([])
   const [logs, setLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
   const [currentTime, setCurrentTime] = useState(new Date())
 
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 1000)
-    return () => clearInterval(interval)
-  }, [])
-
+  // --- Live time updates for "active" sessions ---
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(interval)
   }, [])
 
+  // --- Fetch interns and logs data ---
   useEffect(() => {
     let interval: NodeJS.Timeout
     let isFirstLoad = true
@@ -131,12 +159,10 @@ export function HRAdminDashboard() {
       if (isFirstLoad) setLoading(true)
       setError(null)
       try {
-        // Fetch interns
         const internsRes = await fetch("/api/interns")
         if (!internsRes.ok) throw new Error("Failed to fetch interns")
         const internsData = await internsRes.json()
 
-        // Fetch logs
         const logsRes = await fetch("/api/time-logs")
         if (!logsRes.ok) throw new Error("Failed to fetch time logs")
         const logsData = await logsRes.json()
@@ -159,19 +185,20 @@ export function HRAdminDashboard() {
           return Number(truncateTo2Decimals(decimal))
         }
 
-        const internsWithLogHours = internsData.map((intern: any) => {
+        // Map interns with their completed hours
+        const internsWithLogHours = internsData.map((intern: Record<string, unknown>) => {
           const internLogs = logsArray.filter(
-            (log: any) =>
+            (log: Record<string, unknown>) =>
               (log.user_id === intern.id || log.internId === intern.id)
               && log.status === "completed"
           )
           const completedHours = internLogs
-            .filter((log: any) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
-            .reduce((sum: number, log: any) => sum + getTruncatedDecimalHours(log), 0)
+            .filter((log: Record<string, unknown>) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
+            .reduce((sum: number, log: Record<string, unknown>) => sum + getTruncatedDecimalHours(log as TimeLog), 0)
           return {
             ...intern,
             internshipDetails: {
-              ...intern.internshipDetails,
+              ...(intern as any).internshipDetails,
               completedHours: Number(completedHours.toFixed(2)),
             },
           }
@@ -189,11 +216,11 @@ export function HRAdminDashboard() {
     }
 
     fetchData()
-    interval = setInterval(fetchData, 30000)
+    interval = setInterval(fetchData, 30000) // Refresh every 30s
     return () => clearInterval(interval)
   }, [])
 
-  // Calculate summary statistics
+  // --- Dashboard summary statistics ---
   const stats = useMemo(() => {
     if (!interns.length) return { totalInterns: 0, activeInterns: 0, totalRequiredHours: 0, totalCompletedHours: 0, avgProgress: "0.0" }
     const totalInterns = interns.length
@@ -210,7 +237,10 @@ export function HRAdminDashboard() {
     }
   }, [interns])
 
-  // Filter interns based on search and filters
+  // --- Departments for filter ---
+  const departments = useMemo(() => getDepartments(interns), [interns])
+
+  // --- Filtered interns for overview table ---
   const filteredInterns = useMemo(() => {
     return interns.filter((intern) => {
       const fullName = `${intern.first_name} ${intern.last_name}`
@@ -224,7 +254,7 @@ export function HRAdminDashboard() {
     })
   }, [interns, searchTerm, departmentFilter, statusFilter])
 
-  // Filter logs based on search and filters
+  // --- Filtered logs for logs table ---
   const filteredLogs = useMemo(() => {
     function getLocalDateString(date: Date | string) {
       const d = typeof date === "string" ? new Date(date) : date
@@ -243,84 +273,79 @@ export function HRAdminDashboard() {
       return matchesSearch && matchesDepartment
     }
 
+    let result = logs.filter(filterBySearchAndDept)
+
     if (viewMode === "overview") {
       const todayLocal = getLocalDateString(new Date())
-      return logs.filter(
-        log => log.date && getLocalDateString(log.date) === todayLocal
+      result = result.filter(
+        log => {
+          const logDate =
+            log.date
+              ? getLocalDateString(log.date)
+              : log.timeIn
+                ? getLocalDateString(log.timeIn)
+                : ""
+          return logDate === todayLocal
+        }
       )
-    }
-
-    let result = logs.filter(filterBySearchAndDept)
-    if (viewMode === "logs" && selectedDate) {
+    } else if (viewMode === "logs" && selectedDate) {
       const selectedLocal = getLocalDateString(selectedDate)
-      result = result.filter(log => log.date && getLocalDateString(log.date) === selectedLocal)
+      result = result.filter(log => {
+        const logDate =
+          log.date
+            ? getLocalDateString(log.date)
+            : log.timeIn
+              ? getLocalDateString(log.timeIn)
+              : ""
+        return logDate === selectedLocal
+      })
     }
     return result
   }, [logs, selectedDate, viewMode, searchTerm, departmentFilter])
 
-  // Group logs by intern and date for compact display
+  // --- Only auto-set sortDirection on viewMode change ---
+  const lastViewMode = useRef(viewMode)
+  useEffect(() => {
+    if (lastViewMode.current !== viewMode) {
+      if (viewMode === "logs") setSortDirection("asc")
+      if (viewMode === "overview") setSortDirection("desc")
+      lastViewMode.current = viewMode
+    }
+  }, [viewMode])
+
+  /**
+   * Group logs by intern and date for compact display in logs table
+   */
   function groupLogsByInternAndDate(logs: TimeLog[]) {
-    const grouped: Record<string, TimeLog[]> = {}
+    const grouped: Record<string, { logs: TimeLog[]; date: string }> = {}
     logs.forEach((log) => {
-      // Use internId + date as key
       const dateKey = (log.date || log.timeIn || "").slice(0, 10)
       const key = `${log.internId}-${dateKey}`
-      if (!grouped[key]) grouped[key] = []
-      grouped[key].push(log)
+      if (!grouped[key]) grouped[key] = { logs: [], date: dateKey }
+      grouped[key].logs.push(log)
     })
     return grouped
   }
 
-  const handleExportAllPDF = () => {
-    alert("Exporting all intern records as PDF...")
-  }
+  // --- Grouped logs for logs table ---
+  const groupedLogs = useMemo(() => groupLogsByInternAndDate(filteredLogs), [filteredLogs])
+  const groupedLogsArray = useMemo(() => {
+    // Get entries as [key, { logs, date }]
+    const entries = Object.entries(groupedLogs)
+    // Sort by date property
+    entries.sort((a, b) => {
+      const aTime = new Date(a[1].date).getTime()
+      const bTime = new Date(b[1].date).getTime()
+      return sortDirection === "desc" ? bTime - aTime : aTime - bTime
+    })
+    // Return only the logs arrays
+    return entries.map(([, group]) => group.logs)
+  }, [groupedLogs, sortDirection])
 
-  const handleGenerateIndividualReport = (internId: number, internName: string) => {
-    alert(`Generating individual report for ${internName}...`)
-  }
-
-  const handleViewInternDetails = (internId: number) => {
+  // --- Intern Profile Modal ---
+  function handleViewInternDetails(internId: number) {
     setSelectedInternId(internId)
   }
-
-  const formatLogDate = (dateString: string) => {
-    // Fix: handle undefined/null/empty dateString gracefully
-    if (!dateString) return <span className="text-gray-400">--</span>
-    const date = new Date(dateString)
-    if (isNaN(date.getTime())) return <span className="text-gray-400">--</span>
-    const month = String(date.getMonth() + 1).padStart(2, "0")
-    const dayNum = String(date.getDate()).padStart(2, "0")
-    const year = date.getFullYear()
-    return (
-      <div className="flex items-center">
-        <span className="font-mono tabular-nums">{`${month}-${dayNum}-${year}`}</span>
-      </div>
-    )
-  }
-
-  const departments = Array.from(new Set(interns.map((intern) => intern.department)))
-
-  // Replace groupedLogsArray definition with explicit date sorting and sortDirection:
-  const groupedLogs = useMemo(() => groupLogsByInternAndDate(filteredLogs), [filteredLogs])
-  const groupedLogsArray = useMemo(
-    () =>
-      Object.values(groupedLogs).sort((a, b) => {
-        const aDate = new Date(a[0].date || a[0].timeIn || 0).getTime()
-        const bDate = new Date(b[0].date || b[0].timeIn || 0).getTime()
-        return sortDirection === "desc" ? bDate - aDate : aDate - bDate
-      }),
-    [groupedLogs, sortDirection]
-  )
-
-  // Automatically use ascending order when in "logs" tab
-  useEffect(() => {
-    if (viewMode === "logs" && sortDirection !== "asc") {
-      setSortDirection("asc")
-    }
-    if (viewMode === "overview" && sortDirection !== "desc") {
-      setSortDirection("desc")
-    }
-  }, [viewMode])
 
   if (selectedInternId) {
     return (
@@ -332,6 +357,7 @@ export function HRAdminDashboard() {
     )
   }
 
+  // --- Daily Time Record Modal ---
   if (selectedDTRInternId) {
     return (
       <div>
@@ -343,6 +369,7 @@ export function HRAdminDashboard() {
     )
   }
 
+  // --- Main Dashboard Layout ---
   return (
     loading ? (
       <div className="p-8 text-center text-gray-500">Loading dashboard...</div>
@@ -350,7 +377,7 @@ export function HRAdminDashboard() {
       <div className="p-8 text-center text-red-500">{error}</div>
     ) : (
       <div className="space-y-6">
-        {/* Header */}
+        {/* --- View Mode Switch --- */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-4">
           <div className="flex gap-2">
             <Button variant={viewMode === "overview" ? "default" : "outline"} onClick={() => setViewMode("overview")}>
@@ -362,8 +389,9 @@ export function HRAdminDashboard() {
           </div>
         </div>
 
-        {/* Summary Cards */}
+        {/* --- Summary Cards --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Total Interns Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Interns</CardTitle>
@@ -375,6 +403,7 @@ export function HRAdminDashboard() {
             </CardContent>
           </Card>
 
+          {/* Currently Active Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Currently Active</CardTitle>
@@ -386,6 +415,7 @@ export function HRAdminDashboard() {
             </CardContent>
           </Card>
 
+          {/* Total Hours Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Hours</CardTitle>
@@ -397,6 +427,7 @@ export function HRAdminDashboard() {
             </CardContent>
           </Card>
 
+          {/* Average Progress Card */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
@@ -409,13 +440,14 @@ export function HRAdminDashboard() {
           </Card>
         </div>
 
-        {/* Filters */}
+        {/* --- Filters & Search Card --- */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Filters & Search</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-4">
+              {/* Search input */}
               <div className="flex-1">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -428,13 +460,14 @@ export function HRAdminDashboard() {
                 </div>
               </div>
 
+              {/* Department filter */}
               <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
                 <SelectTrigger className="w-full sm:w-48">
                   <SelectValue placeholder="Department" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Departments</SelectItem>
-                  {departments.map((dept) => (
+                  {departments.map((dept: string) => (
                     <SelectItem key={dept} value={dept}>
                       {dept}
                     </SelectItem>
@@ -442,6 +475,7 @@ export function HRAdminDashboard() {
                 </SelectContent>
               </Select>
 
+              {/* Status filter (only in overview) */}
               {viewMode === "overview" && (
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-full sm:w-32">
@@ -455,6 +489,7 @@ export function HRAdminDashboard() {
                 </Select>
               )}
 
+              {/* Date filter (only in logs mode) */}
               <Popover>
                 <PopoverTrigger asChild>
                   <Button
@@ -494,9 +529,8 @@ export function HRAdminDashboard() {
           </CardContent>
         </Card>
 
-        {/* Content based on view mode */}
+        {/* --- Overview Table --- */}
         {viewMode === "overview" ? (
-          /* Interns Overview Table */
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Intern Overview</CardTitle>
@@ -522,6 +556,7 @@ export function HRAdminDashboard() {
                         (intern.internshipDetails.completedHours / intern.internshipDetails.requiredHours) * 100
                       return (
                         <TableRow key={intern.id}>
+                          {/* Intern Details */}
                           <TableCell>
                             <div className="space-y-1">
                               <div className="font-medium">{intern.first_name} {intern.last_name}</div>
@@ -535,8 +570,8 @@ export function HRAdminDashboard() {
                               </div>
                             </div>
                           </TableCell>
+                          {/* Status badges for today's logs */}
                           <TableCell>
-                            {/* Status badges for each session */}
                             <div className="flex flex-col gap-1">
                               {intern.todayLogs?.length > 0 ? (
                                 intern.todayLogs.map((log: TodayLog, idx: number) => (
@@ -563,6 +598,7 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          {/* Today's total duration */}
                           <TableCell>
                             <span className="font-mono font-semibold">
                               {(() => {
@@ -572,7 +608,7 @@ export function HRAdminDashboard() {
                                   intern.todayLogs.forEach(log => {
                                     if (log.timeIn && log.timeIn.slice(0, 10) === today) {
                                       const inDate = new Date(log.timeIn)
-                                      const outDate = log.timeOut ? new Date(log.timeOut) : currentTime // use currentTime here
+                                      const outDate = log.timeOut ? new Date(log.timeOut) : currentTime
                                       totalMs += outDate.getTime() - inDate.getTime()
                                     }
                                   })
@@ -583,6 +619,7 @@ export function HRAdminDashboard() {
                               })()}
                             </span>
                           </TableCell>
+                          {/* Internship progress bar */}
                           <TableCell>
                             <div className="space-y-2 min-w-48">
                               <div className="flex justify-between text-sm">
@@ -598,6 +635,7 @@ export function HRAdminDashboard() {
                               <Progress value={progressPercentage} className="h-2" />
                             </div>
                           </TableCell>
+                          {/* Actions: View Profile / DTR */}
                           <TableCell className="text-right">
                             <div className="flex gap-2 justify-end w-full">
                               <Button
@@ -624,7 +662,7 @@ export function HRAdminDashboard() {
                   </TableBody>
                 </Table>
               </div>
-
+              {/* No interns found */}
               {filteredInterns.length === 0 && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">No interns found matching your criteria.</p>
@@ -633,7 +671,7 @@ export function HRAdminDashboard() {
             </CardContent>
           </Card>
         ) : (
-          /* All Logs Table */
+          // --- Logs Table ---
           <Card>
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -641,7 +679,6 @@ export function HRAdminDashboard() {
                   <CardTitle className="text-lg">All Intern Logs</CardTitle>
                   <p className="text-sm text-gray-600">
                     Showing {groupedLogsArray.length} of {groupedLogsArray.length} time records
-                    <br />
                   </p>
                 </div>
                 <div>
@@ -675,7 +712,6 @@ export function HRAdminDashboard() {
                   <TableBody>
                     {groupedLogsArray.map((logsForDay) => {
                       const log = logsForDay[0]
-                      // Sort logs for the day by timeIn ascending
                       const sortedLogs = [...logsForDay].sort((a, b) => {
                         if (!a.timeIn) return 1
                         if (!b.timeIn) return -1
@@ -683,9 +719,11 @@ export function HRAdminDashboard() {
                       })
                       return (
                         <TableRow key={`${log.internId}-${(log.date || log.timeIn || "").slice(0, 10)}`}>
+                          {/* Intern Name */}
                           <TableCell>
                             <div className="font-medium">{log.internName}</div>
                           </TableCell>
+                          {/* Date */}
                           <TableCell className="font-medium">
                             {formatLogDate(
                               (log.date as string) ||
@@ -693,6 +731,7 @@ export function HRAdminDashboard() {
                               ""
                             )}
                           </TableCell>
+                          {/* Time In */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sortedLogs.map((l, idx) =>
@@ -713,6 +752,7 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          {/* Time Out */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sortedLogs.map((l, idx) =>
@@ -742,6 +782,7 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          {/* Duration */}
                           <TableCell className="font-mono">
                             <div className="flex flex-col gap-1">
                               {sortedLogs.map((l, idx) =>
@@ -773,6 +814,7 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          {/* Decimal Hours */}
                           <TableCell className="text-right font-mono">
                             <div className="flex flex-col gap-1">
                               {sortedLogs.map((l, idx) =>
@@ -800,6 +842,7 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          {/* Department */}
                           <TableCell className="text-right">
                             <Badge variant="outline">{log.department}</Badge>
                           </TableCell>
@@ -809,6 +852,7 @@ export function HRAdminDashboard() {
                   </TableBody>
                 </Table>
               </div>
+              {/* No logs found */}
               {groupedLogsArray.length === 0 && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">No logs found matching your criteria.</p>

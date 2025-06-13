@@ -2,22 +2,22 @@ import type { User } from "./database"
 import { sql } from "./database"
 
 // Simple JWT-like token creation without external dependencies
-function createSimpleToken(payload: any): string {
+function createSimpleToken(payload: Record<string, unknown>): string {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }))
   const payloadStr = btoa(JSON.stringify(payload))
   const signature = btoa(`${header}.${payloadStr}.simple-signature`)
   return `${header}.${payloadStr}.${signature}`
 }
 
-function verifySimpleToken(token: string): any {
+function verifySimpleToken(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".")
     if (parts.length !== 3) return null
 
-    const payload = JSON.parse(atob(parts[1]))
+    const payload = JSON.parse(atob(parts[1])) as Record<string, unknown>
 
     // Check if token is expired (24 hours)
-    if (payload.exp && Date.now() > payload.exp) {
+    if (payload.exp && typeof payload.exp === "number" && Date.now() > payload.exp) {
       return null
     }
 
@@ -47,13 +47,8 @@ export async function authenticateUser(email: string, password: string): Promise
       return { success: false, error: "Invalid email or password" }
     }
 
-    // Fetch password_hash for verification
-    const [{ password_hash }] = await sql`
-      SELECT password_hash FROM users WHERE id = ${user.id}
-    `
-
     // Use PostgreSQL's crypt to verify password
-    const [{ valid }] = await sql`
+    const [{ valid }]: { valid: boolean }[] = await sql`
       SELECT (password_hash = crypt(${password}, password_hash)) AS valid
       FROM users
       WHERE id = ${user.id}
@@ -87,7 +82,7 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; user
   try {
     const decoded = verifySimpleToken(token)
 
-    if (!decoded) {
+    if (!decoded || typeof decoded.userId !== "number" || typeof decoded.role !== "string") {
       return { valid: false }
     }
 

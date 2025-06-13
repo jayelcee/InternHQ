@@ -37,7 +37,6 @@ function getWeekRange(date = new Date()) {
 // Helper to get today's date string (YYYY-MM-DD)
 function getTodayString() {
   const now = new Date();
-  // Get local date in YYYY-MM-DD
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
@@ -69,21 +68,37 @@ function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimest
   return formatDuration(hours, minutes)
 }
 
+// Utility: Truncate a decimal number to 2 decimals as string
+function truncateTo2Decimals(val: number) {
+  const [int, dec = ""] = val.toString().split(".")
+  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
+}
+
+// Utility: Format duration as "Xh YYm"
+function formatDuration(hours: number, minutes: number) {
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+}
+
+// Group logs by date for weekly logs table
+function groupLogsByDate(logs: TimeLog[]) {
+  const map = new Map<string, TimeLog[]>()
+  logs.forEach(log => {
+    const dateKey = log.time_in ? log.time_in.slice(0, 10) : undefined
+    if (!dateKey) return
+    if (!map.has(dateKey)) map.set(dateKey, [])
+    map.get(dateKey)!.push(log)
+  })
+  // Sort logs within each date by time_in
+  map.forEach(arr => arr.sort((a, b) =>
+    new Date(a.time_in!).getTime() - new Date(b.time_in!).getTime()
+  ))
+  // Return as array of [date, logs[]], sorted by date descending
+  return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
+}
+
 export function InternDashboardContent() {
   const { user } = useAuth()
-  // Log user object on every render
-  console.log("[Dashboard] user:", user);
-
-  // Add this guard:
-  if (!user || !user.internship) {
-    console.log("[Dashboard] Waiting for full user with internship...");
-    return (
-      <div className="flex justify-center items-center h-64">
-        <span className="text-gray-500">Loading your dashboard...</span>
-      </div>
-    )
-  }
-
+  // Always call hooks at the top level
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
@@ -93,8 +108,11 @@ export function InternDashboardContent() {
   const [error, setError] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   const [stateReady, setStateReady] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false)
   const restoredRef = useRef(false)
+
+  // Guard: Wait for user and internship to be loaded
+  const internshipDetails = user?.internship
 
   // On mount, restore todayDuration from localStorage FIRST
   useEffect(() => {
@@ -102,9 +120,6 @@ export function InternDashboardContent() {
     restoredRef.current = true
 
     const today = getTodayString()
-    console.log("[useEffect] Mount: today =", today);
-
-    // Restore todayDuration from localStorage
     const storedDuration = localStorage.getItem("todayDuration")
     let durationDate = today
     let durationValue = "0h 00m"
@@ -126,25 +141,22 @@ export function InternDashboardContent() {
 
   // Restore clock-in state and fetch logs when user changes (including after login)
   useEffect(() => {
-    console.log("[useEffect] user or stateReady changed:", { user, stateReady });
-    if (!user || !stateReady) return // <-- Only run when ready
+    if (!user || !stateReady) return
 
     const restoreClockState = async () => {
       try {
         const res = await fetch("/api/time-logs")
-        console.log("[restoreClockState] /api/time-logs status:", res.status);
         if (res.ok) {
           const data = await res.json()
-          console.log("[restoreClockState] logs data:", data);
           const logsArr = (Array.isArray(data) ? data : data.logs || [])
-          setAllLogs(logsArr.map((log: any) => {
+          setAllLogs(logsArr.map((log: Record<string, unknown>) => {
             let hoursWorked = 0
             let duration = null
             const now = new Date()
 
             if (log.time_in) {
-              const inDate = new Date(log.time_in)
-              const outDate = log.time_out ? new Date(log.time_out) : now
+              const inDate = new Date(log.time_in as string)
+              const outDate = log.time_out ? new Date(log.time_out as string) : now
               const diffMs = outDate.getTime() - inDate.getTime()
               hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
               const hours = Math.floor(diffMs / (1000 * 60 * 60))
@@ -157,11 +169,11 @@ export function InternDashboardContent() {
           // Find the latest active log (no time_out) FOR TODAY ONLY
           const todayStr = getTodayString()
           const activeLog = logsArr
-            .filter((log: any) => log.time_out === null && log.time_in?.slice(0, 10) === todayStr)
-            .sort((a: any, b: any) => new Date(b.time_in).getTime() - new Date(a.time_in).getTime())[0]
+            .filter((log: Record<string, unknown>) => log.time_out === null && (log.time_in as string)?.slice(0, 10) === todayStr)
+            .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
           if (activeLog) {
             setIsTimedIn(true)
-            const inDate = new Date(activeLog.time_in)
+            const inDate = new Date(activeLog.time_in as string)
             setTimeInTimestamp(inDate)
             localStorage.setItem(
               "clockInState",
@@ -183,7 +195,6 @@ export function InternDashboardContent() {
           }
         }
       } catch (e) {
-        console.error("[restoreClockState] error:", e);
         const stored = localStorage.getItem("clockInState")
         if (stored) {
           const { isTimedIn, timeInTimestamp } = JSON.parse(stored)
@@ -194,12 +205,10 @@ export function InternDashboardContent() {
     }
 
     restoreClockState()
-    // fetchLogs() is not needed here, handled above
   }, [user, stateReady])
 
-  // Always fetch logs when user and stateReady change (ensures logs show even after time out/refresh)
+  // Always fetch logs when user and stateReady change
   useEffect(() => {
-    console.log("[useEffect] fetchLogs trigger: user/stateReady", { user, stateReady });
     if (user && stateReady) {
       fetchLogs(true);
     }
@@ -231,13 +240,13 @@ export function InternDashboardContent() {
       if (!res.ok) throw new Error("Failed to fetch logs");
       const data = await res.json();
       const logsArr = (Array.isArray(data) ? data : data.logs || [])
-        .map((log: any) => {
+        .map((log: Record<string, unknown>) => {
           let hoursWorked = 0;
           let duration = null;
           const now = new Date();
           if (log.time_in) {
-            const inDate = new Date(log.time_in);
-            const outDate = log.time_out ? new Date(log.time_out) : now;
+            const inDate = new Date(log.time_in as string);
+            const outDate = log.time_out ? new Date(log.time_out as string) : now;
             const diffMs = outDate.getTime() - inDate.getTime();
             hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0;
             const hours = Math.floor(diffMs / (1000 * 60 * 60));
@@ -246,18 +255,15 @@ export function InternDashboardContent() {
           }
           return { ...log, hoursWorked, duration };
         })
-        .sort((a: any, b: any) => {
+        .sort((a: TimeLog, b: TimeLog) => {
           const aTime = a.time_in ? new Date(a.time_in).getTime() : 0;
           const bTime = b.time_in ? new Date(b.time_in).getTime() : 0;
           return bTime - aTime;
         });
-      console.log("[fetchLogs] All logs received:", logsArr.map((l: TimeLog) => ({ date: l.time_in?.slice(0, 10), time_in: l.time_in, time_out: l.time_out, status: l.status })));
       const today = getTodayString();
-      const todayLogs = logsArr.filter((log: TimeLog) => log.time_in?.slice(0, 10) === today);
-      console.log("[fetchLogs] Logs for today:", todayLogs);
       setAllLogs(logsArr);
-    } catch (err: any) {
-      setError(err.message || "Failed to load logs");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load logs");
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -274,7 +280,7 @@ export function InternDashboardContent() {
   // Calculate today's duration (sum all logs for today + current session)
   useEffect(() => {
     setTodayDuration(getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp))
-  }, [allLogs.length, isTimedIn, timeInTimestamp, tick])
+  }, [allLogs, isTimedIn, timeInTimestamp, tick])
 
   // Save todayDuration to localStorage whenever it changes
   useEffect(() => {
@@ -289,7 +295,6 @@ export function InternDashboardContent() {
     setIsTimedIn(true);
     setTimeInTimestamp(now);
     const today = getTodayString();
-    console.log("[TimeIn] Local date being sent to backend:", today);
     try {
       const res = await fetch("/api/time-logs/clock-in", {
         method: "POST",
@@ -297,14 +302,12 @@ export function InternDashboardContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: today }),
       });
-      console.log("[TimeIn] API response:", res.status);
       if (!res.ok) throw new Error("Failed to clock in");
       await fetchLogs(false);
     } catch (error) {
       setIsTimedIn(false);
       setTimeInTimestamp(null);
       setActionLoading(false);
-      console.error("[TimeIn] Error clocking in:", error);
       alert("Failed to clock in. Please try again.");
       return;
     }
@@ -316,7 +319,6 @@ export function InternDashboardContent() {
     if (actionLoading) return;
     setActionLoading(true);
     const today = getTodayString();
-    console.log("[TimeOut] Local date being sent to backend:", today);
     // Calculate total hours worked today (including current session)
     let totalMs = 0;
     allLogs.forEach((log) => {
@@ -334,22 +336,18 @@ export function InternDashboardContent() {
     }
     const totalHoursToday = totalMs / (1000 * 60 * 60);
 
-    console.log("[TimeOut] totalHoursToday:", totalHoursToday);
-
     if (totalHoursToday < REQUIRED_HOURS_PER_DAY) {
       const confirm = window.confirm(
         `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?`
       );
       if (!confirm) {
         setActionLoading(false);
-        console.log("[TimeOut] User cancelled time out due to insufficient hours");
         return;
       }
     }
 
     setIsTimedIn(false);
     setTimeInTimestamp(null);
-    console.log("[TimeOut] Optimistically set isTimedIn=false, timeInTimestamp=null");
 
     try {
       const res = await fetch("/api/time-logs/clock-out", {
@@ -358,7 +356,6 @@ export function InternDashboardContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: today }),
       });
-      console.log("[TimeOut] API response:", res.status);
       if (!res.ok) throw new Error("Failed to clock out");
       await fetchLogs(false);
     } catch (error) {
@@ -366,12 +363,10 @@ export function InternDashboardContent() {
       setIsTimedIn(true);
       setTimeInTimestamp(timeInTimestamp);
       setActionLoading(false);
-      console.error("[TimeOut] Error clocking out:", error);
       alert("Failed to clock out. Please try again.");
       return;
     }
     setActionLoading(false);
-    console.log("[TimeOut] actionLoading set to false (end)");
   };
 
   const formatDate = (date: Date) => {
@@ -396,10 +391,6 @@ export function InternDashboardContent() {
     return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
   }
 
-  // Internship details from user object (no completedHours in schema)
-  const internshipDetails = user.internship
-  console.log("[Dashboard] internshipDetails:", internshipDetails);
-
   function getTruncatedDecimalHours(log: TimeLog) {
     if (!log.time_in || !log.time_out) return 0
     const inDate = new Date(log.time_in)
@@ -419,13 +410,13 @@ export function InternDashboardContent() {
   })()
 
   const progressPercentage =
-    internshipDetails.required_hours > 0
+    internshipDetails && typeof internshipDetails.required_hours === "number" && internshipDetails.required_hours > 0
       ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
       : 0
   const remainingHours =
-    completedHours >= internshipDetails.required_hours
+    internshipDetails?.required_hours && completedHours >= internshipDetails.required_hours
       ? 0
-      : Number(truncateTo2Decimals(internshipDetails.required_hours - completedHours))
+      : Number(truncateTo2Decimals((internshipDetails?.required_hours || 0) - completedHours))
   // Calculate total days worked so far (count unique dates with completed logs)
   const totalDaysWorked = (() => {
     const dates = new Set(
@@ -457,7 +448,6 @@ export function InternDashboardContent() {
   const weeklyLogs = allLogs.filter((log) => {
     if (!log.time_in) return false
     const logDate = new Date(log.time_in)
-    // log.date may be string "YYYY-MM-DD" or ISO string
     return logDate >= weekStart && logDate <= weekEnd
   })
 
@@ -477,8 +467,8 @@ export function InternDashboardContent() {
     return dates.size
   })()
 
-  if (!user) {
-    console.log("[Dashboard] No user, loading...");
+  // Guard: Wait for user and internship to be loaded
+  if (!user || !internshipDetails) {
     return (
       <div className="flex justify-center items-center h-64">
         <span className="text-gray-500">Loading your dashboard...</span>
@@ -502,13 +492,12 @@ export function InternDashboardContent() {
               <div className="flex justify-between text-sm">
                 <span>Completed</span>
                 <span className="font-medium">
-                  {completedHours.toFixed(2)}h / {internshipDetails.required_hours}h
+                  {completedHours.toFixed(2)}h / {(internshipDetails?.required_hours ?? 0)}h
                 </span>
               </div>
               <Progress value={progressPercentage} className="h-2" />
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">{progressPercentage.toFixed(1)}%</div>
-                {/* Only show remaining hours if greater than 0 */}
                 {remainingHours > 0 && (
                   <p className="text-sm text-gray-600">
                     {truncateTo2Decimals(remainingHours)}h remaining
@@ -533,20 +522,20 @@ export function InternDashboardContent() {
             <div className="space-y-2 text-sm">
               <div>
                 <span className="font-medium">University:</span>
-                <p className="text-gray-600">{internshipDetails.school?.name ?? "N/A"}</p>
+                <p className="text-gray-600">{internshipDetails?.school?.name ?? "N/A"}</p>
               </div>
               <div>
                 <span className="font-medium">Assigned Department:</span>
-                <p className="text-gray-600">{internshipDetails.department?.name ?? "N/A"}</p>
+                <p className="text-gray-600">{internshipDetails?.department?.name ?? "N/A"}</p>
               </div>
               <div>
                 <span className="font-medium">Duration:</span>
                 <p className="text-gray-600">
-                  {internshipDetails.start_date
+                  {internshipDetails?.start_date
                     ? new Date(internshipDetails.start_date).toLocaleDateString()
                     : "N/A"}{" "}
                   -{" "}
-                  {internshipDetails.end_date
+                  {internshipDetails?.end_date
                     ? new Date(internshipDetails.end_date).toLocaleDateString()
                     : "N/A"}
                 </p>
@@ -598,7 +587,7 @@ export function InternDashboardContent() {
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-gray-900">Time Tracking</h3>
                 <p className="text-sm text-gray-600">
-                  {isTimedIn ? "You're currently clocked in" : "Ready to start your shift?"}
+                  {isTimedIn ? "You&apos;re currently clocked in" : "Ready to start your shift?"}
                 </p>
               </div>
 
@@ -638,7 +627,7 @@ export function InternDashboardContent() {
         {/* Today's Duration */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Today's Progress</CardTitle>
+            <CardTitle className="text-lg">Today&apos;s Progress</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-center">
@@ -657,7 +646,7 @@ export function InternDashboardContent() {
       {/* Weekly Logs */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">This Week's Logs</CardTitle>
+          <CardTitle className="text-xl">This Week&apos;s Logs</CardTitle>
           <p className="text-sm text-gray-600">Your daily time records for the current week</p>
         </CardHeader>
         <CardContent>
@@ -772,29 +761,4 @@ export function InternDashboardContent() {
       </Card>
     </div>
   )
-}
-
-function truncateTo2Decimals(val: number) {
-  const [int, dec = ""] = val.toString().split(".")
-  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-}
-
-function formatDuration(hours: number, minutes: number) {
-  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
-}
-
-function groupLogsByDate(logs: TimeLog[]) {
-  const map = new Map<string, TimeLog[]>()
-  logs.forEach(log => {
-    const dateKey = log.time_in ? log.time_in.slice(0, 10) : undefined
-    if (!dateKey) return
-    if (!map.has(dateKey)) map.set(dateKey, [])
-    map.get(dateKey)!.push(log)
-  })
-  // Sort logs within each date by time_in
-  map.forEach(arr => arr.sort((a, b) =>
-    new Date(a.time_in!).getTime() - new Date(b.time_in!).getTime()
-  ))
-  // Return as array of [date, logs[]], sorted by date descending
-  return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
 }

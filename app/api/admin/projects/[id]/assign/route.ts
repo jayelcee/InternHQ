@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
-import { assignInternToProject } from "@/lib/data-access"
+// import { assignInternToProject } from "@/lib/data-access"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -16,14 +16,14 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { internId, role: internRole } = await request.json()
-    const result = await assignInternToProject(internId, params.id, internRole)
+    // const { internId, role: internRole } = await request.json()
+    // const result = await assignInternToProject(internId, params.id, internRole)
 
-    if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
-    }
+    // if (!result.success) {
+    //   return NextResponse.json({ error: result.error }, { status: 400 })
+    // }
 
-    return NextResponse.json({ success: true })
+    // return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error assigning intern to project:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

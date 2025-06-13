@@ -16,8 +16,69 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Progress } from "@/components/ui/progress"
 
+/**
+ * Types for profile data and logs
+ */
+interface Supervisor {
+  id: number
+  name: string
+}
+
+interface ProfileData {
+  // Personal
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  address: string
+  city: string
+  country: string
+  zipCode: string
+  dateOfBirth: string
+  bio: string
+  // Education
+  school: string
+  degree: string
+  gpa: string
+  graduationDate: string
+  // Skills & Interests
+  skills: string[]
+  interests: string[]
+  languages: string[]
+  // Emergency Contact
+  emergencyContactName: string
+  emergencyContactRelation: string
+  emergencyContactPhone: string
+  // Internship Details
+  department: string
+  departmentId: string
+  schoolId: string
+  supervisor: string
+  supervisorId: string
+  startDate: string
+  endDate: string
+  requiredHours: number
+  completedHours: number
+  internshipStatus: string
+  internshipId: string
+  todayStatus: string
+  projects: unknown[]
+}
+
+interface LogEntry {
+  id: number
+  user_id?: number | string
+  internId?: number | string
+  time_in: string | null
+  time_out: string | null
+  [key: string]: unknown
+  hoursWorked: number
+}
+
+/**
+ * InternProfile component displays and allows editing of intern profile data.
+ */
 export function InternProfile({
   internId,
   onBack,
@@ -32,25 +93,22 @@ export function InternProfile({
   const [activeTab, setActiveTab] = useState("personal")
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [profileData, setProfileData] = useState<any>(null)
-  const [logs, setLogs] = useState<any[]>([])
+  const [profileData, setProfileData] = useState<ProfileData | null>(null)
+  const [logs, setLogs] = useState<LogEntry[]>([])
   const [logsLoading, setLogsLoading] = useState(true)
-  const [supervisors, setSupervisors] = useState<{ id: number; name: string }[]>([])
+  const [supervisors, setSupervisors] = useState<Supervisor[]>([])
 
-  // Fetch real profile data from API
+  // Fetch profile data from API
   useEffect(() => {
     const fetchProfile = async () => {
       setLoading(true)
       setError(null)
       try {
         const url = internId ? `/api/profile?userId=${internId}` : "/api/profile"
-        console.log("[InternProfile] Fetching profile from:", url)
         const res = await fetch(url)
         if (!res.ok) throw new Error("Failed to fetch profile")
         const data = await res.json()
-        console.log("[InternProfile] Profile API response:", data)
         setProfileData({
-          // Personal
           firstName: data.first_name || "",
           lastName: data.last_name || "",
           email: data.email || "",
@@ -61,20 +119,16 @@ export function InternProfile({
           zipCode: data.profile?.zip_code || "",
           dateOfBirth: data.profile?.date_of_birth || "",
           bio: data.profile?.bio || "",
-          // Education
           school: data.internship?.school?.name || data.internship?.school_name || "",
           degree: data.profile?.degree || "",
           gpa: data.profile?.gpa?.toString() || "",
           graduationDate: data.profile?.graduation_date || "",
-          // Skills & Interests
           skills: data.profile?.skills || [],
           interests: data.profile?.interests || [],
           languages: data.profile?.languages || [],
-          // Emergency Contact
           emergencyContactName: data.profile?.emergency_contact_name || "",
           emergencyContactRelation: data.profile?.emergency_contact_relation || "",
           emergencyContactPhone: data.profile?.emergency_contact_phone || "",
-          // Internship Details
           department: data.internship?.department?.name || data.internship?.department_name || "",
           departmentId: data.internship?.department_id || "",
           schoolId: data.internship?.school_id || "",
@@ -89,8 +143,8 @@ export function InternProfile({
           todayStatus: data.todayStatus || "",
           projects: data.projects || [],
         })
-      } catch (err: any) {
-        setError(err.message || "Failed to load profile")
+      } catch (err) {
+        setError((err as Error).message || "Failed to load profile")
       } finally {
         setLoading(false)
       }
@@ -104,14 +158,11 @@ export function InternProfile({
       setLogsLoading(true)
       try {
         const url = internId ? `/api/time-logs?userId=${internId}` : "/api/time-logs"
-        console.log("[InternProfile] Fetching logs from:", url)
         const res = await fetch(url)
         const data = await res.json()
-        console.log("[InternProfile] Logs API response:", data)
-        const logsArr = (Array.isArray(data) ? data : data.logs || []).map((log: any) => {
-          // Normalize keys for consistency
-          const time_in = log.time_in || log.timeIn || null
-          const time_out = log.time_out || log.timeOut || null
+        const logsArr: LogEntry[] = (Array.isArray(data) ? data : data.logs || []).map((log: Record<string, unknown>) => {
+          const time_in = (log.time_in as string) || (log.timeIn as string) || null
+          const time_out = (log.time_out as string) || (log.timeOut as string) || null
           let hoursWorked = 0
           if (time_in && time_out) {
             const inDate = new Date(time_in)
@@ -121,7 +172,6 @@ export function InternProfile({
           }
           return { ...log, time_in, time_out, hoursWorked }
         })
-        console.log("[InternProfile] Normalized logs:", logsArr)
         setLogs(logsArr)
       } finally {
         setLogsLoading(false)
@@ -135,9 +185,9 @@ export function InternProfile({
     if (!isEditing) return
     fetch("/api/supervisors")
       .then(res => res.json())
-      .then(data => {
+      .then((data: any[]) => {
         setSupervisors(
-          data.map((sup: any) => ({
+          data.map((sup) => ({
             id: sup.id,
             name: `${sup.first_name} ${sup.last_name}`,
           }))
@@ -146,14 +196,14 @@ export function InternProfile({
       .catch(() => setSupervisors([]))
   }, [isEditing])
 
-  // Helper for truncating to 2 decimals (same as dashboard/DTR)
-  function truncateTo2Decimals(val: number) {
+  // Helper for truncating to 2 decimals
+  function truncateTo2Decimals(val: number): string {
     const [int, dec = ""] = val.toString().split(".")
     return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
   }
 
-  // Helper for log hours (same as dashboard/DTR)
-  function getTruncatedDecimalHours(log: any) {
+  // Helper for log hours
+  function getTruncatedDecimalHours(log: LogEntry): number {
     if (!log.time_in || !log.time_out) return 0
     const inDate = new Date(log.time_in)
     const outDate = new Date(log.time_out)
@@ -164,9 +214,7 @@ export function InternProfile({
     return Number(truncateTo2Decimals(decimal))
   }
 
-  // Calculate completed hours from logs (match dashboard/DTR)
-  // --- FIX: Use profileData.completedHours as fallback until logs are loaded and processed ---
-  // Get the current intern's user ID (as string or number)
+  // Calculate completed hours from logs
   const currentInternId = internId ?? user?.id
 
   const completedHours =
@@ -178,39 +226,41 @@ export function InternProfile({
               (log) =>
                 log.time_in &&
                 log.time_out &&
-                // Filter by user_id or internId matching the current intern
                 (log.user_id?.toString() === currentInternId?.toString() ||
                   log.internId?.toString() === currentInternId?.toString())
             )
             .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
         : profileData.completedHours || 0
 
-  useEffect(() => {
-    console.log("[InternProfile] completedHours (logs):", logs)
-    console.log("[InternProfile] completedHours (profileData.completedHours):", profileData?.completedHours)
-    console.log("[InternProfile] completedHours used:", completedHours)
-  }, [logs, profileData, completedHours])
-
   const requiredHours = profileData?.requiredHours || 0
   const progressPercentage =
     requiredHours > 0 ? Math.min((completedHours / requiredHours) * 100, 100) : 0
 
-  // For all date fields, store as "YYYY-MM-DD" string in state
-  const handleInputChange = (field: string, value: string | string[]) => {
-    setProfileData((prev: any) => ({
-      ...prev,
-      [field]: value,
-    }))
+  // Handle input changes for profile fields
+  const handleInputChange = (field: keyof ProfileData, value: string | string[]) => {
+    setProfileData((prev) =>
+      prev
+        ? {
+            ...prev,
+            [field]: value,
+          }
+        : prev
+    )
   }
 
-  // For calendar popovers, always store as "YYYY-MM-DD" string
-  const handleCalendarChange = (field: string, date: Date | undefined) => {
-    setProfileData((prev: any) => ({
-      ...prev,
-      [field]: date ? format(date, "yyyy-MM-dd") : "",
-    }))
+  // Handle calendar date changes
+  const handleCalendarChange = (field: keyof ProfileData, date: Date | undefined) => {
+    setProfileData((prev) =>
+      prev
+        ? {
+            ...prev,
+            [field]: date ? format(date, "yyyy-MM-dd") : "",
+          }
+        : prev
+    )
   }
 
+  // Save profile changes
   const handleSave = async () => {
     setIsEditing(false)
     setLoading(true)
@@ -224,13 +274,14 @@ export function InternProfile({
       if (!res.ok) throw new Error("Failed to save profile")
       await refreshUser()
       alert("Profile saved successfully!")
-    } catch (err: any) {
-      setError(err.message || "Failed to save profile")
+    } catch (err) {
+      setError((err as Error).message || "Failed to save profile")
     } finally {
       setLoading(false)
     }
   }
 
+  // Cancel editing
   const handleCancel = () => {
     setIsEditing(false)
   }

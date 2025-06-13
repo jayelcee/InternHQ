@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, UserPlus, Trash2, UserCircle, Plus, X } from "lucide-react"
+import { Search, UserPlus, Trash2, UserCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -22,6 +22,9 @@ import { format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
+/**
+ * Types for time logs and interns
+ */
 interface TimeLog {
   id: number
   user_id: number
@@ -32,7 +35,6 @@ interface TimeLog {
   time_out?: string
   status: string
   hoursWorked?: number
-  // ...other fields as needed
 }
 
 interface Intern {
@@ -49,13 +51,16 @@ interface Intern {
   }
 }
 
+/**
+ * ManageInternsDashboard
+ * Admin dashboard for managing interns: add, delete, filter, and view profiles.
+ */
 export function ManageInternsDashboard() {
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [selectedInternId, setSelectedInternId] = useState<string | null>(null)
   const [isAddInternDialogOpen, setIsAddInternDialogOpen] = useState(false)
-  const [logs, setLogs] = useState<TimeLog[]>([])
   const [interns, setInterns] = useState<Intern[]>([])
   const [isLoading, setIsLoading] = useState(false)
 
@@ -71,27 +76,28 @@ export function ManageInternsDashboard() {
     endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
   })
 
-  // Move fetchAll to a named function so it can be reused
+  /**
+   * Fetch all interns and calculate their completed hours from logs
+   */
   const fetchAll = async () => {
     setIsLoading(true)
     try {
       // 1. Fetch logs first
       const logsRes = await fetch("/api/time-logs")
       const logsData = await logsRes.json()
-      const logsArr = Array.isArray(logsData) ? logsData : logsData.logs
-      setLogs(logsArr)
+      const logsArr: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
 
       // 2. Fetch interns
       const internsRes = await fetch("/api/interns")
       const internsData = await internsRes.json()
 
-      // 3. Map interns and calculate completedHours using logs (match dashboard)
+      // 3. Map interns and calculate completedHours using logs
       const truncateTo2Decimals = (val: number) => {
         const [int, dec = ""] = val.toString().split(".")
         return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
       }
 
-      const getTruncatedDecimalHours = (log: any) => {
+      const getTruncatedDecimalHours = (log: TimeLog) => {
         const timeIn = log.timeIn || log.time_in
         const timeOut = log.timeOut || log.time_out
         if (!timeIn || !timeOut) return 0
@@ -104,46 +110,53 @@ export function ManageInternsDashboard() {
         return Number(truncateTo2Decimals(decimal))
       }
 
-      const mapped: Intern[] = internsData.map((intern: any) => {
+      const mapped: Intern[] = internsData.map((intern: Record<string, unknown>) => {
         const internId = Number(intern.id)
         // Find all completed logs for this intern
         const internLogs = logsArr.filter(
-          (log: any) =>
+          (log) =>
             (log.user_id === internId || log.internId === internId) &&
             log.status === "completed"
         )
-        // Sum using getTruncatedDecimalHours (dashboard logic)
+        // Sum using getTruncatedDecimalHours
         const completedHours = internLogs
-          .filter((log: any) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
-          .reduce((sum: number, log: any) => sum + getTruncatedDecimalHours(log), 0)
+          .filter((log) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
+          .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
 
         return {
-          id: intern.id.toString(),
-          name: `${intern.first_name} ${intern.last_name}`,
-          email: intern.email,
-          department: intern.department || intern.internship?.department?.name || "",
-          school: intern.school || intern.internship?.school?.name || "",
+          id: intern.id?.toString() ?? "",
+          name: `${intern.first_name ?? ""} ${intern.last_name ?? ""}`.trim(),
+          email: (intern.email as string) ?? "",
+          department: (intern.department as string) || (intern.internship as any)?.department?.name || "",
+          school: (intern.school as string) || (intern.internship as any)?.school?.name || "",
           internshipDetails: {
-            requiredHours: intern.internshipDetails?.requiredHours || intern.internship?.required_hours || 0,
+            requiredHours:
+              (intern.internshipDetails as any)?.requiredHours ||
+              (intern.internship as any)?.required_hours ||
+              0,
             completedHours: Number(completedHours.toFixed(2)),
-            startDate: intern.internshipDetails?.startDate || intern.internship?.start_date || "",
-            endDate: intern.internshipDetails?.endDate || intern.internship?.end_date || "",
+            startDate:
+              (intern.internshipDetails as any)?.startDate ||
+              (intern.internship as any)?.start_date ||
+              "",
+            endDate:
+              (intern.internshipDetails as any)?.endDate ||
+              (intern.internship as any)?.end_date ||
+              "",
           },
         }
       })
       setInterns(mapped)
     } catch {
       setInterns([])
-      setLogs([])
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Fetch logs and interns in sequence
+  // Fetch logs and interns in sequence on mount
   useEffect(() => {
     fetchAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Build department list from intern data
@@ -152,6 +165,9 @@ export function ManageInternsDashboard() {
     name: d,
   }))
 
+  /**
+   * Add a new intern
+   */
   const handleAddIntern = async () => {
     try {
       setIsLoading(true)
@@ -196,6 +212,9 @@ export function ManageInternsDashboard() {
     }
   }
 
+  /**
+   * Delete an intern by ID
+   */
   const handleDeleteIntern = async (internId: string) => {
     if (!confirm("Are you sure you want to delete this intern? This action cannot be undone.")) {
       return
@@ -220,6 +239,7 @@ export function ManageInternsDashboard() {
     }
   }
 
+  // Filter interns by search and department
   const filteredInterns = interns.filter((intern) => {
     const matchesSearch =
       intern.name.toLowerCase().includes(searchTerm.toLowerCase()) ||

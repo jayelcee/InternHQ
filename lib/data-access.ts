@@ -4,7 +4,6 @@ import type {
   TimeLogWithDetails,
   UserProfile,
   Project,
-  ProjectWithDetails,
   InternProjectAssignment,
   User,
   Department,
@@ -12,16 +11,18 @@ import type {
   InternshipProgram,
 } from "./database"
 import { sql } from "./database"
-import { format } from "date-fns"
 
-// Helper for projects
+// --- Project Helpers ---
+
+// Get a project by its ID
 async function getProjectById(projectId: number): Promise<Project | null> {
   const res = await sql`SELECT * FROM projects WHERE id = ${projectId}`
-  if (res.length === 0) return null
-  return res[0] as Project
+  return res.length === 0 ? null : (res[0] as Project)
 }
 
-// User operations
+// --- User Operations ---
+
+// Fetch user details, profile, internship, completed hours, today's status, and projects
 export async function getUserWithDetails(userId: string): Promise<UserWithDetails | null> {
   try {
     const userIdNum = Number(userId)
@@ -112,7 +113,9 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
   }
 }
 
-// Time log operations
+// --- Time Log Operations ---
+
+// Clock in for a user
 export async function clockIn(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -134,6 +137,7 @@ export async function clockIn(userId: string): Promise<{ success: boolean; error
   }
 }
 
+// Clock out for a user
 export async function clockOut(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -153,6 +157,7 @@ export async function clockOut(userId: string): Promise<{ success: boolean; erro
   }
 }
 
+// Get all time logs for a user
 export async function getTimeLogsForUser(userId: string): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
@@ -178,6 +183,7 @@ export async function getTimeLogsForUser(userId: string): Promise<TimeLog[]> {
   }
 }
 
+// Get today's time log for a user
 export async function getTodayTimeLog(userId: string): Promise<TimeLog | null> {
   try {
     const userIdNum = Number(userId)
@@ -195,7 +201,9 @@ export async function getTodayTimeLog(userId: string): Promise<TimeLog | null> {
   }
 }
 
-// Intern-Project Assignment operations
+// --- Intern-Project Assignment Operations ---
+
+// Get all projects assigned to an intern
 export async function getInternProjects(userId: string): Promise<(InternProjectAssignment & { project: Project })[]> {
   try {
     const userIdNum = Number(userId)
@@ -237,6 +245,7 @@ export async function getInternProjects(userId: string): Promise<(InternProjectA
   }
 }
 
+// Delete an intern user
 export async function deleteIntern(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -255,14 +264,42 @@ export async function deleteIntern(userId: string): Promise<{ success: boolean; 
   }
 }
 
-export async function updateUserProfile(userId: string, profileData: any): Promise<{ success: boolean; error?: string }> {
+// Update user profile and internship info
+export async function updateUserProfile(
+  userId: string,
+  profileData: {
+    firstName: string
+    lastName: string
+    email: string
+    phone?: string
+    address?: string
+    city?: string
+    country?: string
+    zipCode?: string
+    dateOfBirth?: string | Date
+    bio?: string
+    degree?: string
+    gpa?: number | string
+    graduationDate?: string | Date
+    skills?: string
+    interests?: string
+    languages?: string
+    emergencyContactName?: string
+    emergencyContactRelation?: string
+    emergencyContactPhone?: string
+    startDate?: string | Date
+    endDate?: string | Date
+    requiredHours?: number | string
+    supervisorId?: number | string
+  }
+): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
-    const toDateString = (val: any) => {
+    const toDateString = (val: unknown) => {
       if (!val) return null
       if (val instanceof Date) return val.toISOString().slice(0, 10)
-      if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
-      const d = new Date(val)
+      if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+      const d = new Date(val as string)
       return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
     }
 
@@ -278,22 +315,22 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
     await sql`
       UPDATE user_profiles
       SET
-        phone = ${profileData.phone},
-        address = ${profileData.address},
-        city = ${profileData.city},
-        country = ${profileData.country},
-        zip_code = ${profileData.zipCode},
+        phone = ${profileData.phone ?? ""},
+        address = ${profileData.address ?? ""},
+        city = ${profileData.city ?? ""},
+        country = ${profileData.country ?? ""},
+        zip_code = ${profileData.zipCode ?? ""},
         date_of_birth = ${toDateString(profileData.dateOfBirth)},
-        bio = ${profileData.bio},
-        degree = ${profileData.degree},
-        gpa = ${profileData.gpa ? Number(profileData.gpa) : null},
+        bio = ${profileData.bio ?? ""},
+        degree = ${profileData.degree ?? ""},
+        gpa = ${profileData.gpa !== undefined && profileData.gpa !== null ? Number(profileData.gpa) : null},
         graduation_date = ${toDateString(profileData.graduationDate)},
-        skills = ${profileData.skills},
-        interests = ${profileData.interests},
-        languages = ${profileData.languages},
-        emergency_contact_name = ${profileData.emergencyContactName},
-        emergency_contact_relation = ${profileData.emergencyContactRelation},
-        emergency_contact_phone = ${profileData.emergencyContactPhone},
+        skills = ${profileData.skills ?? ""},
+        interests = ${profileData.interests ?? ""},
+        languages = ${profileData.languages ?? ""},
+        emergency_contact_name = ${profileData.emergencyContactName ?? ""},
+        emergency_contact_relation = ${profileData.emergencyContactRelation ?? ""},
+        emergency_contact_phone = ${profileData.emergencyContactPhone ?? ""},
         updated_at = NOW()
       WHERE user_id = ${userIdNum}
     `
@@ -316,6 +353,9 @@ export async function updateUserProfile(userId: string, profileData: any): Promi
   }
 }
 
+// --- Time Log Details ---
+
+// Get all time logs with user, department, and school details
 export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]> {
   const rows = await sql`
     SELECT
@@ -374,7 +414,8 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
   })) as TimeLogWithDetails[]
 }
 
-// Helper functions
+// --- Helper Functions ---
+
 function calculateDuration(timeIn: string, timeOut: string) {
   const inDate = new Date(timeIn)
   const outDate = new Date(timeOut)
@@ -391,9 +432,23 @@ function calculateHours(timeIn: string, timeOut: string) {
   return Number((diffMs / (1000 * 60 * 60)).toFixed(2))
 }
 
+// --- Intern List ---
+
+// Get all interns with today's logs and internship details
 export async function getAllInterns() {
   const today = new Date().toISOString().split("T")[0]
-  const result = await sql`
+  const result = await sql<{
+    id: number
+    first_name: string
+    last_name: string
+    email: string
+    role: string
+    required_hours: number
+    start_date: Date | null
+    end_date: Date | null
+    department: string | null
+    school: string | null
+  }[]>`
     SELECT
       u.id,
       u.first_name,
@@ -413,9 +468,15 @@ export async function getAllInterns() {
     ORDER BY u.id ASC
   `
 
-  const interns = await Promise.all(result.map(async (row: any) => {
+  type TimeLogRow = {
+    time_in: Date | null
+    time_out: Date | null
+    status: string
+  }
+
+  const interns = await Promise.all(result.map(async (row) => {
     // Calculate completed hours
-    const logsRes = await sql`
+    const logsRes = await sql<{ completed_hours: number }[]>`
       SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
       FROM time_logs
       WHERE user_id = ${row.id} AND status = 'completed' AND time_in IS NOT NULL AND time_out IS NOT NULL
@@ -423,7 +484,7 @@ export async function getAllInterns() {
     const completedHours = Number(logsRes[0]?.completed_hours || 0)
 
     // Get all today's logs
-    const todayLogRes = await sql`
+    const todayLogRes = await sql<TimeLogRow[]>`
       SELECT time_in, time_out, status
       FROM time_logs
       WHERE user_id = ${row.id} AND time_in::date = ${today}
@@ -431,16 +492,16 @@ export async function getAllInterns() {
     `
 
     // Collect all today's logs as an array
-    const todayLogs = todayLogRes.map((log: any) => ({
+    const todayLogs = todayLogRes.map((log) => ({
       timeIn: log.time_in,
       timeOut: log.time_out,
       status: log.status,
       label: log.time_in && log.time_out
-        ? `Clocked in at ${new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, Clocked out at ${new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        ? `Clocked in at ${new Date(log.time_in!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, Clocked out at ${new Date(log.time_out!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
         : log.time_in
-          ? `Clocked in at ${new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+          ? `Clocked in at ${new Date(log.time_in!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
           : log.time_out
-            ? `Clocked out at ${new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+            ? `Clocked out at ${new Date(log.time_out!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
             : ""
     }))
 
@@ -494,6 +555,9 @@ export async function getAllInterns() {
   return interns
 }
 
+// --- Intern Creation ---
+
+// Create a new intern, school, and department if needed
 export async function createIntern(data: {
   name: string
   email: string
@@ -517,7 +581,7 @@ export async function createIntern(data: {
     }
 
     // Find or create school
-    let schoolRes = await sql`SELECT id FROM schools WHERE name = ${data.school}`
+    const schoolRes = await sql`SELECT id FROM schools WHERE name = ${data.school}`
     let schoolId: number
     if (schoolRes.length === 0) {
       const insertSchool = await sql`
@@ -529,7 +593,7 @@ export async function createIntern(data: {
     }
 
     // Find or create department
-    let deptRes = await sql`SELECT id FROM departments WHERE name = ${data.department}`
+    const deptRes = await sql`SELECT id FROM departments WHERE name = ${data.department}`
     let deptId: number
     if (deptRes.length === 0) {
       const insertDept = await sql`
@@ -559,13 +623,19 @@ export async function createIntern(data: {
       INSERT INTO internship_programs (
         user_id, school_id, department_id, required_hours, start_date, end_date
       ) VALUES (
-        ${userId}, ${schoolId}, ${deptId}, ${data.requiredHours}, ${data.startDate}, ${data.endDate}
+        ${userId},
+        ${schoolId},
+        ${deptId},
+        ${Number(data.requiredHours)},
+        ${data.startDate ?? ""},
+        ${data.endDate ?? ""}
       )
     `
 
     return { success: true, intern: { id: userId, email: data.email, first_name, last_name } }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string }
     console.error("Error creating intern:", error)
-    return { success: false, error: error.message || "Failed to create intern" }
+    return { success: false, error: err.message || "Failed to create intern" }
   }
 }

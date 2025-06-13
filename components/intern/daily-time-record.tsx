@@ -8,6 +8,9 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { GraduationCap } from "lucide-react"
 
+/**
+ * TimeLog type for intern logs
+ */
 interface TimeLog {
   id: number
   date: string
@@ -15,8 +18,40 @@ interface TimeLog {
   time_out: string | null
   status: "pending" | "completed"
   notes?: string
+  user_id?: number | string
+  internId?: number | string
 }
 
+/**
+ * Profile/internship details type for type safety
+ */
+interface InternshipDetails {
+  school?: { name: string }
+  department?: { name: string }
+  supervisor?: string
+  required_hours: number
+  start_date: string
+  end_date: string
+  status?: string
+}
+
+interface Profile {
+  first_name?: string
+  last_name?: string
+  internship?: InternshipDetails
+}
+
+/**
+ * Utility: Truncate a decimal number to 2 decimals as string
+ */
+function truncateTo2Decimals(val: number) {
+  const [int, dec = ""] = val.toString().split(".")
+  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
+}
+
+/**
+ * Utility: Calculate decimal hours for a log
+ */
 function getTruncatedDecimalHours(log: TimeLog) {
   if (!log.time_in || !log.time_out) return 0
   const inDate = new Date(log.time_in)
@@ -30,20 +65,18 @@ function getTruncatedDecimalHours(log: TimeLog) {
 
 const STANDARD_SHIFT_HOURS = 9
 
-function truncateTo2Decimals(val: number) {
-  const [int, dec = ""] = val.toString().split(".")
-  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-}
-
+/**
+ * DailyTimeRecord
+ * Displays the daily time record table and progress for an intern.
+ */
 export function DailyTimeRecord({ internId }: { internId?: string }) {
   const { user } = useAuth()
   const [logs, setLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [profileLoading, setProfileLoading] = useState(true)
+  const [profile, setProfile] = useState<Profile | null>(null)
 
-  // Fetch logs
+  // Fetch logs for the intern
   useEffect(() => {
     const fetchLogs = async () => {
       setLoading(true)
@@ -57,18 +90,18 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         if (!res.ok) throw new Error("Failed to fetch logs")
         const data = await res.json()
         const logsArray = Array.isArray(data) ? data : data.logs || []
-        const normalizedLogs = logsArray.map((log: any) => ({
+        const normalizedLogs: TimeLog[] = logsArray.map((log: Record<string, unknown>) => ({
           ...log,
-          time_in: log.time_in ?? log.timeIn ?? null,
-          time_out: log.time_out ?? log.timeOut ?? null,
+          time_in: (log.time_in as string) ?? (log.timeIn as string) ?? null,
+          time_out: (log.time_out as string) ?? (log.timeOut as string) ?? null,
           date:
-            log.date && /^\d{4}-\d{2}-\d{2}/.test(log.date)
+            typeof log.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(log.date)
               ? log.date.slice(0, 10)
-              : (log.time_in ?? log.timeIn ?? "").slice(0, 10),
+              : ((log.time_in as string) ?? (log.timeIn as string) ?? "").slice(0, 10),
         }))
         setLogs(normalizedLogs)
-      } catch (err: any) {
-        setError(err.message || "Failed to load logs")
+      } catch (err) {
+        setError("Failed to load logs")
       } finally {
         setLoading(false)
       }
@@ -79,27 +112,39 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
   // Fetch profile for admin view
   useEffect(() => {
     const fetchProfile = async () => {
-      setProfileLoading(true)
       try {
         if (internId) {
           const res = await fetch(`/api/profile?userId=${internId}`)
           if (!res.ok) throw new Error("Failed to fetch profile")
           const data = await res.json()
-          setProfile(data)
+          setProfile(data as Profile)
+        } else if (user) {
+          // Map user to Profile type for compatibility
+          setProfile({
+            first_name: (user as any).first_name ?? "",
+            last_name: (user as any).last_name ?? "",
+            internship: (user as any).internship ?? {
+              school: { name: "N/A" },
+              department: { name: "N/A" },
+              supervisor: "N/A",
+              required_hours: 0,
+              start_date: "",
+              end_date: "",
+              status: "",
+            },
+          })
         } else {
-          setProfile(user)
+          setProfile(null)
         }
-      } catch (err) {
+      } catch {
         setProfile(null)
-      } finally {
-        setProfileLoading(false)
       }
     }
     fetchProfile()
   }, [internId, user])
 
   // Use profile for display
-  const internshipDetails = profile?.internship ?? {
+  const internshipDetails: InternshipDetails = profile?.internship ?? {
     school: { name: "N/A" },
     department: { name: "N/A" },
     supervisor: "N/A",
@@ -109,15 +154,16 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
     status: "",
   }
 
-  // Internship Progress calculation (sum of Hours Worked from the table, each truncated, then sum truncated)
-  // --- FIX: Only sum logs for the selected intern (if internId is set) ---
+  /**
+   * Calculate completed hours for the selected intern
+   */
   const completedHours = (() => {
     // Filter logs for the selected intern if internId is provided
     const filteredLogs = internId
       ? logs.filter(
           log =>
-            (log as any).user_id?.toString() === internId.toString() ||
-            (log as any).internId?.toString() === internId.toString()
+            log.user_id?.toString() === internId.toString() ||
+            log.internId?.toString() === internId.toString()
         )
       : logs
     const total = filteredLogs
@@ -222,6 +268,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         </Card>
       </div>
 
+      {/* Logs Table */}
       {loading ? (
         <div className="text-center text-gray-500 py-8">Loading logs...</div>
       ) : error ? (
@@ -245,8 +292,8 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                 internId
                   ? logs.filter(
                       log =>
-                        (log as any).user_id?.toString() === internId.toString() ||
-                        (log as any).internId?.toString() === internId.toString()
+                        log.user_id?.toString() === internId.toString() ||
+                        log.internId?.toString() === internId.toString()
                     )
                   : logs
               ).map(([key, logsForDate]) => {
@@ -328,11 +375,14 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
   )
 }
 
+/**
+ * Group logs by intern and date for compact display in logs table
+ */
 function groupLogsByDate(logs: TimeLog[]) {
   const map = new Map<string, TimeLog[]>()
   logs.forEach(log => {
     // Use intern id + date as key to separate different interns' logs
-    const internId = (log as any).user_id ?? (log as any).internId ?? ""
+    const internId = log.user_id ?? log.internId ?? ""
     const dateKey = log.time_in
       ? log.time_in.slice(0, 10)
       : log.date?.slice(0, 10)
@@ -354,7 +404,9 @@ function groupLogsByDate(logs: TimeLog[]) {
   })
 }
 
-// Add this utility function near the bottom of the file (before or after groupLogsByDate)
+/**
+ * Format a date string as MM/DD/YYYY
+ */
 function formatLogDate(date: string) {
   if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return "N/A"
   const d = new Date(date)

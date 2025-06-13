@@ -16,10 +16,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // --- NEW: Read date from request body ---
-    const body = await request.json()
-    const date = body?.date
-
     const result = await clockIn(String(userId))
 
     if (!result.success) {

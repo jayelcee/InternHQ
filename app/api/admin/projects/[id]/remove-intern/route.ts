@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
-import { removeInternFromProject } from "@/lib/data-access"
+// import { removeInternFromProject } from "@/lib/data-access"
 
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -16,12 +16,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { internId } = await request.json()
-    const result = await removeInternFromProject(internId, params.id)
+    // const { internId } = await request.json()
+    // const result = await removeInternFromProject(internId, params.id)
 
-    if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
-    }
+    // if (!result.success) {
+    //   return NextResponse.json({ error: result.error }, { status: 400 })
+    // }
 
     return NextResponse.json({ success: true })
   } catch (error) {
