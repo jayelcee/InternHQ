@@ -68,35 +68,6 @@ function getTodayString() {
 }
 
 /**
- * Utility: Sum all completed logs for today for a given intern
- */
-function getTodayTotalDurationForIntern(logs: TimeLog[], internId: number) {
-  const today = getTodayString()
-  let totalMs = 0
-
-  logs.forEach((log) => {
-    if (
-      log.internId === internId &&
-      log.timeIn &&
-      log.date?.slice(0, 10) === today
-    ) {
-      const inDate = new Date(log.timeIn)
-      const outDate = log.timeOut ? new Date(log.timeOut) : null
-      if (outDate) {
-        totalMs += outDate.getTime() - inDate.getTime()
-      } else {
-        // Active session: add up to now
-        totalMs += new Date().getTime() - inDate.getTime()
-      }
-    }
-  })
-
-  const hours = Math.floor(totalMs / (1000 * 60 * 60))
-  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60))
-  return formatDurationHM(hours, minutes)
-}
-
-/**
  * Utility: Format duration as "Xh YYm"
  */
 function formatDurationHM(hours: number, minutes: number) {
@@ -152,7 +123,6 @@ export function HRAdminDashboard() {
 
   // --- Fetch interns and logs data ---
   useEffect(() => {
-    let interval: NodeJS.Timeout
     let isFirstLoad = true
 
     const fetchData = async () => {
@@ -161,12 +131,12 @@ export function HRAdminDashboard() {
       try {
         const internsRes = await fetch("/api/interns")
         if (!internsRes.ok) throw new Error("Failed to fetch interns")
-        const internsData = await internsRes.json()
+        const internsData: InternRecord[] = await internsRes.json()
 
         const logsRes = await fetch("/api/time-logs")
         if (!logsRes.ok) throw new Error("Failed to fetch time logs")
         const logsData = await logsRes.json()
-        const logsArray = Array.isArray(logsData) ? logsData : logsData.logs
+        const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
 
         // Calculate completedHours from logs for each intern
         function truncateTo2Decimals(val: number) {
@@ -186,19 +156,17 @@ export function HRAdminDashboard() {
         }
 
         // Map interns with their completed hours
-        const internsWithLogHours = internsData.map((intern: Record<string, unknown>) => {
+        const internsWithLogHours = internsData.map((intern) => {
           const internLogs = logsArray.filter(
-            (log: Record<string, unknown>) =>
-              (log.user_id === intern.id || log.internId === intern.id)
-              && log.status === "completed"
+            (log) => log.internId === intern.id
           )
           const completedHours = internLogs
-            .filter((log: Record<string, unknown>) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
-            .reduce((sum: number, log: Record<string, unknown>) => sum + getTruncatedDecimalHours(log as TimeLog), 0)
+            .filter((log) => log.timeIn && log.timeOut)
+            .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
           return {
             ...intern,
             internshipDetails: {
-              ...(intern as any).internshipDetails,
+              ...intern.internshipDetails,
               completedHours: Number(completedHours.toFixed(2)),
             },
           }
@@ -206,8 +174,8 @@ export function HRAdminDashboard() {
 
         setInterns(internsWithLogHours)
         setLogs(logsArray)
-      } catch (err: any) {
-        setError(err.message || "Failed to load dashboard data")
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to load dashboard data")
         setLogs([])
       } finally {
         if (isFirstLoad) setLoading(false)
@@ -216,7 +184,7 @@ export function HRAdminDashboard() {
     }
 
     fetchData()
-    interval = setInterval(fetchData, 30000) // Refresh every 30s
+    const interval = setInterval(fetchData, 30000) // Refresh every 30s
     return () => clearInterval(interval)
   }, [])
 
@@ -545,7 +513,7 @@ export function HRAdminDashboard() {
                     <TableRow>
                       <TableHead>Intern Details</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Today's Duration</TableHead>
+                      <TableHead>Today&apos;s Duration</TableHead>
                       <TableHead>Internship Progress</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
