@@ -530,15 +530,6 @@ export function InternDashboardContent() {
     return dates.size
   })()
 
-  // --- Render ---
-  if (!user || !internshipDetails) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <span className="text-gray-500">Loading your dashboard...</span>
-      </div>
-    )
-  }
-
   /**
    * Midnight rollover effect: If clocked in at midnight, auto time out and time in for new day.
    */
@@ -592,6 +583,13 @@ export function InternDashboardContent() {
   }, [isTimedIn, timeInTimestamp])
 
   // --- Render ---
+  if (!user || !internshipDetails) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <span className="text-gray-500">Loading your dashboard...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
