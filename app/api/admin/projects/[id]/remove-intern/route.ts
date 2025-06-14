@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 // import { removeInternFromProject } from "@/lib/data-access"
 
-export async function POST(request: NextRequest, { params: _params }: { params: { id: string } }) {
+export async function POST(request: NextRequest) {
   try {
     const token = request.cookies.get("auth-token")?.value
 

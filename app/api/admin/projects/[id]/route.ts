@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 // import { getProjectById, updateProject, deleteProject } from "@/lib/data-access"
 
-export async function GET(request: NextRequest, { params: _params }: { params: { id: string } }) {
+export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get("auth-token")?.value
 
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params: _params }: { params: {
   }
 }
 
-export async function PUT(request: NextRequest, { params: _params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest) {
   try {
     const token = request.cookies.get("auth-token")?.value
 
@@ -57,7 +57,7 @@ export async function PUT(request: NextRequest, { params: _params }: { params: {
   }
 }
 
-export async function DELETE(request: NextRequest, { params: _params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest) {
   try {
     const token = request.cookies.get("auth-token")?.value
 
