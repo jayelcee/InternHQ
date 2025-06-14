@@ -4,7 +4,7 @@ import { getUserWithDetails, deleteIntern } from "@/lib/data-access"
 
 export async function GET(
   request: NextRequest,
-  context: { params: Record<string, string | string[]> }
+  context: { params: { id: string } }
 ) {
   try {
     const token = request.cookies.get("auth-token")?.value
@@ -19,7 +19,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const id = Array.isArray(context.params.id) ? context.params.id[0] : context.params.id
+    const id = context.params.id
     const intern = await getUserWithDetails(id)
 
     if (!intern || intern.role !== "intern") {
@@ -35,7 +35,7 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: Record<string, string | string[]> }
+  context: { params: { id: string } }
 ) {
   try {
     const token = request.cookies.get("auth-token")?.value
@@ -50,7 +50,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const id = Array.isArray(context.params.id) ? context.params.id[0] : context.params.id
+    const id = context.params.id
     const result = await deleteIntern(id)
 
     if (!result.success) {
