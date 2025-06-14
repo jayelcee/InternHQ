@@ -16,9 +16,8 @@ export async function GET(request: NextRequest, context: { params: { id: string 
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Await params if required by your Next.js version/runtime
-    const params = await context.params
-    const intern = await getUserWithDetails(params.id)
+    const { id } = context.params
+    const intern = await getUserWithDetails(id)
 
     if (!intern || intern.role !== "intern") {
       return NextResponse.json({ error: "Intern not found" }, { status: 404 })
@@ -45,9 +44,8 @@ export async function DELETE(request: NextRequest, context: { params: { id: stri
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Await params if required by your Next.js version/runtime
-    const params = await context.params
-    const result = await deleteIntern(params.id)
+    const { id } = context.params
+    const result = await deleteIntern(id)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })
