@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { getUserWithDetails, deleteIntern } from "@/lib/data-access";
 
-// Correct handler signature for Next.js Route Handlers
 export async function GET(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const token = request.cookies.get("auth-token")?.value;
 
     if (!token) {
@@ -20,7 +20,6 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const id = context.params.id;
     const intern = await getUserWithDetails(id);
 
     if (!intern || intern.role !== "intern") {
@@ -36,9 +35,10 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const token = request.cookies.get("auth-token")?.value;
 
     if (!token) {
@@ -51,7 +51,6 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const id = context.params.id;
     const result = await deleteIntern(id);
 
     if (!result.success) {
