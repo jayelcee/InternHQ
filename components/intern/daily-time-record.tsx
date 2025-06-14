@@ -35,7 +35,7 @@ interface InternshipDetails {
   status?: string
 }
 
-interface Profile {
+interface UserShape {
   first_name?: string
   last_name?: string
   internship?: InternshipDetails
@@ -74,7 +74,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
   const [logs, setLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profile, setProfile] = useState<UserShape | null>(null)
 
   // Fetch logs for the intern
   useEffect(() => {
@@ -100,7 +100,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
               : ((log.time_in as string) ?? (log.timeIn as string) ?? "").slice(0, 10),
         }))
         setLogs(normalizedLogs)
-      } catch (err) {
+      } catch {
         setError("Failed to load logs")
       } finally {
         setLoading(false)
@@ -117,13 +117,14 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
           const res = await fetch(`/api/profile?userId=${internId}`)
           if (!res.ok) throw new Error("Failed to fetch profile")
           const data = await res.json()
-          setProfile(data as Profile)
+          setProfile(data as UserShape)
         } else if (user) {
           // Map user to Profile type for compatibility
+          const typedUser = user as UserShape
           setProfile({
-            first_name: (user as any).first_name ?? "",
-            last_name: (user as any).last_name ?? "",
-            internship: (user as any).internship ?? {
+            first_name: typedUser.first_name ?? "",
+            last_name: typedUser.last_name ?? "",
+            internship: typedUser.internship ?? {
               school: { name: "N/A" },
               department: { name: "N/A" },
               supervisor: "N/A",

@@ -213,7 +213,7 @@ export function InternDashboardContent() {
             )
           }
         }
-      } catch (e) {
+      } catch {
         // Fallback to localStorage if fetch fails
         const stored = localStorage.getItem("clockInState")
         if (stored) {
@@ -339,7 +339,7 @@ export function InternDashboardContent() {
       })
       if (!res.ok) throw new Error("Failed to clock in")
       await fetchLogs(false)
-    } catch (error) {
+    } catch {
       setIsTimedIn(false)
       setTimeInTimestamp(null)
       setActionLoading(false)
@@ -395,7 +395,7 @@ export function InternDashboardContent() {
       })
       if (!res.ok) throw new Error("Failed to clock out")
       await fetchLogs(false)
-    } catch (error) {
+    } catch {
       // Revert state if failed
       setIsTimedIn(true)
       setTimeInTimestamp(timeInTimestamp)
@@ -530,7 +530,7 @@ export function InternDashboardContent() {
     return dates.size
   })()
 
-  // Guard: Wait for user and internship to be loaded
+  // --- Render ---
   if (!user || !internshipDetails) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -564,7 +564,7 @@ export function InternDashboardContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ date: prevDayStr, time: prevDay.toISOString() }),
         })
-      } catch (e) {
+      } catch {
         // Optionally handle error (e.g., show notification)
       }
 
@@ -582,7 +582,7 @@ export function InternDashboardContent() {
         setTimeInTimestamp(newDay)
         setIsTimedIn(true)
         fetchLogs(false)
-      } catch (e) {
+      } catch {
         setIsTimedIn(false)
         setTimeInTimestamp(null)
       }
@@ -744,7 +744,7 @@ export function InternDashboardContent() {
         {/* Today's Duration Card */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Today's Progress</CardTitle>
+            <CardTitle className="text-lg">Today&apos;s Progress</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-center">
@@ -763,7 +763,7 @@ export function InternDashboardContent() {
       {/* Weekly Logs Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">This Week's Logs</CardTitle>
+          <CardTitle className="text-xl">This Week&apos;s Logs</CardTitle>
           <p className="text-sm text-gray-600">Your daily time records for the current week</p>
         </CardHeader>
         <CardContent>

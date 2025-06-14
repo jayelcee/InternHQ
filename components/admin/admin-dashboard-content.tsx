@@ -60,21 +60,6 @@ type TimeLog = {
 }
 
 /**
- * Utility: Get today's date as YYYY-MM-DD string
- */
-function getTodayString() {
-  const now = new Date()
-  return now.toISOString().split("T")[0]
-}
-
-/**
- * Utility: Format duration as "Xh YYm"
- */
-function formatDurationHM(hours: number, minutes: number) {
-  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
-}
-
-/**
  * Utility: Format log date as MM-DD-YYYY
  */
 function formatLogDate(dateString: string) {

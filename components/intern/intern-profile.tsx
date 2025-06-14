@@ -22,7 +22,9 @@ import { cn } from "@/lib/utils"
  */
 interface Supervisor {
   id: number
-  name: string
+  name?: string
+  first_name?: string
+  last_name?: string
 }
 
 interface ProfileData {
@@ -185,11 +187,11 @@ export function InternProfile({
     if (!isEditing) return
     fetch("/api/supervisors")
       .then(res => res.json())
-      .then((data: any[]) => {
+      .then((data: Supervisor[]) => {
         setSupervisors(
           data.map((sup) => ({
             id: sup.id,
-            name: `${sup.first_name} ${sup.last_name}`,
+            name: `${sup.first_name ?? ""} ${sup.last_name ?? ""}`.trim(),
           }))
         )
       })
@@ -623,7 +625,7 @@ export function InternProfile({
                         value={profileData.supervisorId?.toString() || ""}
                         onValueChange={value => {
                           const selected = supervisors.find(s => s.id.toString() === value)
-                          handleInputChange("supervisor", selected ? selected.name : "")
+                          handleInputChange("supervisor", selected?.name ?? "")
                           handleInputChange("supervisorId", value)
                         }}
                       >

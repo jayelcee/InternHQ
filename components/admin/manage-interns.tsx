@@ -51,6 +51,19 @@ interface Intern {
   }
 }
 
+type InternshipDetailsShape = {
+  requiredHours?: number
+  startDate?: string
+  endDate?: string
+}
+type InternshipShape = {
+  required_hours?: number
+  start_date?: string
+  end_date?: string
+  department?: { name?: string }
+  school?: { name?: string }
+}
+
 /**
  * ManageInternsDashboard
  * Admin dashboard for managing interns: add, delete, filter, and view profiles.
@@ -127,21 +140,27 @@ export function ManageInternsDashboard() {
           id: intern.id?.toString() ?? "",
           name: `${intern.first_name ?? ""} ${intern.last_name ?? ""}`.trim(),
           email: (intern.email as string) ?? "",
-          department: (intern.department as string) || (intern.internship as any)?.department?.name || "",
-          school: (intern.school as string) || (intern.internship as any)?.school?.name || "",
+          department:
+            (intern.department as string) ||
+            (intern.internship as InternshipShape)?.department?.name ||
+            "",
+          school:
+            (intern.school as string) ||
+            (intern.internship as InternshipShape)?.school?.name ||
+            "",
           internshipDetails: {
             requiredHours:
-              (intern.internshipDetails as any)?.requiredHours ||
-              (intern.internship as any)?.required_hours ||
+              (intern.internshipDetails as InternshipDetailsShape)?.requiredHours ||
+              (intern.internship as InternshipShape)?.required_hours ||
               0,
             completedHours: Number(completedHours.toFixed(2)),
             startDate:
-              (intern.internshipDetails as any)?.startDate ||
-              (intern.internship as any)?.start_date ||
+              (intern.internshipDetails as InternshipDetailsShape)?.startDate ||
+              (intern.internship as InternshipShape)?.start_date ||
               "",
             endDate:
-              (intern.internshipDetails as any)?.endDate ||
-              (intern.internship as any)?.end_date ||
+              (intern.internshipDetails as InternshipDetailsShape)?.endDate ||
+              (intern.internship as InternshipShape)?.end_date ||
               "",
           },
         }
