@@ -1,66 +1,66 @@
-import { type NextRequest, NextResponse } from "next/server"
-import { verifyToken } from "@/lib/auth"
-import { getUserWithDetails, deleteIntern } from "@/lib/data-access"
+import { NextRequest, NextResponse } from "next/server";
+import { verifyToken } from "@/lib/auth";
+import { getUserWithDetails, deleteIntern } from "@/lib/data-access";
 
 // Correct handler signature for Next.js Route Handlers
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    const token = request.cookies.get("auth-token")?.value
+    const token = request.cookies.get("auth-token")?.value;
 
     if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { valid, userId, role } = await verifyToken(token)
+    const { valid, userId, role } = await verifyToken(token);
 
     if (!valid || !userId || role !== "admin") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const id = params.id
-    const intern = await getUserWithDetails(id)
+    const id = context.params.id;
+    const intern = await getUserWithDetails(id);
 
     if (!intern || intern.role !== "intern") {
-      return NextResponse.json({ error: "Intern not found" }, { status: 404 })
+      return NextResponse.json({ error: "Intern not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ intern })
+    return NextResponse.json({ intern });
   } catch (error) {
-    console.error("Error fetching intern:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error fetching intern:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: { id: string } }
 ) {
   try {
-    const token = request.cookies.get("auth-token")?.value
+    const token = request.cookies.get("auth-token")?.value;
 
     if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { valid, userId, role } = await verifyToken(token)
+    const { valid, userId, role } = await verifyToken(token);
 
     if (!valid || !userId || role !== "admin") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const id = params.id
-    const result = await deleteIntern(id)
+    const id = context.params.id;
+    const result = await deleteIntern(id);
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error }, { status: 400 })
+      return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting intern:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    console.error("Error deleting intern:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
