@@ -116,7 +116,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 // --- Time Log Operations ---
 
 // Clock in for a user
-export async function clockIn(userId: string): Promise<{ success: boolean; error?: string }> {
+export async function clockIn(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
     const existing = await sql`
@@ -128,7 +128,7 @@ export async function clockIn(userId: string): Promise<{ success: boolean; error
     }
     await sql`
       INSERT INTO time_logs (user_id, time_in, status, created_at, updated_at)
-      VALUES (${userIdNum}, NOW(), 'pending', NOW(), NOW())
+      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', NOW(), NOW())
     `
     return { success: true }
   } catch (error) {
@@ -138,12 +138,12 @@ export async function clockIn(userId: string): Promise<{ success: boolean; error
 }
 
 // Clock out for a user
-export async function clockOut(userId: string): Promise<{ success: boolean; error?: string }> {
+export async function clockOut(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
     const res = await sql`
       UPDATE time_logs
-      SET time_out = NOW(), status = 'completed', updated_at = NOW()
+      SET time_out = ${time ?? sql`NOW()`}, status = 'completed', updated_at = NOW()
       WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL
       RETURNING *
     `

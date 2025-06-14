@@ -5,18 +5,18 @@ import { clockIn } from "@/lib/data-access"
 export async function POST(request: NextRequest) {
   try {
     const token = request.cookies.get("auth-token")?.value
-
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
     const { valid, userId, role } = await verifyToken(token)
-
     if (!valid || !userId || role !== "intern") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const result = await clockIn(String(userId))
+    const body = await request.json().catch(() => ({}))
+    const customTime = body?.time
+
+    const result = await clockIn(String(userId), customTime)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })
