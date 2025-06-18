@@ -301,13 +301,14 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                 // Extract date part from the group key (format: "internId-YYYY-MM-DD")
                 const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
 
-                // Calculate total hours worked for this date group
-                const hoursWorked = logsForDate
+                // Calculate total hours worked for this date group (limit to STANDARD_SHIFT_HOURS)
+                const rawHoursWorked = logsForDate
                   .filter(log => log.time_in && log.time_out)
                   .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+                const hoursWorked = Math.min(rawHoursWorked, STANDARD_SHIFT_HOURS)
 
                 // Calculate overtime for this date group
-                const overtime = Math.max(0, hoursWorked - STANDARD_SHIFT_HOURS)
+                const overtime = Math.max(0, rawHoursWorked - STANDARD_SHIFT_HOURS)
 
                 return (
                   <TableRow key={key}>
