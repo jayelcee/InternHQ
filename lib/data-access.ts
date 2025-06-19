@@ -593,7 +593,8 @@ export async function getAllInterns() {
 
 // Create a new intern, school, and department if needed
 export async function createIntern(data: {
-  name: string
+  firstName: string
+  lastName: string
   email: string
   password?: string
   school: string
@@ -603,9 +604,8 @@ export async function createIntern(data: {
   endDate: string
 }) {
   try {
-    // Split name into first and last
-    const [first_name, ...rest] = data.name.trim().split(" ")
-    const last_name = rest.join(" ") || ""
+    const first_name = data.firstName.trim()
+    const last_name = data.lastName.trim()
     const password = data.password || "intern123"
 
     // Check if user already exists

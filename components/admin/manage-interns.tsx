@@ -18,7 +18,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
-import { format } from "date-fns"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
@@ -79,14 +78,15 @@ export function ManageInternsDashboard() {
 
   // Form states for adding new intern
   const [newIntern, setNewIntern] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "intern123",
     school: "",
     department: "",
-    requiredHours: 480,
-    startDate: format(new Date(), "yyyy-MM-dd"),
-    endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
+    requiredHours: "",
+    startDate: "",
+    endDate: "",
   })
 
   /**
@@ -190,7 +190,7 @@ export function ManageInternsDashboard() {
   const handleAddIntern = async () => {
     try {
       setIsLoading(true)
-      if (!newIntern.name || !newIntern.email || !newIntern.school || !newIntern.department) {
+      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.department) {
         toast({
           title: "Error",
           description: "Please fill all required fields",
@@ -210,14 +210,15 @@ export function ManageInternsDashboard() {
       })
       setIsAddInternDialogOpen(false)
       setNewIntern({
-        name: "",
+        firstName: "",
+        lastName: "",
         email: "",
         password: "intern123",
         school: "",
         department: "",
-        requiredHours: 480,
-        startDate: format(new Date(), "yyyy-MM-dd"),
-        endDate: format(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), "yyyy-MM-dd"),
+        requiredHours: "",
+        startDate: "",
+        endDate: "",
       })
       fetchAll()
     } catch {
@@ -413,19 +414,31 @@ export function ManageInternsDashboard() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
+              <Label htmlFor="firstName" className="text-left">
+                First Name
               </Label>
               <Input
-                id="name"
-                value={newIntern.name}
-                onChange={(e) => setNewIntern({ ...newIntern, name: e.target.value })}
+                id="firstName"
+                value={newIntern.firstName}
+                onChange={(e) => setNewIntern({ ...newIntern, firstName: e.target.value })}
                 className="col-span-3"
-                placeholder="Full name"
+                placeholder="First name"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="email" className="text-right">
+              <Label htmlFor="lastName" className="text-left">
+                Last Name
+              </Label>
+              <Input
+                id="lastName"
+                value={newIntern.lastName}
+                onChange={(e) => setNewIntern({ ...newIntern, lastName: e.target.value })}
+                className="col-span-3"
+                placeholder="Last name"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="email" className="text-left">
                 Email
               </Label>
               <Input
@@ -438,7 +451,7 @@ export function ManageInternsDashboard() {
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="school" className="text-right">
+              <Label htmlFor="school" className="text-left">
                 School
               </Label>
               <Input
@@ -450,7 +463,7 @@ export function ManageInternsDashboard() {
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="department" className="text-right">
+              <Label htmlFor="department" className="text-left">
                 Department
               </Label>
               <Select
@@ -470,19 +483,21 @@ export function ManageInternsDashboard() {
               </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="requiredHours" className="text-right">
+              <Label htmlFor="requiredHours" className="text-left">
                 Required Hours
               </Label>
               <Input
                 id="requiredHours"
                 type="number"
                 value={newIntern.requiredHours}
-                onChange={(e) => setNewIntern({ ...newIntern, requiredHours: Number.parseInt(e.target.value) || 0 })}
+                onChange={(e) =>
+                  setNewIntern({ ...newIntern, requiredHours: e.target.value })
+                }
                 className="col-span-3"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="startDate" className="text-right">
+              <Label htmlFor="startDate" className="text-left">
                 Start Date
               </Label>
               <Input
@@ -494,7 +509,7 @@ export function ManageInternsDashboard() {
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="endDate" className="text-right">
+              <Label htmlFor="endDate" className="text-left">
                 End Date
               </Label>
               <Input
