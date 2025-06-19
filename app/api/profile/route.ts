@@ -45,14 +45,22 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { valid, userId } = await verifyToken(token)
+    const { valid, userId, role } = await verifyToken(token)
 
     if (!valid || !userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Support ?userId= for admin
+    const searchId = request.nextUrl.searchParams.get("userId") || userId
+
+    // Only allow admin to update other users' profiles
+    if (searchId !== userId && role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    }
+
     const profileData = await request.json()
-    const result = await updateUserProfile(String(userId), profileData)
+    const result = await updateUserProfile(String(searchId), profileData)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })

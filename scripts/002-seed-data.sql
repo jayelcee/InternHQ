@@ -4,98 +4,70 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 INSERT INTO users (email, password_hash, first_name, last_name, role)
 VALUES
     ('rhea.masiglat@cybersoftbpo.com', crypt('admin123', gen_salt('bf')), 'Rhea', 'Masiglat', 'admin'),
-    ('jasmine.camasura@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jasmine', 'Camasura', 'intern');
+    ('jasmine.camasura@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jasmine', 'Camasura', 'intern'),
+    ('giro.manzano@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Giro', 'Manzano', 'intern'),
+    ('jireh.sodsod@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jireh Walter', 'Sodsod', 'intern');
 
 -- Insert supervisor
 INSERT INTO supervisors (email, first_name, last_name)
-VALUES ('carlo.lagrama@cybersoftbpo.com', 'Carlo', 'Lagrama');
+VALUES ('carlo.lagrama@cybersoftbpo.com', 'Carlo', 'Lagrama')
+ON CONFLICT (email) DO NOTHING;
 
--- Seed school, department, internship, and profile
+-- Seed school, department, and internship for FEU Institute of Technology
 WITH
-    admin_user AS (
-        SELECT id FROM users WHERE email = 'rhea.masiglat@cybersoftbpo.com'
-    ),
-    intern_user AS (
-        SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com'
-    ),
     supervisor_row AS (
         SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'
     ),
     school_insert AS (
-        INSERT INTO schools (name, address, contact_email, contact_phone)
-        VALUES (
-            'FEU Institute of Technology',
-            'P. Paredes St., Sampaloc, Manila 1015, Philippines',
-            'feutech@fit.edu.ph',
-            '+1234567890'
-        )
+        INSERT INTO schools (name)
+        VALUES ('FEU Institute of Technology')
+        ON CONFLICT (name) DO NOTHING
         RETURNING id
     ),
     department_insert AS (
-        INSERT INTO departments (name, description, supervisor_id)
-        SELECT
-            'MIS',
-            'Interns work on full-stack projects.',
-            supervisor_row.id
-        FROM supervisor_row
+        INSERT INTO departments (name, supervisor_id)
+        SELECT 'MIS', supervisor_row.id FROM supervisor_row
+        ON CONFLICT (name) DO NOTHING
         RETURNING id
-    ),
-    internship_insert AS (
-        INSERT INTO internship_programs (
-            user_id, school_id, department_id, required_hours,
-            start_date, end_date, supervisor_id
-        )
-        SELECT
-            intern_user.id,
-            school_insert.id,
-            department_insert.id,
-            520,
-            '2025-04-24',
-            '2025-07-18',
-            supervisor_row.id
-        FROM intern_user, school_insert, department_insert, supervisor_row
-    ),
-    user_profile_insert AS (
-        INSERT INTO user_profiles (
-            user_id, phone, address, city, country, zip_code,
-            date_of_birth, bio, degree, gpa,
-            graduation_date, skills, interests, languages,
-            emergency_contact_name, emergency_contact_relation, emergency_contact_phone
-        )
-        SELECT
-            intern_user.id,
-            '+19876543210',
-            '861 Padre Campa St, Sampaloc, Manila',
-            'Metro Manila',
-            'Philippines',
-            '1008',
-            '2001-12-03',
-            'Motivated intern eager to learn and contribute.',
-            'BS Computer Science - Software Engineering',
-            3.81,
-            '2025-11-04',
-            ARRAY['React', 'Node.js', 'PostgreSQL'],
-            ARRAY['Web Dev', 'Machine Learning'],
-            ARRAY['English', 'Tagalog'],
-            'Marife Camasura',
-            'Mother',
-            '+11234567890'
-        FROM intern_user
     )
-SELECT 'Seed data inserted.';
+SELECT 'School and department seeded';
 
--- Insert time logs for Jasmine Camasura
-INSERT INTO time_logs (
-    user_id, time_in, time_out, task, status
-)
+-- Seed school for University of Caloocan
+INSERT INTO schools (name)
+VALUES ('University of Caloocan')
+ON CONFLICT (name) DO NOTHING;
+
+-- Internships
+INSERT INTO internship_programs (user_id, school_id, department_id, required_hours, start_date, end_date, supervisor_id)
+SELECT u.id, s.id, d.id, 520, '2025-04-23', '2025-07-18', d.supervisor_id
+FROM users u
+JOIN schools s ON s.name = 'FEU Institute of Technology'
+JOIN departments d ON d.name = 'MIS'
+WHERE u.email = 'giro.manzano@cybersoftbpo.com';
+
+INSERT INTO internship_programs (user_id, school_id, department_id, required_hours, start_date, end_date, supervisor_id)
+SELECT u.id, s.id, d.id, 520, '2025-04-24', '2025-07-18', d.supervisor_id
+FROM users u
+JOIN schools s ON s.name = 'FEU Institute of Technology'
+JOIN departments d ON d.name = 'MIS'
+WHERE u.email = 'jasmine.camasura@cybersoftbpo.com';
+
+INSERT INTO internship_programs (user_id, school_id, department_id, required_hours, start_date, end_date, supervisor_id)
+SELECT u.id, s.id, d.id, 480, '2025-05-01', '2025-07-25', d.supervisor_id
+FROM users u
+JOIN schools s ON s.name = 'University of Caloocan'
+JOIN departments d ON d.name = 'MIS'
+WHERE u.email = 'jireh.sodsod@cybersoftbpo.com';
+
+-- Jasmine Camasura time logs
+INSERT INTO time_logs (user_id, time_in, time_out, status)
 SELECT
-    iu.id,
-    (d::date || ' ' || t_in)::timestamp,
-    (d::date || ' ' || t_out)::timestamp,
-    'Internship work',
+    u.id,
+    (d::date || ' ' || t_in)::timestamptz,
+    (d::date || ' ' || t_out)::timestamptz,
     'completed'
 FROM
-    (SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com') iu,
+    (SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com') u,
     (VALUES
         ('2025-04-24', '09:00:00', '18:00:00'),
         ('2025-04-25', '09:00:00', '18:00:00'),
@@ -133,5 +105,107 @@ FROM
         ('2025-06-09', '09:00:00', '21:01:00'),
         ('2025-06-10', '09:00:00', '21:00:00'),
         ('2025-06-11', '09:00:00', '18:37:00'),
-        ('2025-06-12', '09:00:00', '18:33:00')
+        ('2025-06-12', '09:00:00', '18:33:00'),
+        ('2025-06-13', '09:00:00', '21:12:00'),
+        ('2025-06-16', '09:04:00', '20:11:00'),
+        ('2025-06-17', '09:00:00', '21:00:00'),
+        ('2025-06-18', '09:01:00', '18:10:00')
+    ) AS logs(d, t_in, t_out);
+
+-- Giro Manzano time logs
+INSERT INTO time_logs (user_id, time_in, time_out, status)
+SELECT
+    u.id,
+    (d::date || ' ' || t_in)::timestamptz,
+    (d::date || ' ' || t_out)::timestamptz,
+    'completed'
+FROM
+    (SELECT id FROM users WHERE email = 'giro.manzano@cybersoftbpo.com') u,
+    (VALUES
+        ('2025-04-23', '11:43:00', '22:33:00'),
+        ('2025-04-24', '11:53:00', '22:00:00'),
+        ('2025-04-25', '13:01:00', '22:40:00'),
+        ('2025-04-28', '11:00:00', '23:08:00'),
+        ('2025-04-29', '12:51:00', '03:18:00'),
+        ('2025-04-30', '11:24:00', '23:34:00'),
+        ('2025-05-02', '12:47:00', '21:29:00'),
+        ('2025-05-05', '09:47:00', '21:43:00'),
+        ('2025-05-06', '12:51:00', '21:41:00'),
+        ('2025-05-07', '10:55:00', '22:28:00'),
+        ('2025-05-08', '12:48:00', '22:29:00'),
+        ('2025-05-09', '13:01:00', '23:12:00'),
+        ('2025-05-13', '12:44:00', '23:22:00'),
+        ('2025-05-14', '09:53:00', '01:07:00'),
+        ('2025-05-15', '12:30:00', '23:32:00'),
+        ('2025-05-16', '12:41:00', '23:37:00'),
+        ('2025-05-19', '10:14:00', '20:20:00'),
+        ('2025-05-20', '12:41:00', '01:00:00'),
+        ('2025-05-21', '09:59:00', '21:01:00'),
+        ('2025-05-22', '12:56:00', '01:33:00'),
+        ('2025-05-23', '13:00:00', '22:00:00'),
+        ('2025-05-26', '13:00:00', '22:00:00'),
+        ('2025-05-27', '13:00:00', '22:00:00'),
+        ('2025-05-28', '13:00:00', '23:00:00'),
+        ('2025-05-29', '13:00:00', '23:00:00'),
+        ('2025-05-30', '13:00:00', '23:00:00'),
+        ('2025-06-02', '13:00:00', '23:00:00'),
+        ('2025-06-03', '13:00:00', '23:00:00'),
+        ('2025-06-04', '13:00:00', '23:00:00'),
+        ('2025-06-05', '13:00:00', '23:00:00'),
+        ('2025-06-06', '13:00:00', '23:00:00'),
+        ('2025-06-09', '13:00:00', '23:00:00'),
+        ('2025-06-10', '13:00:00', '23:00:00'),
+        ('2025-06-11', '13:00:00', '23:00:00'),
+        ('2025-06-12', '13:00:00', '23:00:00'),
+        ('2025-06-13', '13:00:00', '23:00:00'),
+        ('2025-06-16', '13:00:00', '23:00:00'),
+        ('2025-06-17', '13:00:00', '23:00:00'),
+        ('2025-06-18', '13:00:00', '23:00:00')
+    ) AS logs(d, t_in, t_out);
+
+-- Jireh Walter Sodsod time logs
+INSERT INTO time_logs (user_id, time_in, time_out, status)
+SELECT
+    u.id,
+    (d::date || ' ' || t_in)::timestamptz,
+    (d::date || ' ' || t_out)::timestamptz,
+    'completed'
+FROM
+    (SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com') u,
+    (VALUES
+        ('2025-05-01', '09:05:00', '18:10:00'),
+        ('2025-05-02', '09:00:00', '18:15:00'),
+        ('2025-05-05', '09:10:00', '18:05:00'),
+        ('2025-05-06', '09:00:00', '18:00:00'),
+        ('2025-05-07', '09:03:00', '18:20:00'),
+        ('2025-05-08', '09:00:00', '18:10:00'),
+        ('2025-05-09', '09:00:00', '18:00:00'),
+        ('2025-05-12', '09:00:00', '18:00:00'),
+        ('2025-05-13', '09:00:00', '18:00:00'),
+        ('2025-05-14', '09:00:00', '18:00:00'),
+        ('2025-05-15', '09:00:00', '21:00:00'),
+        ('2025-05-16', '09:00:00', '18:00:00'),
+        ('2025-05-19', '09:00:00', '18:00:00'),
+        ('2025-05-20', '09:00:00', '18:00:00'),
+        ('2025-05-21', '09:00:00', '18:00:00'),
+        ('2025-05-22', '09:00:00', '18:00:00'),
+        ('2025-05-23', '09:00:00', '18:00:00'),
+        ('2025-05-26', '09:00:00', '18:00:00'),
+        ('2025-05-27', '09:00:00', '18:00:00'),
+        ('2025-05-28', '09:00:00', '18:00:00'),
+        ('2025-05-29', '09:00:00', '18:00:00'),
+        ('2025-05-30', '09:00:00', '18:00:00'),
+        ('2025-06-02', '09:00:00', '18:00:00'),
+        ('2025-06-03', '09:00:00', '18:00:00'),
+        ('2025-06-04', '09:00:00', '18:00:00'),
+        ('2025-06-05', '09:00:00', '21:00:00'),
+        ('2025-06-06', '09:00:00', '18:00:00'),
+        ('2025-06-09', '09:00:00', '18:00:00'),
+        ('2025-06-10', '09:00:00', '18:00:00'),
+        ('2025-06-11', '09:00:00', '18:00:00'),
+        ('2025-06-12', '09:00:00', '18:00:00'),
+        ('2025-06-13', '09:00:00', '18:00:00'),
+        ('2025-06-16', '09:00:00', '18:00:00'),
+        ('2025-06-17', '09:00:00', '18:00:00'),
+        ('2025-06-18', '09:00:00', '18:00:00')
     ) AS logs(d, t_in, t_out);
