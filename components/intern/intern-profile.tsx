@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -252,18 +251,6 @@ export function InternProfile({
         ? {
             ...prev,
             [field]: value,
-          }
-        : prev
-    )
-  }
-
-  // Handle calendar date changes
-  const handleCalendarChange = (field: keyof ProfileData, date: Date | undefined) => {
-    setProfileData((prev) =>
-      prev
-        ? {
-            ...prev,
-            [field]: date ? format(date, "yyyy-MM-dd") : "",
           }
         : prev
     )
