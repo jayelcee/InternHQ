@@ -11,8 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -198,6 +197,13 @@ export function InternProfile({
       .catch(() => setSupervisors([]))
   }, [isEditing])
 
+  // Helper for formatting date input value as yyyy-MM-dd or empty string
+  const getDateInputValue = (dateString: string) => {
+    if (!dateString) return ""
+    const date = parseISO(dateString)
+    return isValid(date) ? format(date, "yyyy-MM-dd") : ""
+  }
+
   // Helper for truncating to 2 decimals
   function truncateTo2Decimals(val: number): string {
     const [int, dec = ""] = val.toString().split(".")
@@ -245,18 +251,6 @@ export function InternProfile({
         ? {
             ...prev,
             [field]: value,
-          }
-        : prev
-    )
-  }
-
-  // Handle calendar date changes
-  const handleCalendarChange = (field: keyof ProfileData, date: Date | undefined) => {
-    setProfileData((prev) =>
-      prev
-        ? {
-            ...prev,
-            [field]: date ? format(date, "yyyy-MM-dd") : "",
           }
         : prev
     )
@@ -482,39 +476,30 @@ export function InternProfile({
                 </div>
                 <div className="space-y-2">
                   <Label>Date of Birth</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !isEditing && "pointer-events-none opacity-50",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {safeFormat(profileData.dateOfBirth)}
-                      </Button>
-                    </PopoverTrigger>
-                    {isEditing && (
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={
-                            profileData.dateOfBirth && isValid(parseISO(profileData.dateOfBirth))
-                              ? parseISO(profileData.dateOfBirth)
-                              : undefined
-                          }
-                          onSelect={date =>
-                            handleCalendarChange(
-                              "dateOfBirth",
-                              date
-                            )
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    )}
-                  </Popover>
+                  {isEditing ? (
+                    <Input
+                      type="date"
+                      value={getDateInputValue(profileData.dateOfBirth)}
+                      onChange={e => handleInputChange("dateOfBirth", e.target.value)}
+                      disabled={!isEditing}
+                      className="w-full"
+                    />
+                  ) : (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !isEditing && "pointer-events-none opacity-50",
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {safeFormat(profileData.dateOfBirth)}
+                        </Button>
+                      </PopoverTrigger>
+                    </Popover>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
@@ -573,34 +558,29 @@ export function InternProfile({
                 </div>
                 <div className="space-y-2">
                   <Label>Expected Graduation</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className={cn(
-                          "w-full justify-start text-left font-normal",
-                          !isEditing && "pointer-events-none opacity-50",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {safeFormat(profileData.graduationDate)}
-                      </Button>
-                    </PopoverTrigger>
-                    {isEditing && (
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={
-                            profileData.graduationDate && isValid(parseISO(profileData.graduationDate))
-                              ? parseISO(profileData.graduationDate)
-                              : undefined
-                          }
-                          onSelect={date => handleCalendarChange("graduationDate", date)}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    )}
-                  </Popover>
+                  {isEditing ? (
+                    <Input
+                      type="date"
+                      value={getDateInputValue(profileData.graduationDate)}
+                      onChange={e => handleInputChange("graduationDate", e.target.value)}
+                      className="w-full"
+                    />
+                  ) : (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !isEditing && "pointer-events-none opacity-50",
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {safeFormat(profileData.graduationDate)}
+                        </Button>
+                      </PopoverTrigger>
+                    </Popover>
+                  )}
                 </div>
               </div>
 
@@ -651,76 +631,56 @@ export function InternProfile({
                   </div>
                   <div className="space-y-2">
                     <Label>Start Date</Label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !isEditing && "pointer-events-none opacity-50",
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {safeFormat(profileData.startDate)}
-                        </Button>
-                      </PopoverTrigger>
-                      {isEditing && (
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={
-                              profileData.startDate && isValid(parseISO(profileData.startDate))
-                                ? parseISO(profileData.startDate)
-                                : undefined
-                            }
-                            onSelect={date =>
-                              handleCalendarChange(
-                                "startDate",
-                                date
-                              )
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      )}
-                    </Popover>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={getDateInputValue(profileData.startDate)}
+                        onChange={e => handleInputChange("startDate", e.target.value)}
+                        className="w-full"
+                      />
+                    ) : (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              "w-full justify-start text-left font-normal",
+                              !isEditing && "pointer-events-none opacity-50",
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {safeFormat(profileData.startDate)}
+                          </Button>
+                        </PopoverTrigger>
+                      </Popover>
+                    )}
                   </div>
-                  <div className="space-y-2">
+                    <div className="space-y-2">
                     <Label>End Date</Label>
-                    <Popover>
+                    {isEditing ? (
+                      <Input
+                      type="date"
+                      value={getDateInputValue(profileData.endDate)}
+                      onChange={e => handleInputChange("endDate", e.target.value)}
+                      className="w-full"
+                      />
+                    ) : (
+                      <Popover>
                       <PopoverTrigger asChild>
                         <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !isEditing && "pointer-events-none opacity-50",
-                          )}
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !isEditing && "pointer-events-none opacity-50",
+                        )}
                         >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {safeFormat(profileData.endDate)}
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {safeFormat(profileData.endDate)}
                         </Button>
                       </PopoverTrigger>
-                      {isEditing && (
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={
-                              profileData.endDate && isValid(parseISO(profileData.endDate))
-                                ? parseISO(profileData.endDate)
-                                : undefined
-                            }
-                            onSelect={date =>
-                              handleCalendarChange(
-                                "endDate",
-                                date
-                              )
-                            }
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      )}
-                    </Popover>
-                  </div>
+                      </Popover>
+                    )}
+                    </div>
                   <div className="space-y-2">
                     <Label htmlFor="requiredHours">Required Hours</Label>
                     <Input
