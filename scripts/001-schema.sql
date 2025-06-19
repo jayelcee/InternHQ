@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- SCHOOLS TABLE
 CREATE TABLE IF NOT EXISTS schools (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL UNIQUE,
     address TEXT,
     contact_email VARCHAR(255),
     contact_phone VARCHAR(50),
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS supervisors (
 -- DEPARTMENTS TABLE
 CREATE TABLE IF NOT EXISTS departments (
     id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL UNIQUE, -- add UNIQUE
     description TEXT,
     supervisor_id INTEGER REFERENCES supervisors(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -59,7 +59,6 @@ CREATE TABLE IF NOT EXISTS time_logs (
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     time_in TIMESTAMP WITH TIME ZONE,
     time_out TIMESTAMP WITH TIME ZONE,
-    task TEXT,
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

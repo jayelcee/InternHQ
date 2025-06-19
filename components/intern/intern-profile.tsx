@@ -268,7 +268,7 @@ export function InternProfile({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/profile", {
+      const res = await fetch(`/api/profile${internId ? `?userId=${internId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profileData),

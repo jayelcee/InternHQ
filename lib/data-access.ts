@@ -281,9 +281,9 @@ export async function updateUserProfile(
     degree?: string
     gpa?: number | string
     graduationDate?: string | Date
-    skills?: string
-    interests?: string
-    languages?: string
+    skills?: string[] // <-- should be array
+    interests?: string[]
+    languages?: string[]
     emergencyContactName?: string
     emergencyContactRelation?: string
     emergencyContactPhone?: string
@@ -303,13 +303,47 @@ export async function updateUserProfile(
       return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10)
     }
 
+    // Fetch current user to compare email
+    const currentUserRes = await sql`SELECT email FROM users WHERE id = ${userIdNum}`
+    if (currentUserRes.length === 0) {
+      return { success: false, error: "User not found" }
+    }
+    const currentEmail = currentUserRes[0].email
+
+    // Only update email if it has changed
+    if (profileData.email && profileData.email !== currentEmail) {
+      // Check if new email already exists for another user
+      const emailExists = await sql`SELECT id FROM users WHERE email = ${profileData.email} AND id != ${userIdNum}`
+      if (emailExists.length > 0) {
+        return { success: false, error: "Email already exists" }
+      }
+      await sql`
+        UPDATE users
+        SET first_name = ${profileData.firstName},
+            last_name = ${profileData.lastName},
+            email = ${profileData.email},
+            updated_at = NOW()
+        WHERE id = ${userIdNum}
+      `
+    } else {
+      await sql`
+        UPDATE users
+        SET first_name = ${profileData.firstName},
+            last_name = ${profileData.lastName},
+            updated_at = NOW()
+        WHERE id = ${userIdNum}
+      `
+    }
+
+    // Convert arrays to Postgres arrays
+    const toPgArray = (val: unknown) =>
+      Array.isArray(val) ? val : typeof val === "string" && val ? [val] : []
+
+    // Ensure user_profiles row exists (atomic upsert)
     await sql`
-      UPDATE users
-      SET first_name = ${profileData.firstName},
-          last_name = ${profileData.lastName},
-          email = ${profileData.email},
-          updated_at = NOW()
-      WHERE id = ${userIdNum}
+      INSERT INTO user_profiles (user_id)
+      VALUES (${userIdNum})
+      ON CONFLICT (user_id) DO NOTHING
     `
 
     await sql`
@@ -325,9 +359,9 @@ export async function updateUserProfile(
         degree = ${profileData.degree ?? ""},
         gpa = ${profileData.gpa !== undefined && profileData.gpa !== null ? Number(profileData.gpa) : null},
         graduation_date = ${toDateString(profileData.graduationDate)},
-        skills = ${profileData.skills ?? ""},
-        interests = ${profileData.interests ?? ""},
-        languages = ${profileData.languages ?? ""},
+        skills = ${toPgArray(profileData.skills)},
+        interests = ${toPgArray(profileData.interests)},
+        languages = ${toPgArray(profileData.languages)},
         emergency_contact_name = ${profileData.emergencyContactName ?? ""},
         emergency_contact_relation = ${profileData.emergencyContactRelation ?? ""},
         emergency_contact_phone = ${profileData.emergencyContactPhone ?? ""},
@@ -550,7 +584,7 @@ export async function getAllInterns() {
         endDate: row.end_date ? row.end_date.toISOString().slice(0, 10) : "",
       }
     }
-  }))
+}))
 
   return interns
 }
