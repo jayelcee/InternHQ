@@ -79,7 +79,8 @@ export function ManageInternsDashboard() {
 
   // Form states for adding new intern
   const [newIntern, setNewIntern] = useState({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "intern123",
     school: "",
@@ -190,7 +191,7 @@ export function ManageInternsDashboard() {
   const handleAddIntern = async () => {
     try {
       setIsLoading(true)
-      if (!newIntern.name || !newIntern.email || !newIntern.school || !newIntern.department) {
+      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.department) {
         toast({
           title: "Error",
           description: "Please fill all required fields",
@@ -210,7 +211,8 @@ export function ManageInternsDashboard() {
       })
       setIsAddInternDialogOpen(false)
       setNewIntern({
-        name: "",
+        firstName: "",
+        lastName: "",
         email: "",
         password: "intern123",
         school: "",
@@ -413,15 +415,27 @@ export function ManageInternsDashboard() {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
-                Name
+              <Label htmlFor="firstName" className="text-right">
+                First Name
               </Label>
               <Input
-                id="name"
-                value={newIntern.name}
-                onChange={(e) => setNewIntern({ ...newIntern, name: e.target.value })}
+                id="firstName"
+                value={newIntern.firstName}
+                onChange={(e) => setNewIntern({ ...newIntern, firstName: e.target.value })}
                 className="col-span-3"
-                placeholder="Full name"
+                placeholder="First name"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="lastName" className="text-right">
+                Last Name
+              </Label>
+              <Input
+                id="lastName"
+                value={newIntern.lastName}
+                onChange={(e) => setNewIntern({ ...newIntern, lastName: e.target.value })}
+                className="col-span-3"
+                placeholder="Last name"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
