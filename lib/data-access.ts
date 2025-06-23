@@ -182,13 +182,13 @@ export async function getTimeLogsForUser(userId: string, logType: "regular" | "o
 }
 
 // Get today's time log for a user
-export async function getTodayTimeLog(userId: string): Promise<TimeLog | null> {
+export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" = "regular"): Promise<TimeLog | null> {
   try {
     const userIdNum = Number(userId)
     const today = new Date().toISOString().split("T")[0]
     const res = await sql`
       SELECT * FROM time_logs
-      WHERE user_id = ${userIdNum} AND time_in::date = ${today}
+      WHERE user_id = ${userIdNum} AND time_in::date = ${today} AND log_type = ${logType}
       ORDER BY time_in DESC
       LIMIT 1
     `

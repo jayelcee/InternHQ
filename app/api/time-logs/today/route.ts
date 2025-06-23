@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const logTypeParam = request.nextUrl.searchParams.get("logType")
     const logType = logTypeParam === "overtime" ? "overtime" : "regular"
 
-    const timeLog = await getTodayTimeLog(String(userId))
+    const timeLog = await getTodayTimeLog(String(userId), logType)
 
     return NextResponse.json({ timeLog })
   } catch (error) {
