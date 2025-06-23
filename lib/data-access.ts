@@ -116,19 +116,19 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 // --- Time Log Operations ---
 
 // Clock in for a user
-export async function clockIn(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
+export async function clockIn(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
     const existing = await sql`
       SELECT * FROM time_logs
-      WHERE user_id = ${userIdNum} AND status = 'pending'
+      WHERE user_id = ${userIdNum} AND status = 'pending' AND log_type = ${logType}
     `
     if (existing.length > 0) {
-      return { success: false, error: "You are already clocked in. Please clock out before clocking in again." }
+      return { success: false, error: `You are already clocked in for ${logType}. Please clock out before clocking in again.` }
     }
     await sql`
-      INSERT INTO time_logs (user_id, time_in, status, created_at, updated_at)
-      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', NOW(), NOW())
+      INSERT INTO time_logs (user_id, time_in, status, log_type, created_at, updated_at)
+      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', ${logType}, NOW(), NOW())
     `
     return { success: true }
   } catch (error) {
@@ -138,17 +138,17 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
 }
 
 // Clock out for a user
-export async function clockOut(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
+export async function clockOut(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
     const res = await sql`
       UPDATE time_logs
       SET time_out = ${time ?? sql`NOW()`}, status = 'completed', updated_at = NOW()
-      WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL
+      WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL AND log_type = ${logType}
       RETURNING *
     `
     if (res.length === 0) {
-      return { success: false, error: "No active clock-in found" }
+      return { success: false, error: `No active ${logType} clock-in found` }
     }
     return { success: true }
   } catch (error) {
@@ -158,22 +158,20 @@ export async function clockOut(userId: string, time?: string): Promise<{ success
 }
 
 // Get all time logs for a user
-export async function getTimeLogsForUser(userId: string): Promise<TimeLog[]> {
+export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | null = null): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
-    const res = await sql`
-      SELECT * FROM time_logs
-      WHERE user_id = ${userIdNum}
-      ORDER BY time_in DESC
-    `
+    const res = logType
+      ? await sql`SELECT * FROM time_logs WHERE user_id = ${userIdNum} AND log_type = ${logType} ORDER BY time_in DESC`
+      : await sql`SELECT * FROM time_logs WHERE user_id = ${userIdNum} ORDER BY time_in DESC`
     return res.map(row => ({
       id: row.id,
       user_id: row.user_id,
       time_in: row.time_in,
       time_out: row.time_out,
-      break_duration: row.break_duration,
       notes: row.notes,
       status: row.status,
+      log_type: row.log_type,
       created_at: row.created_at,
       updated_at: row.updated_at,
     })) as TimeLog[]
