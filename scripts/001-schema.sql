@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS time_logs (
     time_out TIMESTAMP WITH TIME ZONE,
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    log_type VARCHAR(20) DEFAULT 'regular' CHECK (log_type IN ('regular', 'overtime'))
 );
 
 -- Only one active (pending) log per user at a time (optional, recommended)
@@ -121,6 +122,7 @@ CREATE TABLE IF NOT EXISTS intern_project_assignments (
 -- INDEXES
 CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON time_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_time_logs_status ON time_logs(status);
+CREATE INDEX IF NOT EXISTS idx_time_logs_log_type ON time_logs(log_type);
 CREATE INDEX IF NOT EXISTS idx_internship_programs_user_id ON internship_programs(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);

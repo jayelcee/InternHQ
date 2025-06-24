@@ -15,8 +15,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}))
     const customTime = body?.time
+    const logType = body?.logType === "overtime" ? "overtime" : "regular"
 
-    const result = await clockIn(String(userId), customTime)
+    const result = await clockIn(String(userId), customTime, logType)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })

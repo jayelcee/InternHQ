@@ -20,13 +20,11 @@ interface TimeLog {
   status: "pending" | "completed"
   hoursWorked: number
   duration: string | null
+  log_type?: "regular" | "overtime"
 }
 
 const REQUIRED_HOURS_PER_DAY = 9
 
-/**
- * Returns the start (Monday) and end (Sunday) of the current week.
- */
 function getWeekRange(date = new Date()) {
   const day = date.getDay()
   const diffToMonday = (day === 0 ? -6 : 1) - day
@@ -39,9 +37,6 @@ function getWeekRange(date = new Date()) {
   return { monday, sunday }
 }
 
-/**
- * Returns today's date as YYYY-MM-DD.
- */
 function getTodayString() {
   const now = new Date()
   const year = now.getFullYear()
@@ -50,55 +45,27 @@ function getTodayString() {
   return `${year}-${month}-${day}`
 }
 
-/**
- * Sums durations for all logs today and adds current session if active.
- */
-function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null) {
-  const today = getTodayString()
-  let totalMs = 0
-
-  logs.forEach((log) => {
-    if (log.time_in && log.time_in.slice(0, 10) === today) {
-      const inDate = new Date(log.time_in)
-      const outDate = log.time_out ? new Date(log.time_out) : null
-      if (outDate) {
-        totalMs += outDate.getTime() - inDate.getTime()
-      }
-    }
-  })
-
-  // Add current active session if any
-  if (isTimedIn && timeInTimestamp) {
-    totalMs += new Date().getTime() - timeInTimestamp.getTime()
-  }
-
-  const hours = Math.floor(totalMs / (1000 * 60 * 60))
-  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60))
-  return formatDuration(hours, minutes)
-}
-
-/**
- * Truncates a decimal number to 2 decimals as string.
- */
 function truncateTo2Decimals(val: number) {
   const [int, dec = ""] = val.toString().split(".")
   return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
 }
 
-/**
- * Formats duration as "Xh YYm".
- */
 function formatDuration(hours: number, minutes: number) {
   return `${hours}h ${minutes.toString().padStart(2, "0")}m`
 }
 
-/**
- * Groups logs by date for weekly logs table.
- */
+function getLocalDateString(dateStr: string) {
+  const d = new Date(dateStr)
+  return d.getFullYear() + "-" +
+    String(d.getMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getDate()).padStart(2, "0")
+}
+
+// Update groupLogsByDate to use local date
 function groupLogsByDate(logs: TimeLog[]) {
   const map = new Map<string, TimeLog[]>()
   logs.forEach(log => {
-    const dateKey = log.time_in ? log.time_in.slice(0, 10) : undefined
+    const dateKey = log.time_in ? getLocalDateString(log.time_in) : undefined
     if (!dateKey) return
     if (!map.has(dateKey)) map.set(dateKey, [])
     map.get(dateKey)!.push(log)
@@ -109,58 +76,90 @@ function groupLogsByDate(logs: TimeLog[]) {
   return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
 }
 
-/**
- * Main Intern Dashboard Content component.
- */
+// Accurate duration and hours calculation
+function getLogDuration(log: TimeLog) {
+  if (log.time_in && log.time_out) {
+    const inDate = new Date(log.time_in)
+    const outDate = new Date(log.time_out)
+    const diffMs = outDate.getTime() - inDate.getTime()
+    const hours = Math.floor(diffMs / (1000 * 60 * 60))
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+    const decimal = diffMs / (1000 * 60 * 60)
+    return {
+      duration: formatDuration(hours, minutes),
+      decimal: truncateTo2Decimals(decimal),
+    }
+  }
+  return null
+}
+
+// --- Accurate today's duration (for regular logs only) ---
+function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date) {
+  const today = getLocalDateString(new Date().toISOString())
+  let totalMs = 0
+
+  logs.forEach((log) => {
+    if (
+      log.time_in &&
+      getLocalDateString(log.time_in) === today &&
+      (log.log_type === "regular" || !log.log_type) &&
+      log.time_out
+    ) {
+      const inDate = new Date(log.time_in)
+      const outDate = new Date(log.time_out)
+      totalMs += outDate.getTime() - inDate.getTime()
+    }
+  })
+
+  // Add current active session if any (for regular only)
+  if (isTimedIn && timeInTimestamp) {
+    const end = freezeAt ? freezeAt : new Date()
+    totalMs += end.getTime() - timeInTimestamp.getTime()
+  }
+
+  const hours = Math.floor(totalMs / (1000 * 60 * 60))
+  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60))
+  return formatDuration(hours, minutes)
+}
+
 export function InternDashboardContent() {
   const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
-  const [todayDuration, setTodayDuration] = useState("0h 00m")
   const [allLogs, setAllLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tick, setTick] = useState(0)
   const [stateReady, setStateReady] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
-  const restoredRef = useRef(false)
+  const [loadingAction, setLoadingAction] = useState<null | "timein" | "timeout" | "overtimein" | "overtimeout">(null)
+  const [isOvertimeIn, setIsOvertimeIn] = useState(false)
+  const [overtimeInTimestamp, setOvertimeInTimestamp] = useState<Date | null>(null)
+  const [freezeSessionAt, setFreezeSessionAt] = useState<Date | null>(null)
+  const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
+  const prevTodayHours = useRef(0)
 
   // Internship details from user context
   const internshipDetails = user?.internship
 
-  /**
-   * On mount, restore todayDuration from localStorage.
-   */
+  // --- Duration Calculation ---
+  function parseDurationToHours(duration: string) {
+    const match = duration.match(/(\d+)h\s+(\d+)m/)
+    if (!match) return 0
+    const hours = parseInt(match[1], 10)
+    const minutes = parseInt(match[2], 10)
+    return hours + minutes / 60
+  }
+
+  // Calculate today's duration, freeze at auto timeout if needed
+  const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined)
+  const todayHours = parseDurationToHours(todayDuration)
+
+  // --- Effects ---
+
+  // Restore clock-in state and fetch logs when user changes (including after login)
   useEffect(() => {
-    if (restoredRef.current) return
-    restoredRef.current = true
-
-    const today = getTodayString()
-    const storedDuration = localStorage.getItem("todayDuration")
-    let durationDate = today
-    let durationValue = "0h 00m"
-    if (storedDuration) {
-      const { date, value } = JSON.parse(storedDuration)
-      durationDate = date
-      durationValue = value
-    }
-
-    if (durationDate !== today) {
-      setTodayDuration("0h 00m")
-      localStorage.setItem("todayDuration", JSON.stringify({ date: today, value: "0h 00m" }))
-    } else {
-      setTodayDuration(durationValue)
-    }
-
-    setStateReady(true)
-  }, [])
-
-  /**
-   * Restore clock-in state and fetch logs when user changes (including after login).
-   */
-  useEffect(() => {
-    if (!user || !stateReady) return
+    if (!user || stateReady) return
 
     const restoreClockState = async () => {
       try {
@@ -171,95 +170,79 @@ export function InternDashboardContent() {
           setAllLogs(logsArr.map((log: Record<string, unknown>) => {
             let hoursWorked = 0
             let duration = null
-            const now = new Date()
-
-            if (log.time_in) {
+            if (log.time_in && log.time_out) {
               const inDate = new Date(log.time_in as string)
-              const outDate = log.time_out ? new Date(log.time_out as string) : now
+              const outDate = new Date(log.time_out as string)
               const diffMs = outDate.getTime() - inDate.getTime()
               hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
               const hours = Math.floor(diffMs / (1000 * 60 * 60))
               const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
               duration = formatDuration(hours, minutes)
             }
-
             return { ...log, hoursWorked, duration }
           }))
-          // Find the latest active log (no time_out) FOR TODAY ONLY
-          const todayStr = getTodayString()
+
+          // Find the latest active regular log (no time_out) FOR TODAY ONLY
+          const todayStr = getLocalDateString(new Date().toISOString())
           const activeLog = logsArr
-            .filter((log: Record<string, unknown>) => log.time_out === null && (log.time_in as string)?.slice(0, 10) === todayStr)
+            .filter((log: Record<string, unknown>) =>
+              log.time_out === null &&
+              log.time_in &&
+              getLocalDateString(log.time_in as string) === todayStr &&
+              (log.log_type === "regular" || !log.log_type)
+            )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
           if (activeLog) {
             setIsTimedIn(true)
-            const inDate = new Date(activeLog.time_in as string)
-            setTimeInTimestamp(inDate)
-            localStorage.setItem(
-              "clockInState",
-              JSON.stringify({
-                isTimedIn: true,
-                timeInTimestamp: activeLog.time_in,
-              })
-            )
+            setTimeInTimestamp(new Date(activeLog.time_in as string))
           } else {
             setIsTimedIn(false)
             setTimeInTimestamp(null)
-            localStorage.setItem(
-              "clockInState",
-              JSON.stringify({
-                isTimedIn: false,
-                timeInTimestamp: null,
-              })
+          }
+
+          // Find the latest active overtime log (no time_out) FOR TODAY ONLY
+          const activeOvertimeLog = logsArr
+            .filter((log: Record<string, unknown>) =>
+              log.time_out === null &&
+              log.time_in &&
+              getLocalDateString(log.time_in as string) === todayStr &&
+              log.log_type === "overtime"
             )
+            .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
+          if (activeOvertimeLog) {
+            setIsOvertimeIn(true)
+            setOvertimeInTimestamp(new Date(activeOvertimeLog.time_in as string))
+          } else {
+            setIsOvertimeIn(false)
+            setOvertimeInTimestamp(null)
           }
         }
       } catch {
-        // Fallback to localStorage if fetch fails
-        const stored = localStorage.getItem("clockInState")
-        if (stored) {
-          const { isTimedIn, timeInTimestamp } = JSON.parse(stored)
-          setIsTimedIn(isTimedIn)
-          setTimeInTimestamp(timeInTimestamp ? new Date(timeInTimestamp) : null)
-        }
+        // fallback: do nothing
       }
+      setStateReady(true)
     }
 
     restoreClockState()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, stateReady])
 
-  /**
-   * Always fetch logs when user and stateReady change.
-   */
+  // Always fetch logs when user and stateReady change
   useEffect(() => {
     if (user && stateReady) {
       fetchLogs(true)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, stateReady])
 
-  /**
-   * Save clock-in state to localStorage.
-   */
+  // Real-time tick for durations (only if not frozen)
   useEffect(() => {
-    localStorage.setItem(
-      "clockInState",
-      JSON.stringify({
-        isTimedIn,
-        timeInTimestamp,
-      })
-    )
-  }, [isTimedIn, timeInTimestamp])
-
-  /**
-   * Real-time tick for durations.
-   */
-  useEffect(() => {
-    const interval = setInterval(() => setTick((t) => t + 1), 1000)
+    if (freezeSessionAt) return
+    const interval = setInterval(() => {}, 1000)
     return () => clearInterval(interval)
-  }, [])
+  }, [freezeSessionAt])
 
-  /**
-   * Fetch logs after clock-in/out.
-   */
+  // Fetch logs after clock-in/out
   const fetchLogs = async (showLoading = true) => {
     if (showLoading) setLoading(true)
     setError(null)
@@ -271,10 +254,9 @@ export function InternDashboardContent() {
         .map((log: Record<string, unknown>) => {
           let hoursWorked = 0
           let duration = null
-          const now = new Date()
-          if (log.time_in) {
+          if (log.time_in && log.time_out) {
             const inDate = new Date(log.time_in as string)
-            const outDate = log.time_out ? new Date(log.time_out as string) : now
+            const outDate = new Date(log.time_out as string)
             const diffMs = outDate.getTime() - inDate.getTime()
             hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
             const hours = Math.floor(diffMs / (1000 * 60 * 60))
@@ -296,9 +278,7 @@ export function InternDashboardContent() {
     }
   }
 
-  /**
-   * Update current time every second.
-   */
+  // Update current time every second
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(new Date())
@@ -306,36 +286,90 @@ export function InternDashboardContent() {
     return () => clearInterval(timer)
   }, [])
 
-  /**
-   * Calculate today's duration (sum all logs for today + current session).
-   */
+  // --- AUTO TIME OUT REGULAR WHEN REACHING REQUIRED HOURS (only at the exact moment) ---
   useEffect(() => {
-    setTodayDuration(getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp))
-  }, [allLogs, isTimedIn, timeInTimestamp, tick])
+    const justReachedRequired =
+      prevTodayHours.current < REQUIRED_HOURS_PER_DAY &&
+      todayHours >= REQUIRED_HOURS_PER_DAY &&
+      isTimedIn &&
+      !actionLoading &&
+      !freezeSessionAt
 
-  /**
-   * Save todayDuration to localStorage whenever it changes.
-   */
+    if (justReachedRequired) {
+      // Freeze session at this exact moment
+      const now = new Date()
+      setFreezeSessionAt(now)
+      setIsTimedIn(false)
+      setAutoTimeoutTriggered(true)
+      setActionLoading(true)
+      handleTimeOut(true, now).finally(() => {
+        setActionLoading(false)
+        setFreezeSessionAt(null)
+      })
+    }
+
+    // Reset autoTimeoutTriggered if user clocks in again (new day, etc.)
+    if (!isTimedIn && !freezeSessionAt && todayHours < REQUIRED_HOURS_PER_DAY) {
+      setAutoTimeoutTriggered(false)
+    }
+
+    prevTodayHours.current = todayHours
+  }, [todayHours, isTimedIn, actionLoading, freezeSessionAt])
+
+  // 1. Persist autoTimeoutTriggered to localStorage
   useEffect(() => {
-    localStorage.setItem("todayDuration", JSON.stringify({ date: getTodayString(), value: todayDuration }))
-  }, [todayDuration])
+    localStorage.setItem("autoTimeoutTriggered", JSON.stringify(autoTimeoutTriggered))
+  }, [autoTimeoutTriggered])
 
-  /**
-   * Handle Time In action.
-   */
+  // 2. Restore autoTimeoutTriggered from localStorage on mount (and after logs are loaded)
+  useEffect(() => {
+    if (!stateReady) return
+    const stored = localStorage.getItem("autoTimeoutTriggered")
+    // Only restore if logs show todayHours >= REQUIRED_HOURS_PER_DAY
+    const todayDuration = getTodayTotalDuration(allLogs, false, null)
+    const match = todayDuration.match(/(\d+)h\s+(\d+)m/)
+    let todayHours = 0
+    if (match) {
+      todayHours = parseInt(match[1], 10) + parseInt(match[2], 10) / 60
+    }
+    if (stored === "true" && todayHours >= REQUIRED_HOURS_PER_DAY) {
+      setAutoTimeoutTriggered(true)
+    }
+  }, [stateReady, allLogs])
+
+  // 3. In your restoreClockState (after fetching logs), check if todayHours >= REQUIRED_HOURS_PER_DAY
+  useEffect(() => {
+    if (!stateReady) return
+    // Only run after logs are loaded
+    const todayDuration = getTodayTotalDuration(allLogs, false, null)
+    const todayHours = (() => {
+      const match = todayDuration.match(/(\d+)h\s+(\d+)m/)
+      if (!match) return 0
+      const hours = parseInt(match[1], 10)
+      const minutes = parseInt(match[2], 10)
+      return hours + minutes / 60
+    })()
+    if (todayHours >= REQUIRED_HOURS_PER_DAY) {
+      setAutoTimeoutTriggered(true)
+    }
+  }, [stateReady, allLogs])
+
+  // --- Button Handlers ---
+
   const handleTimeIn = async () => {
     if (actionLoading) return
     setActionLoading(true)
+    setLoadingAction("timein")
     const now = new Date()
     setIsTimedIn(true)
     setTimeInTimestamp(now)
-    const today = getTodayString()
+    setAutoTimeoutTriggered(false) // <-- Reset here ONLY
     try {
       const res = await fetch("/api/time-logs/clock-in", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today }),
+        body: JSON.stringify({ date: getTodayString() }),
       })
       if (!res.ok) throw new Error("Failed to clock in")
       await fetchLogs(false)
@@ -343,42 +377,48 @@ export function InternDashboardContent() {
       setIsTimedIn(false)
       setTimeInTimestamp(null)
       setActionLoading(false)
+      setLoadingAction(null)
       alert("Failed to clock in. Please try again.")
       return
     }
     setActionLoading(false)
+    setLoadingAction(null)
   }
 
-  /**
-   * Handle Time Out action.
-   */
-  const handleTimeOut = async () => {
+  // Accepts an optional auto flag and freezeAt to skip confirm dialog and use exact time
+  const handleTimeOut = async (auto = false, freezeAt?: Date) => {
     if (actionLoading) return
     setActionLoading(true)
+    setLoadingAction("timeout")
     const today = getTodayString()
     // Calculate total hours worked today (including current session)
     let totalMs = 0
     allLogs.forEach((log) => {
-      if (log.time_in && log.time_in.slice(0, 10) === today) {
+      if (
+        log.time_in &&
+        getLocalDateString(log.time_in) === today &&
+        (log.log_type === "regular" || !log.log_type) &&
+        log.time_out
+      ) {
         const inDate = new Date(log.time_in)
-        const outDate = log.time_out ? new Date(log.time_out) : null
-        if (outDate) {
-          totalMs += outDate.getTime() - inDate.getTime()
-        }
+        const outDate = new Date(log.time_out)
+        totalMs += outDate.getTime() - inDate.getTime()
       }
     })
     // Add current session if active
     if (isTimedIn && timeInTimestamp) {
-      totalMs += new Date().getTime() - timeInTimestamp.getTime()
+      const end = freezeAt ? freezeAt : new Date()
+      totalMs += end.getTime() - timeInTimestamp.getTime()
     }
     const totalHoursToday = totalMs / (1000 * 60 * 60)
 
-    if (totalHoursToday < REQUIRED_HOURS_PER_DAY) {
+    if (!auto && totalHoursToday < REQUIRED_HOURS_PER_DAY) {
       const confirm = window.confirm(
         `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?`
       )
       if (!confirm) {
         setActionLoading(false)
+        setLoadingAction(null)
         return
       }
     }
@@ -391,7 +431,7 @@ export function InternDashboardContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today }),
+        body: JSON.stringify({ date: today, time: freezeAt ? freezeAt.toISOString() : undefined }),
       })
       if (!res.ok) throw new Error("Failed to clock out")
       await fetchLogs(false)
@@ -400,15 +440,69 @@ export function InternDashboardContent() {
       setIsTimedIn(true)
       setTimeInTimestamp(timeInTimestamp)
       setActionLoading(false)
+      setLoadingAction(null)
       alert("Failed to clock out. Please try again.")
       return
     }
     setActionLoading(false)
+    setLoadingAction(null)
   }
 
-  /**
-   * Format a Date object as a readable string.
-   */
+  const handleOvertimeIn = async () => {
+    if (actionLoading) return
+    setActionLoading(true)
+    setLoadingAction("overtimein")
+    const now = new Date()
+    setIsOvertimeIn(true)
+    setOvertimeInTimestamp(now)
+    try {
+      const res = await fetch("/api/time-logs/clock-in", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: getTodayString(), logType: "overtime" }),
+      })
+      if (!res.ok) throw new Error("Failed to clock in for overtime")
+      await fetchLogs(false)
+    } catch {
+      setIsOvertimeIn(false)
+      setOvertimeInTimestamp(null)
+      setActionLoading(false)
+      setLoadingAction(null)
+      alert("Failed to clock in for overtime. Please try again.")
+      return
+    }
+    setActionLoading(false)
+    setLoadingAction(null)
+  }
+
+  const handleOvertimeOut = async () => {
+    if (actionLoading) return
+    setActionLoading(true)
+    setLoadingAction("overtimeout")
+    try {
+      const res = await fetch("/api/time-logs/clock-out", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: getTodayString(), logType: "overtime" }),
+      })
+      if (!res.ok) throw new Error("Failed to clock out for overtime")
+      await fetchLogs(false)
+    } catch {
+      setIsOvertimeIn(true)
+      setOvertimeInTimestamp(overtimeInTimestamp)
+      setActionLoading(false)
+      setLoadingAction(null)
+      alert("Failed to clock out for overtime. Please try again.")
+      return
+    }
+    setIsOvertimeIn(false)
+    setOvertimeInTimestamp(null)
+    setActionLoading(false)
+    setLoadingAction(null)
+  }
+
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
       weekday: "long",
@@ -418,9 +512,6 @@ export function InternDashboardContent() {
     })
   }
 
-  /**
-   * Format a Date object as a time string.
-   */
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
@@ -429,81 +520,41 @@ export function InternDashboardContent() {
     })
   }
 
-  /**
-   * Format a date string as MM-DD-YYYY.
-   */
   const formatLogDate = (dateString: string) => {
     const date = new Date(dateString)
     return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
   }
 
-  /**
-   * Get truncated decimal hours for a log.
-   */
-  function getTruncatedDecimalHours(log: TimeLog) {
-    if (!log.time_in || !log.time_out) return 0
-    const inDate = new Date(log.time_in)
-    const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime()
-    const hours = Math.floor(diffMs / (1000 * 60 * 60))
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-    const decimal = hours + minutes / 60
-    return Number(truncateTo2Decimals(decimal))
-  }
-
-  /**
-   * Calculate total completed hours.
-   */
+  // Calculate completed hours (sum of all completed logs)
   const completedHours = (() => {
     const total = allLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-      .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+      .reduce((sum, log) => {
+        const dur = getLogDuration(log)
+        return sum + (dur ? Number(dur.decimal) : 0)
+      }, 0)
     return Number(truncateTo2Decimals(total))
   })()
 
-  /**
-   * Calculate progress percentage.
-   */
   const progressPercentage =
     internshipDetails && typeof internshipDetails.required_hours === "number" && internshipDetails.required_hours > 0
       ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
       : 0
 
-  /**
-   * Calculate remaining hours.
-   */
   const remainingHours =
     internshipDetails?.required_hours && completedHours >= internshipDetails.required_hours
       ? 0
       : Number(truncateTo2Decimals((internshipDetails?.required_hours || 0) - completedHours))
 
-  /**
-   * Calculate total days worked so far.
-   */
   const totalDaysWorked = (() => {
     const dates = new Set(
       allLogs
         .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-        .map((log) => log.time_in?.slice(0, 10))
+        .map((log) => log.time_in ? getLocalDateString(log.time_in) : undefined)
         .filter(Boolean)
     )
     return dates.size
   })()
-
-  /**
-   * Render logs with real-time duration for active logs.
-   */
-  const getLogDuration = (log: TimeLog) => {
-    if (log.time_in) {
-      const inDate = new Date(log.time_in)
-      const outDate = log.time_out ? new Date(log.time_out) : new Date()
-      const diffMs = outDate.getTime() - inDate.getTime()
-      const hours = Math.floor(diffMs / (1000 * 60 * 60))
-      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-      return { duration: formatDuration(hours, minutes), hours, minutes }
-    }
-    return null
-  }
 
   // Get current week range (Monday to Sunday)
   const { monday: weekStart, sunday: weekEnd } = getWeekRange()
@@ -518,69 +569,20 @@ export function InternDashboardContent() {
   // Calculate weekly hours and days worked
   const weeklyHours = weeklyLogs
     .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-    .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+    .reduce((sum, log) => {
+      const dur = getLogDuration(log)
+      return sum + (dur ? Number(dur.decimal) : 0)
+    }, 0)
 
   const weeklyDaysWorked = (() => {
     const dates = new Set(
       weeklyLogs
         .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-        .map((log) => log.time_in?.slice(0, 10))
+        .map((log) => log.time_in ? getLocalDateString(log.time_in) : undefined)
         .filter(Boolean)
     )
     return dates.size
   })()
-
-  /**
-   * Midnight rollover effect: If clocked in at midnight, auto time out and time in for new day.
-   */
-  useEffect(() => {
-    if (!isTimedIn || !timeInTimestamp) return
-
-    // Set up a timer to fire at the next midnight
-    const now = new Date()
-    const nextMidnight = new Date(now)
-    nextMidnight.setHours(24, 0, 0, 0)
-    const msUntilMidnight = nextMidnight.getTime() - now.getTime()
-
-    const timer = setTimeout(async () => {
-      // Auto time out for the previous day at 23:59:59
-      const prevDay = new Date(timeInTimestamp)
-      prevDay.setHours(23, 59, 59, 999)
-      const prevDayStr = timeInTimestamp.toISOString().slice(0, 10)
-
-      try {
-        await fetch("/api/time-logs/clock-out", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: prevDayStr, time: prevDay.toISOString() }),
-        })
-      } catch {
-        // Optionally handle error (e.g., show notification)
-      }
-
-      // Auto time in for the new day at 00:00:00
-      const newDay = new Date(nextMidnight)
-      const newDayStr = newDay.toISOString().slice(0, 10)
-
-      try {
-        await fetch("/api/time-logs/clock-in", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ date: newDayStr, time: newDay.toISOString() }),
-        })
-        setTimeInTimestamp(newDay)
-        setIsTimedIn(true)
-        fetchLogs(false)
-      } catch {
-        setIsTimedIn(false)
-        setTimeInTimestamp(null)
-      }
-    }, msUntilMidnight)
-
-    return () => clearTimeout(timer)
-  }, [isTimedIn, timeInTimestamp])
 
   // --- Render ---
   if (!user || !internshipDetails) {
@@ -704,55 +706,98 @@ export function InternDashboardContent() {
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-gray-900">Time Tracking</h3>
                 <p className="text-sm text-gray-600">
-                  {isTimedIn ? "You're currently clocked in" : "Ready to start your shift?"}
+                  {autoTimeoutTriggered
+                    ? "You're done for the day."
+                    : isTimedIn
+                      ? "You're currently clocked in."
+                      : "Ready to start your shift?"}
                 </p>
               </div>
               <div className="flex flex-col gap-3">
+                {/* Always show badge depending on state */}
+                <div className="text-center">
+                  <Badge variant="secondary" className="bg-green-100 text-green-800">
+                    {autoTimeoutTriggered
+                      ? "Regular Hours Met"
+                      : isTimedIn
+                        ? timeInTimestamp
+                          ? `Clocked in at ${timeInTimestamp.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+                          : "Clocked in"
+                        : "Log Regular Shift"}
+                  </Badge>
+                </div>
                 {!isTimedIn ? (
                   <Button
                     onClick={handleTimeIn}
                     size="lg"
                     className="w-full bg-green-600 hover:bg-green-700"
+                    disabled={actionLoading || freezeSessionAt !== null || autoTimeoutTriggered}
+                  >
+                    <Timer className="mr-2 h-5 w-5" />
+                    {loadingAction === "timein" ? "Processing..." : "Time In"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => handleTimeOut()}
+                    size="lg"
+                    variant="destructive"
+                    className="w-full"
                     disabled={actionLoading}
                   >
                     <Timer className="mr-2 h-5 w-5" />
-                    {actionLoading ? "Processing..." : "Time In"}
+                    {loadingAction === "timeout" ? "Processing..." : "Time Out"}
                   </Button>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="text-center">
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">
-                        Clocked In at{" "}
-                        {timeInTimestamp?.toLocaleTimeString("en-US", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </Badge>
-                    </div>
-                    <Button onClick={handleTimeOut} size="lg" variant="destructive" className="w-full" disabled={actionLoading}>
-                      <Timer className="mr-2 h-5 w-5" />
-                      {actionLoading ? "Processing..." : "Time Out"}
-                    </Button>
-                  </div>
                 )}
               </div>
             </div>
           </CardContent>
         </Card>
-        {/* Today's Duration Card */}
+        {/* Overtime Time In/Out Card */}
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Today&apos;s Progress</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">{todayDuration}</div>
-              <p className="text-sm text-gray-600 mt-1">Total worked today</p>
-              {isTimedIn && (
-                <Badge variant="outline" className="mt-2">
-                  Currently active
-                </Badge>
-              )}
+          <CardContent className="p-6">
+            <div className="space-y-4">
+              <div className="text-center">
+                <h3 className="text-lg font-semibold text-gray-900">Overtime Tracking</h3>
+                <p className="text-sm text-gray-600">
+                  {isOvertimeIn ? "You're currently in an overtime session." : "Log extra hours beyond your regular shift."}
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                {/* Always show badge depending on state */}
+                <div className="text-center">
+                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
+                    {autoTimeoutTriggered
+                      ? isOvertimeIn
+                        ? overtimeInTimestamp
+                          ? `Overtime started at ${overtimeInTimestamp.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+                          : "Overtime started"
+                        : "Render Overtime"
+                      : "Render Regular Hours First"}
+                  </Badge>
+                </div>
+                {!isOvertimeIn ? (
+                  <Button
+                    onClick={handleOvertimeIn}
+                    size="lg"
+                    className="w-full bg-purple-600 hover:bg-purple-700"
+                    disabled={actionLoading || freezeSessionAt !== null || !autoTimeoutTriggered}
+                  >
+                    <Timer className="mr-2 h-5 w-5" />
+                    {loadingAction === "overtimein" ? "Processing..." : "Overtime In"}
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleOvertimeOut}
+                    size="lg"
+                    variant="destructive"
+                    className="w-full"
+                    disabled={actionLoading}
+                  >
+                    <Timer className="mr-2 h-5 w-5" />
+                    {loadingAction === "overtimeout" ? "Processing..." : "Overtime Out"}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -798,7 +843,15 @@ export function InternDashboardContent() {
                         <div className="flex flex-col gap-1">
                           {logs.map((log, idx) =>
                             log.time_in ? (
-                              <Badge key={idx} variant="outline" className="bg-green-50 text-green-700">
+                              <Badge
+                                key={idx}
+                                variant="outline"
+                                className={
+                                  log.log_type === "overtime"
+                                    ? "bg-purple-50 text-purple-700"
+                                    : "bg-green-50 text-green-700"
+                                }
+                              >
                                 {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                               </Badge>
                             ) : (
@@ -811,11 +864,27 @@ export function InternDashboardContent() {
                         <div className="flex flex-col gap-1">
                           {logs.map((log, idx) =>
                             log.time_out ? (
-                              <Badge key={idx} variant="outline" className="bg-red-50 text-red-700">
+                              <Badge
+                                key={idx}
+                                variant="outline"
+                                className={
+                                  log.log_type === "overtime"
+                                    ? "bg-purple-50 text-purple-700"
+                                    : "bg-red-50 text-red-700"
+                                }
+                              >
                                 {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                               </Badge>
                             ) : log.time_in && log.status === "pending" ? (
-                              <Badge key={idx} variant="outline" className="bg-yellow-50 text-yellow-700">
+                              <Badge
+                                key={idx}
+                                variant="outline"
+                                className={
+                                  log.log_type === "overtime"
+                                    ? "bg-purple-50 text-purple-700"
+                                    : "bg-yellow-50 text-yellow-700"
+                                }
+                              >
                                 In Progress
                               </Badge>
                             ) : (
@@ -826,44 +895,77 @@ export function InternDashboardContent() {
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) =>
-                            getLogDuration(log) ? (
-                              <span key={idx} className="font-semibold">
-                                {getLogDuration(log)!.duration}
-                              </span>
-                            ) : log.status === "pending" ? (
-                              <Badge key={idx} variant="outline" className="bg-yellow-50 text-yellow-700">
-                                In Progress
-                              </Badge>
-                            ) : (
-                              <span key={idx} className="text-gray-400">--</span>
-                            )
-                          )}
+                          {logs.map((log, idx) => {
+                            const dur = getLogDuration(log)
+                            if (dur) {
+                              return (
+                                <span key={idx} className="font-semibold">
+                                  {dur.duration}
+                                </span>
+                              )
+                            } else if (log.time_in && !log.time_out) {
+                              // Show real-time duration for active logs
+                              const inDate = new Date(log.time_in)
+                              const now = new Date()
+                              const diffMs = now.getTime() - inDate.getTime()
+                              const hours = Math.floor(diffMs / (1000 * 60 * 60))
+                              const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                              return (
+                                <span key={idx} className="font-semibold text-yellow-700">
+                                  {formatDuration(hours, minutes)}
+                                </span>
+                              )
+                            } else if (log.status === "pending") {
+                              return (
+                                <Badge
+                                  key={idx}
+                                  variant="outline"
+                                  className={
+                                    log.log_type === "overtime"
+                                      ? "bg-purple-50 text-purple-700"
+                                      : "bg-yellow-50 text-yellow-700"
+                                  }
+                                >
+                                  In Progress
+                                </Badge>
+                              )
+                            } else {
+                              return <span key={idx} className="text-gray-400">--</span>
+                            }
+                          })}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) =>
-                            log.time_in && log.time_out ? (
-                              <span key={idx} className="font-semibold text-blue-600">
-                                {(() => {
-                                  const inDate = new Date(log.time_in)
-                                  const outDate = new Date(log.time_out)
-                                  const diffMs = outDate.getTime() - inDate.getTime()
-                                  const hours = Math.floor(diffMs / (1000 * 60 * 60))
-                                  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-                                  const decimal = hours + minutes / 60
-                                  return `${truncateTo2Decimals(decimal)}h`
-                                })()}
+                          {logs.map((log, idx) => {
+                            const dur = getLogDuration(log)
+                            return dur ? (
+                              <span
+                                key={idx}
+                                className={
+                                  "font-semibold " +
+                                  (log.log_type === "overtime" ? "text-purple-700" : "text-blue-600")
+                                }
+                              >
+                                {dur.decimal}h
                               </span>
                             ) : log.time_in && !log.time_out ? (
-                              <span key={idx} className="font-semibold text-blue-600 text-right block">
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700">Active</Badge>
+                              <span key={idx} className="font-semibold text-right block">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    log.log_type === "overtime"
+                                      ? "bg-purple-50 text-purple-700"
+                                      : "bg-blue-50 text-blue-700"
+                                  }
+                                >
+                                  Active
+                                </Badge>
                               </span>
                             ) : (
                               <span key={idx} className="text-gray-400">--</span>
                             )
-                          )}
+                          })}
                         </div>
                       </TableCell>
                     </TableRow>
