@@ -130,7 +130,6 @@ export function InternDashboardContent() {
   const [allLogs, setAllLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [tick, setTick] = useState(0)
   const [stateReady, setStateReady] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [loadingAction, setLoadingAction] = useState<null | "timein" | "timeout" | "overtimein" | "overtimeout">(null)
@@ -138,7 +137,6 @@ export function InternDashboardContent() {
   const [overtimeInTimestamp, setOvertimeInTimestamp] = useState<Date | null>(null)
   const [freezeSessionAt, setFreezeSessionAt] = useState<Date | null>(null)
   const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
-  const restoredRef = useRef(false)
   const prevTodayHours = useRef(0)
 
   // Internship details from user context
@@ -156,7 +154,6 @@ export function InternDashboardContent() {
   // Calculate today's duration, freeze at auto timeout if needed
   const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined)
   const todayHours = parseDurationToHours(todayDuration)
-  const canStartOvertime = todayHours >= REQUIRED_HOURS_PER_DAY
 
   // --- Effects ---
 
@@ -241,7 +238,7 @@ export function InternDashboardContent() {
   // Real-time tick for durations (only if not frozen)
   useEffect(() => {
     if (freezeSessionAt) return
-    const interval = setInterval(() => setTick((t) => t + 1), 1000)
+    const interval = setInterval(() => {}, 1000)
     return () => clearInterval(interval)
   }, [freezeSessionAt])
 
