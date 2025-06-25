@@ -1,17 +1,26 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { Clock, Calendar, GraduationCap, Building, TrendingUp } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/contexts/auth-context"
-import { SemiManualTimeTracking } from "@/components/regular-time-tracking"
+import { RegularTimeTracking } from "@/components/regular-time-tracking"
 import { OvertimeTracking } from "@/components/overtime-tracking"
 
 /**
- * TimeLog interface for a single time log entry.
+ * InternDashboardContent component provides the main dashboard interface for interns.
+ * Features include:
+ * - Time tracking (manual and automatic modes)
+ * - Work hours visualization
+ * - Recent time log history
+ * - Progress tracking
+ */
+
+/**
+ * TimeLog interface for individual time entries
  */
 interface TimeLog {
   id: number
@@ -26,6 +35,9 @@ interface TimeLog {
 
 const REQUIRED_HOURS_PER_DAY = 9
 
+/**
+ * Gets the Monday-Sunday range for a given date
+ */
 function getWeekRange(date = new Date()) {
   const day = date.getDay()
   const diffToMonday = (day === 0 ? -6 : 1) - day
@@ -38,6 +50,9 @@ function getWeekRange(date = new Date()) {
   return { monday, sunday }
 }
 
+/**
+ * Gets today's date in YYYY-MM-DD format
+ */
 function getTodayString() {
   const now = new Date()
   const year = now.getFullYear()
@@ -46,15 +61,24 @@ function getTodayString() {
   return `${year}-${month}-${day}`
 }
 
+/**
+ * Truncates a decimal number to 2 decimal places
+ */
 function truncateTo2Decimals(val: number) {
   const [int, dec = ""] = val.toString().split(".")
   return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
 }
 
+/**
+ * Formats duration in hours and minutes
+ */
 function formatDuration(hours: number, minutes: number) {
   return `${hours}h ${minutes.toString().padStart(2, "0")}m`
 }
 
+/**
+ * Converts UTC date string to local date string
+ */
 function getLocalDateString(dateStr: string) {
   const d = new Date(dateStr)
   return d.getFullYear() + "-" +
@@ -62,7 +86,9 @@ function getLocalDateString(dateStr: string) {
     String(d.getDate()).padStart(2, "0")
 }
 
-// Update groupLogsByDate to use local date
+/**
+ * Groups time logs by date and sorts them
+ */
 function groupLogsByDate(logs: TimeLog[]) {
   const map = new Map<string, TimeLog[]>()
   logs.forEach(log => {
@@ -77,7 +103,9 @@ function groupLogsByDate(logs: TimeLog[]) {
   return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
 }
 
-// Accurate duration and hours calculation
+/**
+ * Calculates duration and hours for a time log entry
+ */
 function getLogDuration(log: TimeLog) {
   if (log.time_in && log.time_out) {
     const inDate = new Date(log.time_in)
@@ -94,7 +122,9 @@ function getLogDuration(log: TimeLog) {
   return null
 }
 
-// --- Accurate today's duration (for regular logs only) ---
+/**
+ * Calculates today's total duration for regular logs only
+ */
 function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date) {
   const today = getLocalDateString(new Date().toISOString())
   let totalMs = 0
@@ -112,7 +142,6 @@ function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimest
     }
   })
 
-  // Add current active session if any (for regular only)
   if (isTimedIn && timeInTimestamp) {
     const end = freezeAt ? freezeAt : new Date()
     totalMs += end.getTime() - timeInTimestamp.getTime()
@@ -123,8 +152,103 @@ function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimest
   return formatDuration(hours, minutes)
 }
 
+function parseSchedule(schedule: any) {
+  if (!schedule || typeof schedule !== "object") return null
+  
+  // Handle the unified format first
+  if (schedule.start && schedule.end && Array.isArray(schedule.days)) {
+    return {
+      start: schedule.start,
+      end: schedule.end,
+      days: schedule.days,
+    }
+  }
+  
+  // Handle the database per-day format: {monday: {start, end}, tuesday: {start, end}, ...}
+  const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+  const days: number[] = []
+  let start = "09:00"
+  let end = "18:00"
+  
+  dayNames.forEach((dayName, index) => {
+    if (schedule[dayName] && schedule[dayName].start && schedule[dayName].end) {
+      // Map array index to day numbers: Monday=1, Tuesday=2, ..., Saturday=6, Sunday=7
+      const dayNum = index === 6 ? 7 : index + 1 // Sunday (index 6) = 7, others = index + 1
+      days.push(dayNum)
+      
+      // Use the first found day's times as the unified times
+      if (days.length === 1) {
+        start = schedule[dayName].start
+        end = schedule[dayName].end
+      }
+    }
+  })
+  
+  if (days.length === 0) return null
+  
+  return { start, end, days }
+}
+
+function isNowScheduled(timeStr: string) {
+  if (!timeStr) return false
+  const [h, m] = timeStr.split(":").map(Number)
+  const now = new Date()
+  const currentHour = now.getHours()
+  const currentMinute = now.getMinutes()
+  
+  // Check if we're at the exact scheduled time (within the same minute)
+  const isScheduledTime = currentHour === h && currentMinute === m
+  
+  // Debug logging (remove in production)
+  if (isScheduledTime) {
+    console.log(`Auto trigger time reached: ${timeStr} (${h}:${m}) - Current: ${currentHour}:${currentMinute}`)
+  }
+  
+  return isScheduledTime
+}
+
+// Helper function to get effective schedule (including localStorage overrides)
+function getEffectiveSchedule(user: any) {
+  if (!user?.work_schedule) return null
+  
+  // Get today's custom schedule from localStorage if it exists
+  const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+  const storageKey = `custom_schedule_${today}_${user.id}`
+  const savedSchedule = localStorage.getItem(storageKey)
+  
+  if (savedSchedule) {
+    try {
+      const customSchedule = JSON.parse(savedSchedule)
+      if (customSchedule.start && customSchedule.end && customSchedule.isWorkDay) {
+        // Convert custom schedule to the format expected by automatic tracking
+        const now = new Date()
+        const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // 1=Mon, 7=Sun
+        return {
+          start: customSchedule.start,
+          end: customSchedule.end,
+          days: [dayOfWeek] // Only today is a work day for custom schedule
+        }
+      }
+    } catch {
+      // Fall through to database schedule
+    }
+  }
+  
+  // Use database schedule
+  let schedule
+  try {
+    schedule = typeof user.work_schedule === "string"
+      ? JSON.parse(user.work_schedule)
+      : user.work_schedule
+  } catch {
+    return null
+  }
+  
+  return parseSchedule(schedule)
+}
+
 export function InternDashboardContent() {
-  const { user } = useAuth()
+  const { user, refreshUser } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
@@ -138,7 +262,163 @@ export function InternDashboardContent() {
   const [overtimeInTimestamp, setOvertimeInTimestamp] = useState<Date | null>(null)
   const [freezeSessionAt, setFreezeSessionAt] = useState<Date | null>(null)
   const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
+  const [trackingMode, setTrackingMode] = useState<"manual" | "automatic">("automatic")
   const prevTodayHours = useRef(0)
+  const lastAutoActionRef = useRef<{ date: string; type: "in" | "out" | null }>({ date: "", type: null })
+
+  // Load tracking mode from localStorage on component mount
+  useEffect(() => {
+    if (user?.id) {
+      const savedMode = localStorage.getItem(`tracking_mode_${user.id}`)
+      if (savedMode === "manual" || savedMode === "automatic") {
+        setTrackingMode(savedMode)
+      }
+    }
+  }, [user?.id])
+
+  // Save tracking mode to localStorage when it changes
+  const handleTrackingModeChange = (mode: "manual" | "automatic") => {
+    setTrackingMode(mode)
+    if (user?.id) {
+      localStorage.setItem(`tracking_mode_${user.id}`, mode)
+    }
+  }
+
+  // --- Button Handlers (move these above the scheduled effect) ---
+  const handleTimeIn = async () => {
+    if (actionLoading) return
+    setActionLoading(true)
+    setLoadingAction("timein")
+    const now = new Date()
+    setIsTimedIn(true)
+    setTimeInTimestamp(now)
+    setAutoTimeoutTriggered(false) // <-- Reset here ONLY
+    try {
+      const res = await fetch("/api/time-logs/clock-in", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: getTodayString() }),
+      })
+      if (!res.ok) throw new Error("Failed to clock in")
+      await fetchLogs(false)
+    } catch {
+      setIsTimedIn(false)
+      setTimeInTimestamp(null)
+      setActionLoading(false)
+      setLoadingAction(null)
+      alert("Failed to clock in. Please try again.")
+      return
+    }
+    setActionLoading(false)
+    setLoadingAction(null)
+  }
+
+  // Accepts an optional auto flag and freezeAt to skip confirm dialog and use exact time
+  const handleTimeOut = async (auto = false, freezeAt?: Date) => {
+    if (actionLoading) return
+    setActionLoading(true)
+    setLoadingAction("timeout")
+    const today = getTodayString()
+    // Calculate total hours worked today (including current session)
+    let totalMs = 0
+    allLogs.forEach((log) => {
+      if (
+        log.time_in &&
+        getLocalDateString(log.time_in) === today &&
+        (log.log_type === "regular" || !log.log_type) &&
+        log.time_out
+      ) {
+        const inDate = new Date(log.time_in)
+        const outDate = new Date(log.time_out)
+        totalMs += outDate.getTime() - inDate.getTime()
+      }
+    })
+    // Add current session if active
+    if (isTimedIn && timeInTimestamp) {
+      const end = freezeAt ? freezeAt : new Date()
+      totalMs += end.getTime() - timeInTimestamp.getTime()
+    }
+    const totalHoursToday = totalMs / (1000 * 60 * 60)
+
+    if (!auto && totalHoursToday < REQUIRED_HOURS_PER_DAY) {
+      const confirm = window.confirm(
+        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?`
+      )
+      if (!confirm) {
+        setActionLoading(false)
+        setLoadingAction(null)
+        return
+      }
+    }
+
+    setIsTimedIn(false)
+    setTimeInTimestamp(null)
+
+    try {
+      const res = await fetch("/api/time-logs/clock-out", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: today, time: freezeAt ? freezeAt.toISOString() : undefined }),
+      })
+      if (!res.ok) throw new Error("Failed to clock out")
+      await fetchLogs(false)
+    } catch {
+      // Revert state if failed
+      setIsTimedIn(true)
+      setTimeInTimestamp(timeInTimestamp)
+      setActionLoading(false)
+      setLoadingAction(null)
+      alert("Failed to clock out. Please try again.")
+      return
+    }
+    setActionLoading(false)
+    setLoadingAction(null)
+  }
+
+  // --- Scheduled Auto Time In/Out Effect ---
+  useEffect(() => {
+    if (!user?.work_schedule) return
+    let schedule
+    try {
+      schedule = typeof user.work_schedule === "string"
+        ? JSON.parse(user.work_schedule)
+        : user.work_schedule
+    } catch {
+      schedule = null
+    }
+    schedule = parseSchedule(schedule)
+    if (!schedule) return
+
+    const checkSchedule = () => {
+      const now = new Date()
+      const todayStr = getLocalDateString(now.toISOString())
+      const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay()
+      if (!schedule.days.includes(dayOfWeek)) return
+
+      if (
+        isNowScheduled(schedule.start) &&
+        !isTimedIn &&
+        lastAutoActionRef.current.date !== todayStr + "-in"
+      ) {
+        lastAutoActionRef.current = { date: todayStr + "-in", type: "in" }
+        handleTimeIn()
+      }
+      if (
+        isNowScheduled(schedule.end) &&
+        isTimedIn &&
+        lastAutoActionRef.current.date !== todayStr + "-out"
+      ) {
+        lastAutoActionRef.current = { date: todayStr + "-out", type: "out" }
+        handleTimeOut(true)
+      }
+    }
+
+    checkSchedule()
+    const interval = setInterval(checkSchedule, 15 * 1000) // Check every 15 seconds
+    return () => clearInterval(interval)
+  }, [user?.work_schedule, isTimedIn, handleTimeIn, handleTimeOut])
 
   // Internship details from user context
   const internshipDetails = user?.internship
@@ -355,99 +635,58 @@ export function InternDashboardContent() {
     }
   }, [stateReady, allLogs])
 
-  // --- Button Handlers ---
+  // --- Scheduled Auto Time In/Out Effect ---
+  useEffect(() => {
+    // Only run automatic time in/out when tracking mode is "automatic"
+    if (!user?.work_schedule || trackingMode !== "automatic") return
+    
+    const schedule = getEffectiveSchedule(user)
+    if (!schedule) return
 
-  const handleTimeIn = async () => {
-    if (actionLoading) return
-    setActionLoading(true)
-    setLoadingAction("timein")
-    const now = new Date()
-    setIsTimedIn(true)
-    setTimeInTimestamp(now)
-    setAutoTimeoutTriggered(false) // <-- Reset here ONLY
-    try {
-      const res = await fetch("/api/time-logs/clock-in", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: getTodayString() }),
-      })
-      if (!res.ok) throw new Error("Failed to clock in")
-      await fetchLogs(false)
-    } catch {
-      setIsTimedIn(false)
-      setTimeInTimestamp(null)
-      setActionLoading(false)
-      setLoadingAction(null)
-      alert("Failed to clock in. Please try again.")
-      return
-    }
-    setActionLoading(false)
-    setLoadingAction(null)
-  }
+    const checkSchedule = () => {
+      const now = new Date()
+      const todayStr = getLocalDateString(now.toISOString())
+      const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // 1=Mon, 7=Sun
 
-  // Accepts an optional auto flag and freezeAt to skip confirm dialog and use exact time
-  const handleTimeOut = async (auto = false, freezeAt?: Date) => {
-    if (actionLoading) return
-    setActionLoading(true)
-    setLoadingAction("timeout")
-    const today = getTodayString()
-    // Calculate total hours worked today (including current session)
-    let totalMs = 0
-    allLogs.forEach((log) => {
-      if (
-        log.time_in &&
-        getLocalDateString(log.time_in) === today &&
-        (log.log_type === "regular" || !log.log_type) &&
-        log.time_out
-      ) {
-        const inDate = new Date(log.time_in)
-        const outDate = new Date(log.time_out)
-        totalMs += outDate.getTime() - inDate.getTime()
-      }
-    })
-    // Add current session if active
-    if (isTimedIn && timeInTimestamp) {
-      const end = freezeAt ? freezeAt : new Date()
-      totalMs += end.getTime() - timeInTimestamp.getTime()
-    }
-    const totalHoursToday = totalMs / (1000 * 60 * 60)
+      // Debug logging
+      console.log(`Auto check: day=${dayOfWeek}, scheduleDays=${schedule.days}, start=${schedule.start}, end=${schedule.end}, isTimedIn=${isTimedIn}`)
 
-    if (!auto && totalHoursToday < REQUIRED_HOURS_PER_DAY) {
-      const confirm = window.confirm(
-        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?`
-      )
-      if (!confirm) {
-        setActionLoading(false)
-        setLoadingAction(null)
+      if (!schedule.days.includes(dayOfWeek)) {
+        console.log(`Today (${dayOfWeek}) is not a work day according to schedule`)
         return
       }
+
+      // Auto Time In
+      if (
+        isNowScheduled(schedule.start) &&
+        !isTimedIn &&
+        lastAutoActionRef.current.date !== todayStr + "-in"
+      ) {
+        console.log(`Triggering auto time in at ${schedule.start}`)
+        lastAutoActionRef.current = { date: todayStr + "-in", type: "in" }
+        handleTimeIn()
+      }
+
+      // Auto Time Out
+      if (
+        isNowScheduled(schedule.end) &&
+        isTimedIn &&
+        lastAutoActionRef.current.date !== todayStr + "-out"
+      ) {
+        console.log(`Triggering auto time out at ${schedule.end}`)
+        lastAutoActionRef.current = { date: todayStr + "-out", type: "out" }
+        handleTimeOut(true)
+      }
     }
 
-    setIsTimedIn(false)
-    setTimeInTimestamp(null)
+    // Run immediately and then every 15 seconds
+    checkSchedule()
+    const interval = setInterval(checkSchedule, 15 * 1000) // Check every 15 seconds
+    return () => clearInterval(interval)
+    // eslint-disable-next-line
+  }, [user?.work_schedule, isTimedIn, handleTimeIn, handleTimeOut, trackingMode])
 
-    try {
-      const res = await fetch("/api/time-logs/clock-out", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today, time: freezeAt ? freezeAt.toISOString() : undefined }),
-      })
-      if (!res.ok) throw new Error("Failed to clock out")
-      await fetchLogs(false)
-    } catch {
-      // Revert state if failed
-      setIsTimedIn(true)
-      setTimeInTimestamp(timeInTimestamp)
-      setActionLoading(false)
-      setLoadingAction(null)
-      alert("Failed to clock out. Please try again.")
-      return
-    }
-    setActionLoading(false)
-    setLoadingAction(null)
-  }
+  // --- Button Handlers ---
 
   const handleOvertimeIn = async () => {
     if (actionLoading) return
@@ -703,7 +942,7 @@ export function InternDashboardContent() {
         {/* Time Tracking Card */}
         <Card>
           <CardContent className="p-6">
-            <SemiManualTimeTracking
+            <RegularTimeTracking
               isTimedIn={isTimedIn}
               timeInTimestamp={timeInTimestamp}
               actionLoading={actionLoading}
@@ -712,6 +951,10 @@ export function InternDashboardContent() {
               autoTimeoutTriggered={autoTimeoutTriggered}
               handleTimeIn={handleTimeIn}
               handleTimeOut={handleTimeOut}
+              user={user}
+              refreshUser={refreshUser}
+              trackingMode={trackingMode}
+              onTrackingModeChange={handleTrackingModeChange}
             />
           </CardContent>
         </Card>
