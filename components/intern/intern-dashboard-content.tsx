@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/contexts/auth-context"
-import { SemiManualTimeTracking } from "@/components/semi-manual-time-tracking"
+import { SemiManualTimeTracking } from "@/components/regular-time-tracking"
+import { OvertimeTracking } from "@/components/overtime-tracking"
 
 /**
  * TimeLog interface for a single time log entry.
@@ -718,50 +719,16 @@ export function InternDashboardContent() {
         {/* Overtime Time In/Out Card */}
         <Card>
           <CardContent className="p-6">
-            <div className="space-y-4">
-              <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-900">Overtime Tracking</h3>
-                <p className="text-sm text-gray-600">
-                  {isOvertimeIn ? "You're currently in an overtime session." : "Log extra hours beyond your regular shift."}
-                </p>
-              </div>
-              <div className="flex flex-col gap-3">
-                {/* Always show badge depending on state */}
-                <div className="text-center">
-                  <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                    {autoTimeoutTriggered
-                      ? isOvertimeIn
-                        ? overtimeInTimestamp
-                          ? `Overtime started at ${overtimeInTimestamp.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
-                          : "Overtime started"
-                        : "Render Overtime"
-                      : "Render Regular Hours First"}
-                  </Badge>
-                </div>
-                {!isOvertimeIn ? (
-                  <Button
-                    onClick={handleOvertimeIn}
-                    size="lg"
-                    className="w-full bg-purple-600 hover:bg-purple-700"
-                    disabled={actionLoading || freezeSessionAt !== null || !autoTimeoutTriggered}
-                  >
-                    <Timer className="mr-2 h-5 w-5" />
-                    {loadingAction === "overtimein" ? "Processing..." : "Overtime In"}
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleOvertimeOut}
-                    size="lg"
-                    variant="destructive"
-                    className="w-full"
-                    disabled={actionLoading}
-                  >
-                    <Timer className="mr-2 h-5 w-5" />
-                    {loadingAction === "overtimeout" ? "Processing..." : "Overtime Out"}
-                  </Button>
-                )}
-              </div>
-            </div>
+            <OvertimeTracking
+              isOvertimeIn={isOvertimeIn}
+              overtimeInTimestamp={overtimeInTimestamp}
+              actionLoading={actionLoading}
+              loadingAction={loadingAction}
+              freezeSessionAt={freezeSessionAt}
+              autoTimeoutTriggered={autoTimeoutTriggered}
+              handleOvertimeIn={handleOvertimeIn}
+              handleOvertimeOut={handleOvertimeOut}
+            />
           </CardContent>
         </Card>
       </div>
