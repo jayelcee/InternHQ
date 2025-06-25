@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { GraduationCap } from "lucide-react"
+import { calculateTimeWorked, truncateTo2Decimals } from "@/lib/time-utils"
 
 /**
  * TimeLog type for intern logs
@@ -39,28 +40,6 @@ interface UserShape {
   first_name?: string
   last_name?: string
   internship?: InternshipDetails
-}
-
-/**
- * Utility: Truncate a decimal number to 2 decimals as string
- */
-function truncateTo2Decimals(val: number) {
-  const [int, dec = ""] = val.toString().split(".")
-  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-}
-
-/**
- * Utility: Calculate decimal hours for a log
- */
-function getTruncatedDecimalHours(log: TimeLog) {
-  if (!log.time_in || !log.time_out) return 0
-  const inDate = new Date(log.time_in)
-  const outDate = new Date(log.time_out)
-  const diffMs = outDate.getTime() - inDate.getTime()
-  const hours = Math.floor(diffMs / (1000 * 60 * 60))
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-  const decimal = hours + minutes / 60
-  return Number(truncateTo2Decimals(decimal))
 }
 
 const STANDARD_SHIFT_HOURS = 9
@@ -169,7 +148,11 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
       : logs
     const total = filteredLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-      .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+      .reduce((sum, log) => {
+        if (!log.time_in || !log.time_out) return sum
+        const result = calculateTimeWorked(log.time_in, log.time_out)
+        return sum + result.hoursWorked
+      }, 0)
     return Number(truncateTo2Decimals(total))
   })()
 
@@ -304,7 +287,11 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                 // Calculate total hours worked for this date group (limit to STANDARD_SHIFT_HOURS)
                 const rawHoursWorked = logsForDate
                   .filter(log => log.time_in && log.time_out)
-                  .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+                  .reduce((sum, log) => {
+                    if (!log.time_in || !log.time_out) return sum
+                    const result = calculateTimeWorked(log.time_in, log.time_out)
+                    return sum + result.hoursWorked
+                  }, 0)
                 const hoursWorked = Math.min(rawHoursWorked, STANDARD_SHIFT_HOURS)
 
                 // Calculate overtime for this date group

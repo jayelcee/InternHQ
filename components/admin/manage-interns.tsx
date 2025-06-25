@@ -18,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
+import { getTruncatedDecimalHours } from "@/lib/time-utils"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
@@ -105,24 +106,6 @@ export function ManageInternsDashboard() {
       const internsData = await internsRes.json()
 
       // 3. Map interns and calculate completedHours using logs
-      const truncateTo2Decimals = (val: number) => {
-        const [int, dec = ""] = val.toString().split(".")
-        return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-      }
-
-      const getTruncatedDecimalHours = (log: TimeLog) => {
-        const timeIn = log.timeIn || log.time_in
-        const timeOut = log.timeOut || log.time_out
-        if (!timeIn || !timeOut) return 0
-        const inDate = new Date(timeIn)
-        const outDate = new Date(timeOut)
-        const diffMs = outDate.getTime() - inDate.getTime()
-        const hours = Math.floor(diffMs / (1000 * 60 * 60))
-        const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-        const decimal = hours + minutes / 60
-        return Number(truncateTo2Decimals(decimal))
-      }
-
       const mapped: Intern[] = internsData.map((intern: Record<string, unknown>) => {
         const internId = Number(intern.id)
         // Find all completed logs for this intern
@@ -134,7 +117,12 @@ export function ManageInternsDashboard() {
         // Sum using getTruncatedDecimalHours
         const completedHours = internLogs
           .filter((log) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
-          .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+          .reduce((sum, log) => {
+            const timeIn = log.timeIn || log.time_in
+            const timeOut = log.timeOut || log.time_out
+            if (!timeIn || !timeOut) return sum
+            return sum + getTruncatedDecimalHours(timeIn, timeOut)
+          }, 0)
 
         return {
           id: intern.id?.toString() ?? "",

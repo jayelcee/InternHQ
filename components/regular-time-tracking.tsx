@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -16,7 +16,10 @@ interface RegularTimeTrackingProps {
   autoTimeoutTriggered: boolean
   handleTimeIn: () => void
   handleTimeOut: () => void
-  user?: any
+  user?: {
+    id?: number
+    work_schedule?: string | object
+  }
   refreshUser?: () => Promise<void>
   trackingMode: "manual" | "automatic"
   onTrackingModeChange: (mode: "manual" | "automatic") => void
@@ -36,7 +39,6 @@ export function RegularTimeTracking({
   handleTimeIn,
   handleTimeOut,
   user,
-  refreshUser,
   trackingMode,
   onTrackingModeChange,
 }: RegularTimeTrackingProps) {
@@ -57,29 +59,9 @@ export function RegularTimeTracking({
   }
 
   /**
-   * Converts 12-hour AM/PM format to 24-hour format
-   */
-  const formatTime24Hour = (time12: string): string => {
-    if (!time12) return ""
-    const match = time12.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
-    if (!match) return time12
-    
-    let [, hours, minutes, ampm] = match
-    let hour = parseInt(hours, 10)
-    
-    if (ampm.toUpperCase() === 'PM' && hour !== 12) {
-      hour += 12
-    } else if (ampm.toUpperCase() === 'AM' && hour === 12) {
-      hour = 0
-    }
-    
-    return `${hour.toString().padStart(2, '0')}:${minutes}`
-  }
-
-  /**
    * Gets the current day's work schedule from user's work_schedule data
    */
-  const getCurrentDaySchedule = () => {
+  const getCurrentDaySchedule = useCallback(() => {
     const today = new Date().getDay()
     const dayOfWeek = today === 0 ? 7 : today
     
@@ -117,17 +99,17 @@ export function RegularTimeTracking({
     }
     
     return { start: "00:00", end: "00:00", isWorkDay: false }
-  }
+  }, [user?.work_schedule])
 
   const [todaySchedule, setTodaySchedule] = useState(getCurrentDaySchedule())
 
   /**
    * Gets localStorage key for today's custom schedule
    */
-  const getTodayStorageKey = () => {
+  const getTodayStorageKey = useCallback(() => {
     const today = new Date().toISOString().split('T')[0]
     return `custom_schedule_${today}_${user?.id || 'unknown'}`
-  }
+  }, [user?.id])
 
   /**
    * Load custom schedule from localStorage if it exists
@@ -146,19 +128,19 @@ export function RegularTimeTracking({
     } else {
       setTodaySchedule(getCurrentDaySchedule())
     }
-  }, [user?.id, user?.work_schedule])
+  }, [user?.id, user?.work_schedule, getCurrentDaySchedule, getTodayStorageKey])
 
   /**
-   * Update schedule when user work_schedule changes (but only if no custom schedule exists)
+   * Simple reset to default schedule when auto timeout triggers
    */
   useEffect(() => {
-    const storageKey = getTodayStorageKey()
-    const savedSchedule = localStorage.getItem(storageKey)
-    
-    if (!savedSchedule) {
+    if (autoTimeoutTriggered && user?.id) {
+      const storageKey = getTodayStorageKey()
+      localStorage.removeItem(storageKey)
       setTodaySchedule(getCurrentDaySchedule())
+      setIsEditingSchedule(false)
     }
-  }, [user?.work_schedule])
+  }, [autoTimeoutTriggered, user?.id, getCurrentDaySchedule, getTodayStorageKey])
 
   /**
    * Save custom schedule to localStorage whenever it changes
@@ -167,30 +149,11 @@ export function RegularTimeTracking({
     const dbSchedule = getCurrentDaySchedule()
     const isCustom = JSON.stringify(todaySchedule) !== JSON.stringify(dbSchedule)
     
-    if (isCustom && user?.id) {
+    if (isCustom && user?.id && !autoTimeoutTriggered) {
       const storageKey = getTodayStorageKey()
       localStorage.setItem(storageKey, JSON.stringify(todaySchedule))
     }
-  }, [todaySchedule, user?.id])
-
-  /**
-   * Clear custom schedule when user times out
-   */
-  useEffect(() => {
-    if (!isTimedIn && user?.id) {
-      const wasTimedIn = localStorage.getItem(`was_timed_in_${user.id}`)
-      
-      if (wasTimedIn === 'true') {
-        const storageKey = getTodayStorageKey()
-        localStorage.removeItem(storageKey)
-        localStorage.setItem(`was_timed_in_${user.id}`, 'false')
-        
-        setTodaySchedule(getCurrentDaySchedule())
-      }
-    } else if (isTimedIn && user?.id) {
-      localStorage.setItem(`was_timed_in_${user.id}`, 'true')
-    }
-  }, [isTimedIn, user?.id])
+  }, [todaySchedule, user?.id, autoTimeoutTriggered, getCurrentDaySchedule, getTodayStorageKey])
 
   /**
    * Handles updating the schedule for the current day
@@ -237,17 +200,6 @@ export function RegularTimeTracking({
     setIsEditingSchedule(false)
     setScheduleError(null)
   }
-
-  /**
-   * Checks if schedule has been customized for today
-   */
-  const isScheduleCustomized = () => {
-    const storageKey = getTodayStorageKey()
-    return localStorage.getItem(storageKey) !== null
-  }
-
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-  const todayName = dayNames[new Date().getDay()]
 
   return (
     <div className="space-y-4">
@@ -330,7 +282,7 @@ export function RegularTimeTracking({
           <div className="text-center">
             {autoTimeoutTriggered ? (
               <Badge variant="secondary" className="bg-red-100 text-red-800">
-                Auto Timed Out at {formatTime12Hour(todaySchedule.end)}
+                Auto Timed Out - Work Day Complete
               </Badge>
             ) : todaySchedule.start !== "00:00" && todaySchedule.end !== "00:00" ? (
               isTimedIn ? (

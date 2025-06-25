@@ -19,7 +19,7 @@ export interface User {
   first_name: string
   last_name: string
   role: "intern" | "admin"
-  work_schedule?: any
+  work_schedule?: string | object
   created_at: string
   updated_at: string
 }

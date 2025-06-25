@@ -15,6 +15,7 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getTruncatedDecimalHours } from "@/lib/time-utils"
 
 /**
  * InternProfile component displays and manages intern profile information.
@@ -251,24 +252,6 @@ export function InternProfile({
     return isValid(date) ? format(date, "yyyy-MM-dd") : ""
   }
 
-  // Helper for truncating to 2 decimals
-  function truncateTo2Decimals(val: number): string {
-    const [int, dec = ""] = val.toString().split(".")
-    return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-  }
-
-  // Helper for log hours
-  function getTruncatedDecimalHours(log: LogEntry): number {
-    if (!log.time_in || !log.time_out) return 0
-    const inDate = new Date(log.time_in)
-    const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime()
-    const hours = Math.floor(diffMs / (1000 * 60 * 60))
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-    const decimal = hours + minutes / 60
-    return Number(truncateTo2Decimals(decimal))
-  }
-
   // Calculate completed hours from logs
   const currentInternId = internId ?? user?.id
 
@@ -284,7 +267,10 @@ export function InternProfile({
                 (log.user_id?.toString() === currentInternId?.toString() ||
                   log.internId?.toString() === currentInternId?.toString())
             )
-            .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+            .reduce((sum, log) => {
+              if (!log.time_in || !log.time_out) return sum
+              return sum + getTruncatedDecimalHours(log.time_in, log.time_out)
+            }, 0)
         : profileData.completedHours || 0
 
   const requiredHours = profileData?.requiredHours || 0

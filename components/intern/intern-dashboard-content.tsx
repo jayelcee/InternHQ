@@ -9,6 +9,14 @@ import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/contexts/auth-context"
 import { RegularTimeTracking } from "@/components/regular-time-tracking"
 import { OvertimeTracking } from "@/components/overtime-tracking"
+import { 
+  calculateTimeWorked, 
+  truncateTo2Decimals, 
+  getLocalDateString, 
+  getCurrentDateString, 
+  getWeekRange,
+  formatDuration
+} from "@/lib/time-utils"
 
 /**
  * InternDashboardContent component provides the main dashboard interface for interns.
@@ -36,57 +44,6 @@ interface TimeLog {
 const REQUIRED_HOURS_PER_DAY = 9
 
 /**
- * Gets the Monday-Sunday range for a given date
- */
-function getWeekRange(date = new Date()) {
-  const day = date.getDay()
-  const diffToMonday = (day === 0 ? -6 : 1) - day
-  const monday = new Date(date)
-  monday.setDate(date.getDate() + diffToMonday)
-  monday.setHours(0, 0, 0, 0)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  sunday.setHours(23, 59, 59, 999)
-  return { monday, sunday }
-}
-
-/**
- * Gets today's date in YYYY-MM-DD format
- */
-function getTodayString() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, "0")
-  const day = String(now.getDate()).padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-/**
- * Truncates a decimal number to 2 decimal places
- */
-function truncateTo2Decimals(val: number) {
-  const [int, dec = ""] = val.toString().split(".")
-  return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-}
-
-/**
- * Formats duration in hours and minutes
- */
-function formatDuration(hours: number, minutes: number) {
-  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
-}
-
-/**
- * Converts UTC date string to local date string
- */
-function getLocalDateString(dateStr: string) {
-  const d = new Date(dateStr)
-  return d.getFullYear() + "-" +
-    String(d.getMonth() + 1).padStart(2, "0") + "-" +
-    String(d.getDate()).padStart(2, "0")
-}
-
-/**
  * Groups time logs by date and sorts them
  */
 function groupLogsByDate(logs: TimeLog[]) {
@@ -104,19 +61,14 @@ function groupLogsByDate(logs: TimeLog[]) {
 }
 
 /**
- * Calculates duration and hours for a time log entry
+ * Calculates duration and hours for a time log entry using centralized calculation
  */
 function getLogDuration(log: TimeLog) {
   if (log.time_in && log.time_out) {
-    const inDate = new Date(log.time_in)
-    const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime()
-    const hours = Math.floor(diffMs / (1000 * 60 * 60))
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-    const decimal = diffMs / (1000 * 60 * 60)
+    const result = calculateTimeWorked(log.time_in, log.time_out)
     return {
-      duration: formatDuration(hours, minutes),
-      decimal: truncateTo2Decimals(decimal),
+      duration: result.duration,
+      decimal: result.decimal
     }
   }
   return null
@@ -125,10 +77,11 @@ function getLogDuration(log: TimeLog) {
 /**
  * Calculates today's total duration for regular logs only
  */
-function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date) {
+function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getLocalDateString(new Date().toISOString())
   let totalMs = 0
 
+  // Sum up completed logs for today
   logs.forEach((log) => {
     if (
       log.time_in &&
@@ -136,22 +89,26 @@ function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimest
       (log.log_type === "regular" || !log.log_type) &&
       log.time_out
     ) {
-      const inDate = new Date(log.time_in)
-      const outDate = new Date(log.time_out)
-      totalMs += outDate.getTime() - inDate.getTime()
+      const result = calculateTimeWorked(log.time_in, log.time_out)
+      totalMs += result.hoursWorked * 60 * 60 * 1000 // Convert back to ms for accumulation
     }
   })
 
+  // Add current active session if any
   if (isTimedIn && timeInTimestamp) {
-    const end = freezeAt ? freezeAt : new Date()
-    totalMs += end.getTime() - timeInTimestamp.getTime()
+    const end = freezeAt ? freezeAt : (currentTime || new Date())
+    const activeResult = calculateTimeWorked(timeInTimestamp, end)
+    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
   }
 
-  const hours = Math.floor(totalMs / (1000 * 60 * 60))
-  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60))
+  // Convert total back to duration format
+  const totalMinutes = Math.floor(totalMs / (1000 * 60))
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
   return formatDuration(hours, minutes)
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseSchedule(schedule: any) {
   if (!schedule || typeof schedule !== "object") return null
   
@@ -208,6 +165,7 @@ function isNowScheduled(timeStr: string) {
 }
 
 // Helper function to get effective schedule (including localStorage overrides)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getEffectiveSchedule(user: any) {
   if (!user?.work_schedule) return null
   
@@ -285,7 +243,7 @@ export function InternDashboardContent() {
   }
 
   // --- Button Handlers (move these above the scheduled effect) ---
-  const handleTimeIn = async () => {
+  const handleTimeIn = useCallback(async () => {
     if (actionLoading) return
     setActionLoading(true)
     setLoadingAction("timein")
@@ -298,7 +256,7 @@ export function InternDashboardContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: getTodayString() }),
+        body: JSON.stringify({ date: getCurrentDateString() }),
       })
       if (!res.ok) throw new Error("Failed to clock in")
       await fetchLogs(false)
@@ -312,14 +270,14 @@ export function InternDashboardContent() {
     }
     setActionLoading(false)
     setLoadingAction(null)
-  }
+  }, [])
 
   // Accepts an optional auto flag and freezeAt to skip confirm dialog and use exact time
-  const handleTimeOut = async (auto = false, freezeAt?: Date) => {
+  const handleTimeOut = useCallback(async (auto = false, freezeAt?: Date) => {
     if (actionLoading) return
     setActionLoading(true)
     setLoadingAction("timeout")
-    const today = getTodayString()
+    const today = getCurrentDateString()
     // Calculate total hours worked today (including current session)
     let totalMs = 0
     allLogs.forEach((log) => {
@@ -375,7 +333,7 @@ export function InternDashboardContent() {
     }
     setActionLoading(false)
     setLoadingAction(null)
-  }
+  }, [])
 
   // --- Scheduled Auto Time In/Out Effect ---
   useEffect(() => {
@@ -433,7 +391,7 @@ export function InternDashboardContent() {
   }
 
   // Calculate today's duration, freeze at auto timeout if needed
-  const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined)
+  const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined, currentTime)
   const todayHours = parseDurationToHours(todayDuration)
 
   // --- Effects ---
@@ -449,18 +407,11 @@ export function InternDashboardContent() {
           const data = await res.json()
           const logsArr = (Array.isArray(data) ? data : data.logs || [])
           setAllLogs(logsArr.map((log: Record<string, unknown>) => {
-            let hoursWorked = 0
-            let duration = null
             if (log.time_in && log.time_out) {
-              const inDate = new Date(log.time_in as string)
-              const outDate = new Date(log.time_out as string)
-              const diffMs = outDate.getTime() - inDate.getTime()
-              hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
-              const hours = Math.floor(diffMs / (1000 * 60 * 60))
-              const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-              duration = formatDuration(hours, minutes)
+              const result = calculateTimeWorked(log.time_in as string, log.time_out as string)
+              return { ...log, hoursWorked: result.hoursWorked, duration: result.duration }
             }
-            return { ...log, hoursWorked, duration }
+            return { ...log, hoursWorked: 0, duration: null }
           }))
 
           // Find the latest active regular log (no time_out) FOR TODAY ONLY
@@ -505,7 +456,6 @@ export function InternDashboardContent() {
     }
 
     restoreClockState()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, stateReady])
 
   // Always fetch logs when user and stateReady change
@@ -513,7 +463,6 @@ export function InternDashboardContent() {
     if (user && stateReady) {
       fetchLogs(true)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, stateReady])
 
   // Real-time tick for durations (only if not frozen)
@@ -533,18 +482,11 @@ export function InternDashboardContent() {
       const data = await res.json()
       const logsArr = (Array.isArray(data) ? data : data.logs || [])
         .map((log: Record<string, unknown>) => {
-          let hoursWorked = 0
-          let duration = null
           if (log.time_in && log.time_out) {
-            const inDate = new Date(log.time_in as string)
-            const outDate = new Date(log.time_out as string)
-            const diffMs = outDate.getTime() - inDate.getTime()
-            hoursWorked = diffMs > 0 ? Number(truncateTo2Decimals(diffMs / (1000 * 60 * 60))) : 0
-            const hours = Math.floor(diffMs / (1000 * 60 * 60))
-            const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-            duration = formatDuration(hours, minutes)
+            const result = calculateTimeWorked(log.time_in as string, log.time_out as string)
+            return { ...log, hoursWorked: result.hoursWorked, duration: result.duration }
           }
-          return { ...log, hoursWorked, duration }
+          return { ...log, hoursWorked: 0, duration: null }
         })
         .sort((a: TimeLog, b: TimeLog) => {
           const aTime = a.time_in ? new Date(a.time_in).getTime() : 0
@@ -559,8 +501,11 @@ export function InternDashboardContent() {
     }
   }
 
-  // Update current time every second
+  // Update current time every second with immediate start
   useEffect(() => {
+    // Set initial time immediately
+    setCurrentTime(new Date())
+    
     const timer = setInterval(() => {
       setCurrentTime(new Date())
     }, 1000)
@@ -700,7 +645,7 @@ export function InternDashboardContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: getTodayString(), logType: "overtime" }),
+        body: JSON.stringify({ date: getCurrentDateString(), logType: "overtime" }),
       })
       if (!res.ok) throw new Error("Failed to clock in for overtime")
       await fetchLogs(false)
@@ -725,7 +670,7 @@ export function InternDashboardContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: getTodayString(), logType: "overtime" }),
+        body: JSON.stringify({ date: getCurrentDateString(), logType: "overtime" }),
       })
       if (!res.ok) throw new Error("Failed to clock out for overtime")
       await fetchLogs(false)
@@ -1076,15 +1021,11 @@ export function InternDashboardContent() {
                                 </span>
                               )
                             } else if (log.time_in && !log.time_out) {
-                              // Show real-time duration for active logs
-                              const inDate = new Date(log.time_in)
-                              const now = new Date()
-                              const diffMs = now.getTime() - inDate.getTime()
-                              const hours = Math.floor(diffMs / (1000 * 60 * 60))
-                              const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+                              // Show real-time duration for active logs using centralized calculation
+                              const result = calculateTimeWorked(log.time_in, currentTime)
                               return (
                                 <span key={idx} className="font-semibold text-yellow-700">
-                                  {formatDuration(hours, minutes)}
+                                  {result.duration}
                                 </span>
                               )
                             } else if (log.status === "pending") {
