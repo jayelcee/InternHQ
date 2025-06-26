@@ -6,8 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { 
   calculateTimeWorked, 
   truncateTo2Decimals, 
-  filterLogsByInternId,
-  DAILY_REQUIRED_HOURS
+  filterLogsByInternId
 } from "@/lib/time-utils"
 import { 
   TimeLogDisplay, 

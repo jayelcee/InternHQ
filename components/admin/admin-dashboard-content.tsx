@@ -764,7 +764,6 @@ export function HRAdminDashboard() {
 
                       // For regular hours up to required hours limit, then overtime
                       const regularHoursWorked = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
-                      const overtimeHours = Math.max(0, totalHoursWorked - DAILY_REQUIRED_HOURS)
 
                       return (
                         <TableRow key={key}>

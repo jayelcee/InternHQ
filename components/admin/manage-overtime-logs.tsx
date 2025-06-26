@@ -5,7 +5,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { CheckCircle, XCircle, Clock, RefreshCw } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield } from "lucide-react"
 import { calculateTimeWorked, truncateTo2Decimals } from "@/lib/time-utils"
 import { formatLogDate } from "@/lib/ui-utils"
 
@@ -67,6 +69,9 @@ export function OvertimeLogsDashboard() {
     hasLongLogs: false,
     count: 0
   })
+  const [minOvertimeHours, setMinOvertimeHours] = useState<number>(1)
+  const [bulkActionLoading, setBulkActionLoading] = useState<string | null>(null)
+  const [showBulkActions, setShowBulkActions] = useState<boolean>(false)
 
   /**
    * Fetch overtime logs from API
@@ -177,6 +182,166 @@ export function OvertimeLogsDashboard() {
   }
 
   /**
+   * Handle bulk auto-reject for logs below minimum hours
+   */
+  const handleBulkAutoReject = async () => {
+    const pendingLogs = logs.filter(log => log.overtime_status === "pending")
+    const logsToReject = pendingLogs.filter(log => {
+      const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
+      return timeWorked.hoursWorked < minOvertimeHours
+    })
+
+    if (logsToReject.length === 0) {
+      alert(`No pending logs found with less than ${minOvertimeHours} hours to reject.`)
+      return
+    }
+
+    const confirmReject = window.confirm(
+      `Are you sure you want to auto-reject ${logsToReject.length} overtime logs that are below the minimum ${minOvertimeHours} hours threshold?`
+    )
+    if (!confirmReject) return
+
+    setBulkActionLoading("reject")
+    try {
+      let successCount = 0
+      let errorCount = 0
+
+      for (const log of logsToReject) {
+        try {
+          const response = await fetch(`/api/admin/overtime/${log.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ status: "rejected" }),
+          })
+          
+          if (response.ok) {
+            successCount++
+          } else {
+            errorCount++
+          }
+        } catch (error) {
+          errorCount++
+        }
+      }
+
+      alert(`Bulk auto-reject completed!\nSuccessfully rejected: ${successCount}\nErrors: ${errorCount}`)
+      await fetchOvertimeLogs() // Refresh the data
+    } catch (error) {
+      console.error("Error in bulk auto-reject:", error)
+      alert("Failed to complete bulk auto-reject. Please try again.")
+    } finally {
+      setBulkActionLoading(null)
+    }
+  }
+
+  /**
+   * Handle bulk auto-approve for logs above minimum hours
+   */
+  const handleBulkAutoApprove = async () => {
+    const pendingLogs = logs.filter(log => log.overtime_status === "pending")
+    const logsToApprove = pendingLogs.filter(log => {
+      const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
+      return timeWorked.hoursWorked >= minOvertimeHours
+    })
+
+    if (logsToApprove.length === 0) {
+      alert(`No pending logs found with ${minOvertimeHours} hours or more to approve.`)
+      return
+    }
+
+    const confirmApprove = window.confirm(
+      `Are you sure you want to auto-approve ${logsToApprove.length} overtime logs that meet or exceed the minimum ${minOvertimeHours} hours threshold?`
+    )
+    if (!confirmApprove) return
+
+    setBulkActionLoading("approve")
+    try {
+      let successCount = 0
+      let errorCount = 0
+
+      for (const log of logsToApprove) {
+        try {
+          const response = await fetch(`/api/admin/overtime/${log.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ status: "approved" }),
+          })
+          
+          if (response.ok) {
+            successCount++
+          } else {
+            errorCount++
+          }
+        } catch (error) {
+          errorCount++
+        }
+      }
+
+      alert(`Bulk auto-approve completed!\nSuccessfully approved: ${successCount}\nErrors: ${errorCount}`)
+      await fetchOvertimeLogs() // Refresh the data
+    } catch (error) {
+      console.error("Error in bulk auto-approve:", error)
+      alert("Failed to complete bulk auto-approve. Please try again.")
+    } finally {
+      setBulkActionLoading(null)
+    }
+  }
+
+  /**
+   * Handle bulk revert for approved/rejected logs back to pending
+   */
+  const handleBulkRevert = async () => {
+    const processedLogs = logs.filter(log => 
+      log.overtime_status === "approved" || log.overtime_status === "rejected"
+    )
+
+    if (processedLogs.length === 0) {
+      alert("No approved or rejected logs found to revert.")
+      return
+    }
+
+    const confirmRevert = window.confirm(
+      `Are you sure you want to revert ${processedLogs.length} approved/rejected overtime logs back to pending status? This will undo all previous decisions.`
+    )
+    if (!confirmRevert) return
+
+    setBulkActionLoading("revert")
+    try {
+      let successCount = 0
+      let errorCount = 0
+
+      for (const log of processedLogs) {
+        try {
+          const response = await fetch(`/api/admin/overtime/${log.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ status: "pending" }),
+          })
+          
+          if (response.ok) {
+            successCount++
+          } else {
+            errorCount++
+          }
+        } catch (error) {
+          errorCount++
+        }
+      }
+
+      alert(`Bulk revert completed!\nSuccessfully reverted: ${successCount}\nErrors: ${errorCount}`)
+      await fetchOvertimeLogs() // Refresh the data
+    } catch (error) {
+      console.error("Error in bulk revert:", error)
+      alert("Failed to complete bulk revert. Please try again.")
+    } finally {
+      setBulkActionLoading(null)
+    }
+  }
+
+  /**
    * Get status badge component based on overtime status
    */
   const getStatusBadge = (overtime_status: string) => {
@@ -214,6 +379,23 @@ export function OvertimeLogsDashboard() {
     pending: logs.filter(log => log.overtime_status === "pending").length,
     approved: logs.filter(log => log.overtime_status === "approved").length,
     rejected: logs.filter(log => log.overtime_status === "rejected").length
+  }
+
+  // Calculate bulk action stats for pending logs
+  const pendingLogs = logs.filter(log => log.overtime_status === "pending")
+  const processedLogs = logs.filter(log => 
+    log.overtime_status === "approved" || log.overtime_status === "rejected"
+  )
+  const bulkStats = {
+    belowMinimum: pendingLogs.filter(log => {
+      const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
+      return timeWorked.hoursWorked < minOvertimeHours
+    }).length,
+    aboveMinimum: pendingLogs.filter(log => {
+      const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
+      return timeWorked.hoursWorked >= minOvertimeHours
+    }).length,
+    processed: processedLogs.length
   }
 
   // Sort logs by date
@@ -279,6 +461,157 @@ export function OvertimeLogsDashboard() {
         </Card>
       </div>
 
+      {/* Bulk Actions Panel */}
+      {(stats.pending > 0 || processedLogs.length > 0) && showBulkActions && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="text-amber-800 flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              Bulk Actions for Overtime Logs
+            </CardTitle>
+            <CardDescription className="text-amber-700">
+              Set minimum overtime hours threshold to auto-approve or auto-reject multiple logs at once, or revert processed logs back to pending.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {stats.pending > 0 && (
+                <>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="minHours" className="text-sm font-medium">
+                        Minimum Hours:
+                      </Label>
+                      <Input
+                        id="minHours"
+                        type="number"
+                        min="0"
+                        max="24"
+                        step="0.5"
+                        value={minOvertimeHours}
+                        onChange={(e) => setMinOvertimeHours(parseFloat(e.target.value) || 0)}
+                        className="w-24"
+                      />
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      <div>• {bulkStats.belowMinimum} logs below {minOvertimeHours}h (can auto-reject)</div>
+                      <div>• {bulkStats.aboveMinimum} logs {minOvertimeHours}h+ (can auto-approve)</div>
+                      {processedLogs.length > 0 && (
+                        <div>• {bulkStats.processed} approved/rejected logs (can revert to pending)</div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkAutoReject}
+                      disabled={bulkActionLoading !== null || bulkStats.belowMinimum === 0}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      {bulkActionLoading === "reject" ? (
+                        <>
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-3 w-3 mr-2" />
+                          Auto-Reject {bulkStats.belowMinimum} Logs
+                        </>
+                      )}
+                    </Button>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkAutoApprove}
+                      disabled={bulkActionLoading !== null || bulkStats.aboveMinimum === 0}
+                      className="text-green-600 border-green-300 hover:bg-green-50"
+                    >
+                      {bulkActionLoading === "approve" ? (
+                        <>
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-3 w-3 mr-2" />
+                          Auto-Approve {bulkStats.aboveMinimum} Logs
+                        </>
+                      )}
+                    </Button>
+
+                    {processedLogs.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleBulkRevert}
+                        disabled={bulkActionLoading !== null || bulkStats.processed === 0}
+                        className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                      >
+                        {bulkActionLoading === "revert" ? (
+                          <>
+                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent mr-2" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="h-3 w-3 mr-2" />
+                            Revert {bulkStats.processed} Logs
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {stats.pending === 0 && processedLogs.length > 0 && (
+                <>
+                  <div className="flex items-center gap-4">
+                    <div className="text-sm text-gray-600">
+                      <div>• {bulkStats.processed} approved/rejected logs (can revert to pending)</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBulkRevert}
+                      disabled={bulkActionLoading !== null || bulkStats.processed === 0}
+                      className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                    >
+                      {bulkActionLoading === "revert" ? (
+                        <>
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent mr-2" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="h-3 w-3 mr-2" />
+                          Revert {bulkStats.processed} Logs
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              <div className="text-xs text-amber-700 bg-amber-100 p-2 rounded flex items-start gap-2">
+                <Shield className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                <div>
+                  <strong>Safety Notice:</strong> Bulk actions will process all logs that meet the criteria. 
+                  You can always adjust decisions individually using the action buttons in the table or bulk revert here.
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Overtime Logs Table */}
       <Card>
         <CardHeader>
@@ -300,6 +633,17 @@ export function OvertimeLogsDashboard() {
                 Sort by Date&nbsp;
                 {sortDirection === "desc" ? "↓" : "↑"}
               </Button>
+              {(stats.pending > 0 || processedLogs.length > 0) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowBulkActions(!showBulkActions)}
+                  className="text-amber-700 border-amber-300 hover:bg-amber-50"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  {showBulkActions ? "Hide Bulk Actions" : "Show Bulk Actions"}
+                </Button>
+              )}
               {migrationStatus.hasLongLogs && (
                 <Button
                   onClick={handleMigration}
@@ -350,8 +694,8 @@ export function OvertimeLogsDashboard() {
                               {log.user.department} • {log.user.school}
                             </div>
                             <div className="text-xs text-gray-400 mt-1">
-                              {log.overtime_status === "rejected" && "❌ Rejected - Not counted in progress (click Revert to change)"}
-                              {log.overtime_status === "approved" && "✅ Approved - Counted in progress (click Revert to change)"}
+                              {log.overtime_status === "rejected" && "❌ Rejected - Not counted in progress"}
+                              {log.overtime_status === "approved" && "✅ Approved - Counted in progress"}
                               {log.overtime_status === "pending" && "⏳ Pending approval - Awaiting admin decision"}
                             </div>
                           </div>
