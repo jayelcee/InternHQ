@@ -5,7 +5,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { Pencil } from "lucide-react"
 import { TimeLogDisplay } from "@/lib/ui-utils"
 
@@ -87,11 +86,6 @@ export function EditTimeLogDialog({ log, onSave, isLoading }: EditTimeLogDialogP
     } catch (error) {
       console.error("Error saving time log:", error)
     }
-  }
-
-  const formatTime = (dateString: string | null) => {
-    if (!dateString) return "--"
-    return new Date(dateString).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
 
   return (

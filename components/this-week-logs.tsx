@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, getLocalDateString } from "@/lib/time-utils"
+import { calculateTimeWorked } from "@/lib/time-utils"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 
 interface ThisWeekLogsProps {
