@@ -11,18 +11,20 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { GraduationCap } from "lucide-react"
-import { calculateTimeWorked, truncateTo2Decimals, extractDateString, DEFAULT_INTERNSHIP_DETAILS, filterLogsByInternId, calculateInternshipProgress } from "@/lib/time-utils"
-import { DailyTimeRecord as TimeRecordTable, type TimeLog } from "@/components/daily-time-record"
-
-interface InternshipDetails {
-  school?: { name: string }
-  department?: { name: string }
-  supervisor?: string
-  required_hours: number
-  start_date: string
-  end_date: string
-  status?: string
-}
+import { 
+  calculateInternshipProgress, 
+  truncateTo2Decimals, 
+  DEFAULT_INTERNSHIP_DETAILS,
+  filterLogsByInternId,
+  extractDateString 
+} from "@/lib/time-utils"
+import { 
+  TimeLogDisplay, 
+  InternshipDetails,
+  calculateProgressPercentage,
+  fetchWithErrorHandling 
+} from "@/lib/ui-utils"
+import { DailyTimeRecord as TimeRecordTable } from "@/components/daily-time-record"
 
 interface UserProfile {
   first_name?: string
@@ -32,7 +34,7 @@ interface UserProfile {
 
 export function DailyTimeRecord({ internId }: { internId?: string }) {
   const { user } = useAuth()
-  const [logs, setLogs] = useState<TimeLog[]>([])
+  const [logs, setLogs] = useState<TimeLogDisplay[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [profile, setProfile] = useState<UserProfile | null>(null)
@@ -50,26 +52,19 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         const data = await res.json()
         const logsArray = Array.isArray(data) ? data : data.logs || []
         
-        const normalizedLogs: TimeLog[] = logsArray.map((log: Record<string, unknown>) => {
+        const normalizedLogs: TimeLogDisplay[] = logsArray.map((log: Record<string, unknown>) => {
           const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
           const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
-          
-          let dateStr = ""
-          if (timeIn) {
-            dateStr = extractDateString(timeIn)
-          } else if (timeOut) {
-            dateStr = extractDateString(timeOut)
-          } else if (typeof log.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(log.date)) {
-            dateStr = log.date.slice(0, 10)
-          }
 
           return {
-            ...log,
+            id: log.id as number,
             time_in: timeIn,
             time_out: timeOut,
             log_type: (log.log_type as "regular" | "overtime") ?? "regular",
-            date: dateStr,
-          } as TimeLog
+            status: (log.status as "pending" | "completed") ?? "completed",
+            user_id: log.user_id as number | undefined,
+            internId: log.internId as number | undefined,
+          }
         })
         
         setLogs(normalizedLogs)

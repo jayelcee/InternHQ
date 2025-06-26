@@ -2,25 +2,19 @@
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, truncateTo2Decimals, extractDateString, filterLogsByInternId, calculateInternshipProgress } from "@/lib/time-utils"
-
-/**
- * TimeLog type for intern logs
- */
-export interface TimeLog {
-  id: number
-  date: string
-  time_in: string | null
-  time_out: string | null
-  status: "pending" | "completed"
-  log_type: "regular" | "overtime"
-  notes?: string
-  user_id?: number | string
-  internId?: number | string
-}
+import { 
+  calculateTimeWorked, 
+  truncateTo2Decimals, 
+  filterLogsByInternId 
+} from "@/lib/time-utils"
+import { 
+  TimeLogDisplay, 
+  groupLogsByDate, 
+  formatLogDate 
+} from "@/lib/ui-utils"
 
 interface DailyTimeRecordProps {
-  logs: TimeLog[]
+  logs: TimeLogDisplay[]
   internId?: string
   loading?: boolean
   error?: string | null
@@ -117,7 +111,7 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
                           className={
                             log.log_type === "overtime" 
                               ? "bg-purple-50 text-purple-700 border-purple-300" 
-                              : "bg-red-50 text-red-700"
+                              : "bg-blue-50 text-blue-700"
                           }
                         >
                           {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -163,55 +157,4 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
       </Table>
     </div>
   )
-}
-
-/**
- * Group logs by intern and date for compact display in logs table
- */
-function groupLogsByDate(logs: TimeLog[]) {
-  const map = new Map<string, TimeLog[]>()
-  logs.forEach(log => {
-    // Use intern id + date as key to separate different interns' logs
-    const internId = log.user_id ?? log.internId ?? ""
-    
-    // Extract date from time_in, time_out, or date field using proper date extraction
-    let dateKey = ""
-    if (log.time_in) {
-      dateKey = extractDateString(log.time_in)
-    } else if (log.time_out) {
-      dateKey = extractDateString(log.time_out)
-    } else if (log.date) {
-      dateKey = log.date.slice(0, 10)
-    }
-    
-    if (!dateKey) return
-    const key = `${internId}-${dateKey}`
-    if (!map.has(key)) map.set(key, [])
-    map.get(key)!.push(log)
-  })
-  
-  // Sort logs within each group by time_in
-  map.forEach(arr => arr.sort((a, b) => {
-    const aTime = a.time_in || a.time_out || a.date || ""
-    const bTime = b.time_in || b.time_out || b.date || ""
-    return new Date(aTime).getTime() - new Date(bTime).getTime()
-  }))
-  
-  // Return as array of [key, logs[]], sorted by date ascending
-  return Array.from(map.entries()).sort((a, b) => {
-    // Extract date part for sorting
-    const aDate = a[0].split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
-    const bDate = b[0].split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
-    return new Date(aDate).getTime() - new Date(bDate).getTime()
-  })
-}
-
-/**
- * Format a date string as MM/DD/YYYY
- */
-function formatLogDate(date: string) {
-  if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return "N/A"
-  const d = new Date(date)
-  if (isNaN(d.getTime())) return date
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "2-digit", day: "2-digit" })
 }

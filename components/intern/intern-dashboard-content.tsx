@@ -18,27 +18,18 @@ import {
   formatDuration,
   calculateInternshipProgress
 } from "@/lib/time-utils"
-
-/**
- * TimeLog interface for individual time entries
- */
-interface TimeLog {
-  id: number
-  time_in: string | null
-  time_out: string | null
-  notes?: string
-  status: "pending" | "completed"
-  hoursWorked: number
-  duration: string | null
-  log_type?: "regular" | "overtime"
-}
+import { 
+  TimeLogDisplay,
+  useAsyncAction,
+  fetchWithErrorHandling
+} from "@/lib/ui-utils"
 
 const REQUIRED_HOURS_PER_DAY = 9
 
 /**
  * Calculates duration and hours for a time log entry using centralized calculation
  */
-function getLogDuration(log: TimeLog) {
+function getLogDuration(log: TimeLogDisplay) {
   if (log.time_in && log.time_out) {
     const result = calculateTimeWorked(log.time_in, log.time_out)
     return {
@@ -52,7 +43,7 @@ function getLogDuration(log: TimeLog) {
 /**
  * Calculates today's total duration for regular logs only
  */
-function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
+function getTodayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getLocalDateString(new Date().toISOString())
   let totalMs = 0
 
@@ -88,7 +79,7 @@ export function InternDashboardContent() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
-  const [allLogs, setAllLogs] = useState<TimeLog[]>([])
+  const [allLogs, setAllLogs] = useState<TimeLogDisplay[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [stateReady, setStateReady] = useState(false)
@@ -116,7 +107,7 @@ export function InternDashboardContent() {
           }
           return { ...log, hoursWorked: 0, duration: null }
         })
-        .sort((a: TimeLog, b: TimeLog) => {
+        .sort((a: TimeLogDisplay, b: TimeLogDisplay) => {
           const aTime = a.time_in ? new Date(a.time_in).getTime() : 0
           const bTime = b.time_in ? new Date(b.time_in).getTime() : 0
           return bTime - aTime

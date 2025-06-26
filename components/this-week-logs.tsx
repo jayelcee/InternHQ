@@ -5,23 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { calculateTimeWorked, getLocalDateString } from "@/lib/time-utils"
-
-/**
- * TimeLog interface for individual time entries
- */
-interface TimeLog {
-  id: number
-  time_in: string | null
-  time_out: string | null
-  notes?: string
-  status: "pending" | "completed"
-  hoursWorked: number
-  duration: string | null
-  log_type?: "regular" | "overtime"
-}
+import { TimeLogDisplay } from "@/lib/ui-utils"
 
 interface ThisWeekLogsProps {
-  weeklyLogs: TimeLog[]
+  weeklyLogs: TimeLogDisplay[]
   loading: boolean
   error: string | null
   currentTime: Date
@@ -30,8 +17,8 @@ interface ThisWeekLogsProps {
 /**
  * Groups time logs by date and sorts them
  */
-function groupLogsByDate(logs: TimeLog[]) {
-  const map = new Map<string, TimeLog[]>()
+function groupLogsByDate(logs: TimeLogDisplay[]) {
+  const map = new Map<string, TimeLogDisplay[]>()
   logs.forEach(log => {
     const dateKey = log.time_in ? getLocalDateString(log.time_in) : undefined
     if (!dateKey) return
@@ -47,7 +34,7 @@ function groupLogsByDate(logs: TimeLog[]) {
 /**
  * Calculates duration and hours for a time log entry using centralized calculation
  */
-function getLogDuration(log: TimeLog) {
+function getLogDuration(log: TimeLogDisplay) {
   if (log.time_in && log.time_out) {
     const result = calculateTimeWorked(log.time_in, log.time_out)
     return {
