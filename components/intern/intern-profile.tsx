@@ -15,7 +15,7 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getTruncatedDecimalHours } from "@/lib/time-utils"
+import { getTruncatedDecimalHours, calculateInternshipProgress, calculateTimeWorked } from "@/lib/time-utils"
 
 /**
  * InternProfile component displays and manages intern profile information.
@@ -214,10 +214,8 @@ export function InternProfile({
           const time_out = (log.time_out as string) || (log.timeOut as string) || null
           let hoursWorked = 0
           if (time_in && time_out) {
-            const inDate = new Date(time_in)
-            const outDate = new Date(time_out)
-            const diffMs = outDate.getTime() - inDate.getTime()
-            hoursWorked = diffMs > 0 ? Number((diffMs / (1000 * 60 * 60)).toFixed(2)) : 0
+            const result = calculateTimeWorked(time_in, time_out)
+            hoursWorked = result.hoursWorked
           }
           return { ...log, time_in, time_out, hoursWorked }
         })
@@ -259,18 +257,7 @@ export function InternProfile({
     logsLoading || !profileData
       ? 0
       : logs.length > 0
-        ? logs
-            .filter(
-              (log) =>
-                log.time_in &&
-                log.time_out &&
-                (log.user_id?.toString() === currentInternId?.toString() ||
-                  log.internId?.toString() === currentInternId?.toString())
-            )
-            .reduce((sum, log) => {
-              if (!log.time_in || !log.time_out) return sum
-              return sum + getTruncatedDecimalHours(log.time_in, log.time_out)
-            }, 0)
+        ? calculateInternshipProgress(logs, currentInternId)
         : profileData.completedHours || 0
 
   const requiredHours = profileData?.requiredHours || 0

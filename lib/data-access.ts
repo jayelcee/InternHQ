@@ -11,6 +11,7 @@ import type {
   InternshipProgram,
 } from "./database"
 import { sql } from "./database"
+import { calculateInternshipProgress, calculateTimeWorked } from "./time-utils"
 
 /**
  * Data access layer for InternHQ application.
@@ -102,13 +103,17 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
       }
     }
 
-    // Calculate completed hours
-    const completedHoursRes = await sql`
-      SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
+    // Calculate completed hours using centralized function
+    const allLogsRes = await sql<Array<{
+      time_in: string | null
+      time_out: string | null
+      status: string
+    }>>`
+      SELECT time_in, time_out, status
       FROM time_logs
-      WHERE user_id = ${userIdNum} AND status = 'completed'
+      WHERE user_id = ${userIdNum} AND time_in IS NOT NULL AND time_out IS NOT NULL
     `
-    const completedHours = Number(completedHoursRes[0]?.completed_hours || 0)
+    const completedHours = calculateInternshipProgress(allLogsRes)
 
     // Get today's status
     const today = new Date().toISOString().split("T")[0]
@@ -505,10 +510,8 @@ function calculateDuration(timeIn: string, timeOut: string) {
 }
 
 function calculateHours(timeIn: string, timeOut: string) {
-  const inDate = new Date(timeIn)
-  const outDate = new Date(timeOut)
-  const diffMs = outDate.getTime() - inDate.getTime()
-  return Number((diffMs / (1000 * 60 * 60)).toFixed(2))
+  const result = calculateTimeWorked(timeIn, timeOut)
+  return result.hoursWorked
 }
 
 // --- Intern List ---
@@ -554,13 +557,19 @@ export async function getAllInterns() {
   }
 
   const interns = await Promise.all(result.map(async (row) => {
-    // Calculate completed hours
-    const logsRes = await sql<{ completed_hours: number }[]>`
-      SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
+    // Get all completed logs for this intern
+    const allLogsRes = await sql<Array<{
+      time_in: string | null
+      time_out: string | null
+      status: string
+    }>>`
+      SELECT time_in, time_out, status
       FROM time_logs
-      WHERE user_id = ${row.id} AND status = 'completed' AND time_in IS NOT NULL AND time_out IS NOT NULL
+      WHERE user_id = ${row.id} AND time_in IS NOT NULL AND time_out IS NOT NULL
     `
-    const completedHours = Number(logsRes[0]?.completed_hours || 0)
+    
+    // Use centralized calculation for consistent progress tracking
+    const completedHours = calculateInternshipProgress(allLogsRes, row.id)
 
     // Get all today's logs
     const todayLogRes = await sql<TimeLogRow[]>`

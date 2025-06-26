@@ -15,7 +15,8 @@ import {
   getLocalDateString, 
   getCurrentDateString, 
   getWeekRange,
-  formatDuration
+  formatDuration,
+  calculateInternshipProgress
 } from "@/lib/time-utils"
 
 /**
@@ -447,13 +448,8 @@ export function InternDashboardContent() {
 
   // Statistics calculations
   const completedHours = useMemo(() => {
-    const total = allLogs
-      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-      .reduce((sum, log) => {
-        const dur = getLogDuration(log)
-        return sum + (dur ? Number(dur.decimal) : 0)
-      }, 0)
-    return Number(truncateTo2Decimals(total))
+    // Use centralized calculation for consistent progress tracking
+    return calculateInternshipProgress(allLogs)
   }, [allLogs])
 
   const progressPercentage = useMemo(() => 

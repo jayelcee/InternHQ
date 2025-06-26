@@ -11,7 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { GraduationCap } from "lucide-react"
-import { calculateTimeWorked, truncateTo2Decimals, extractDateString, DEFAULT_INTERNSHIP_DETAILS, filterLogsByInternId } from "@/lib/time-utils"
+import { calculateTimeWorked, truncateTo2Decimals, extractDateString, DEFAULT_INTERNSHIP_DETAILS, filterLogsByInternId, calculateInternshipProgress } from "@/lib/time-utils"
 import { DailyTimeRecord as TimeRecordTable, type TimeLog } from "@/components/daily-time-record"
 
 interface InternshipDetails {
@@ -110,19 +110,12 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
 
   const internshipDetails: InternshipDetails = profile?.internship ?? DEFAULT_INTERNSHIP_DETAILS
 
-  // Calculate hours and progress
+  // Calculate hours and progress using centralized function
   const { completedHours, totalHoursWorked } = (() => {
     const filteredLogs = filterLogsByInternId(logs, internId)
     
-    const total = filteredLogs
-      .filter(log => log.status === "completed" && log.time_in && log.time_out)
-      .reduce((sum, log) => {
-        if (!log.time_in || !log.time_out) return sum
-        const result = calculateTimeWorked(log.time_in, log.time_out)
-        return sum + result.hoursWorked
-      }, 0)
-    
-    const totalWorked = Number(truncateTo2Decimals(total))
+    // Use centralized calculation for consistent progress tracking
+    const totalWorked = calculateInternshipProgress(filteredLogs)
     const completed = Math.min(totalWorked, internshipDetails.required_hours)
     
     return { completedHours: completed, totalHoursWorked: totalWorked }

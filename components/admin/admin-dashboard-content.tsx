@@ -14,7 +14,7 @@ import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
-import { getTruncatedDecimalHours } from "@/lib/time-utils"
+import { calculateInternshipProgress } from "@/lib/time-utils"
 
 /**
  * Types for intern logs and intern records
@@ -129,17 +129,13 @@ export function HRAdminDashboard() {
           const internLogs = logsArray.filter(
             (log) => log.internId === intern.id
           )
-          const completedHours = internLogs
-            .filter((log) => log.timeIn && log.timeOut)
-            .reduce((sum, log) => {
-              if (!log.timeIn || !log.timeOut) return sum
-              return sum + getTruncatedDecimalHours(log.timeIn, log.timeOut)
-            }, 0)
+          // Use centralized calculation for consistent progress tracking
+          const completedHours = calculateInternshipProgress(internLogs)
           return {
             ...intern,
             internshipDetails: {
               ...intern.internshipDetails,
-              completedHours: Number(completedHours.toFixed(2)),
+              completedHours,
             },
           }
         })

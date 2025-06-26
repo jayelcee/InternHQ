@@ -2,7 +2,7 @@
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, truncateTo2Decimals, extractDateString, filterLogsByInternId } from "@/lib/time-utils"
+import { calculateTimeWorked, truncateTo2Decimals, extractDateString, filterLogsByInternId, calculateInternshipProgress } from "@/lib/time-utils"
 
 /**
  * TimeLog type for intern logs
