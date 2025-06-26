@@ -2,12 +2,16 @@
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 
+/**
+ * User interface representing the authenticated user data
+ */
 interface User {
   id: number
   email: string
   first_name: string
   last_name: string
   role: "intern" | "admin"
+  work_schedule?: any
   profile?: {
     phone?: string
     address?: string
@@ -29,17 +33,32 @@ interface User {
     emergency_contact_phone?: string
   }
   internship?: {
+    id: number
+    user_id: number
+    school_id: number
+    department_id: number
     required_hours: number
     start_date: string
     end_date: string
-    status: string
+    supervisor_id?: number
+    supervisor_name?: string
+    status: "active" | "completed" | "suspended"
+    created_at: string
+    updated_at: string
     school: {
+      id: number
       name: string
       address?: string
+      contact_email?: string
+      contact_phone?: string
+      created_at: string
     }
     department: {
+      id: number
       name: string
       description?: string
+      supervisor_id?: number
+      created_at: string
     }
   }
   completedHours?: number
@@ -48,6 +67,9 @@ interface User {
   todayTimeOut?: string
 }
 
+/**
+ * Authentication context type definition
+ */
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>
@@ -58,15 +80,20 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+/**
+ * AuthProvider component that provides authentication context to the application
+ */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  // Check for existing session on mount
   useEffect(() => {
     checkAuth()
   }, [])
 
+  /**
+   * Checks if user has an active authentication session
+   */
   const checkAuth = async () => {
     try {
       const response = await fetch("/api/auth/me", {
@@ -75,7 +102,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       if (!response.ok) {
-        console.log("No active session found")
         setUser(null)
         return
       }
@@ -102,6 +128,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Authenticates user with email and password
+   */
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const response = await fetch("/api/auth/login", {
@@ -127,7 +156,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.success) {
-        // Immediately fetch the full user details from /api/auth/me
         const meRes = await fetch("/api/auth/me", {
           method: "GET",
           credentials: "include",
@@ -139,7 +167,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return { success: true }
           }
         }
-        // fallback: still set minimal user if /me fails
         setUser(data.user)
         return { success: true }
       } else {
@@ -151,6 +178,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Logs out the current user and clears session
+   */
   const logout = async () => {
     try {
       await fetch("/api/auth/logout", {
@@ -164,6 +194,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Refreshes user data from the server
+   */
   const refreshUser = async () => {
     await checkAuth()
   }
@@ -171,6 +204,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={{ user, login, logout, isLoading, refreshUser }}>{children}</AuthContext.Provider>
 }
 
+/**
+ * Custom hook to use the authentication context
+ * @throws Error if used outside of AuthProvider
+ */
 export function useAuth() {
   const context = useContext(AuthContext)
   if (context === undefined) {

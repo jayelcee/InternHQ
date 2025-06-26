@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/daily-time-record"
+import { getTruncatedDecimalHours } from "@/lib/time-utils"
 
 /**
  * Types for intern logs and intern records
@@ -123,23 +124,6 @@ export function HRAdminDashboard() {
         const logsData = await logsRes.json()
         const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
 
-        // Calculate completedHours from logs for each intern
-        function truncateTo2Decimals(val: number) {
-          const [int, dec = ""] = val.toString().split(".")
-          return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-        }
-
-        function getTruncatedDecimalHours(log: TimeLog) {
-          if (!log.timeIn || !log.timeOut) return 0
-          const inDate = new Date(log.timeIn)
-          const outDate = new Date(log.timeOut)
-          const diffMs = outDate.getTime() - inDate.getTime()
-          const hours = Math.floor(diffMs / (1000 * 60 * 60))
-          const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-          const decimal = hours + minutes / 60
-          return Number(truncateTo2Decimals(decimal))
-        }
-
         // Map interns with their completed hours
         const internsWithLogHours = internsData.map((intern) => {
           const internLogs = logsArray.filter(
@@ -147,7 +131,10 @@ export function HRAdminDashboard() {
           )
           const completedHours = internLogs
             .filter((log) => log.timeIn && log.timeOut)
-            .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+            .reduce((sum, log) => {
+              if (!log.timeIn || !log.timeOut) return sum
+              return sum + getTruncatedDecimalHours(log.timeIn, log.timeOut)
+            }, 0)
           return {
             ...intern,
             internshipDetails: {

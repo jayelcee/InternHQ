@@ -15,9 +15,21 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { getTruncatedDecimalHours } from "@/lib/time-utils"
 
 /**
- * Types for profile data and logs
+ * InternProfile component displays and manages intern profile information.
+ * Features include:
+ * - Personal information management
+ * - Education details
+ * - Skills and interests
+ * - Emergency contact information
+ * - Internship details
+ * - Time log history
+ */
+
+/**
+ * Supervisor interface
  */
 interface Supervisor {
   id: number
@@ -26,8 +38,10 @@ interface Supervisor {
   last_name?: string
 }
 
+/**
+ * Complete profile data interface
+ */
 interface ProfileData {
-  // Personal
   firstName: string
   lastName: string
   email: string
@@ -38,20 +52,16 @@ interface ProfileData {
   zipCode: string
   dateOfBirth: string
   bio: string
-  // Education
   school: string
   degree: string
   gpa: string
   graduationDate: string
-  // Skills & Interests
   skills: string[]
   interests: string[]
   languages: string[]
-  // Emergency Contact
   emergencyContactName: string
   emergencyContactRelation: string
   emergencyContactPhone: string
-  // Internship Details
   department: string
   departmentId: string
   schoolId: string
@@ -67,6 +77,9 @@ interface ProfileData {
   projects: unknown[]
 }
 
+/**
+ * Time log entry interface
+ */
 interface LogEntry {
   id: number
   user_id?: number | string
@@ -98,6 +111,7 @@ export function InternProfile({
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [logsLoading, setLogsLoading] = useState(true)
   const [supervisors, setSupervisors] = useState<Supervisor[]>([])
+  const [workSchedule, setWorkSchedule] = useState<{ start: string; end: string; days: number[] } | null>(null)
 
   // Fetch profile data from API
   useEffect(() => {
@@ -109,6 +123,40 @@ export function InternProfile({
         const res = await fetch(url)
         if (!res.ok) throw new Error("Failed to fetch profile")
         const data = await res.json()
+        
+        // Set work schedule directly from user data
+        if (data.work_schedule) {
+          try {
+            const schedule = typeof data.work_schedule === "string" 
+              ? JSON.parse(data.work_schedule) 
+              : data.work_schedule
+            
+            // Convert from database format (per-day) to frontend format
+            const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            const days: number[] = []
+            let start = "09:00"
+            let end = "18:00"
+            
+            dayNames.forEach((dayName, index) => {
+              if (schedule[dayName] && schedule[dayName].start && schedule[dayName].end) {
+                days.push(index + 1) // Convert 0-based to 1-based (Monday = 1)
+                // Use the first found day's time as reference
+                if (days.length === 1) {
+                  start = schedule[dayName].start
+                  end = schedule[dayName].end
+                }
+              }
+            })
+            
+            setWorkSchedule({ start, end, days })
+          } catch (error) {
+            console.error("Error parsing work schedule:", error)
+            setWorkSchedule(null)
+          }
+        } else {
+          setWorkSchedule(null)
+        }
+        
         setProfileData({
           firstName: data.first_name || "",
           lastName: data.last_name || "",
@@ -204,24 +252,6 @@ export function InternProfile({
     return isValid(date) ? format(date, "yyyy-MM-dd") : ""
   }
 
-  // Helper for truncating to 2 decimals
-  function truncateTo2Decimals(val: number): string {
-    const [int, dec = ""] = val.toString().split(".")
-    return dec.length > 0 ? `${int}.${dec.slice(0, 2).padEnd(2, "0")}` : `${int}.00`
-  }
-
-  // Helper for log hours
-  function getTruncatedDecimalHours(log: LogEntry): number {
-    if (!log.time_in || !log.time_out) return 0
-    const inDate = new Date(log.time_in)
-    const outDate = new Date(log.time_out)
-    const diffMs = outDate.getTime() - inDate.getTime()
-    const hours = Math.floor(diffMs / (1000 * 60 * 60))
-    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-    const decimal = hours + minutes / 60
-    return Number(truncateTo2Decimals(decimal))
-  }
-
   // Calculate completed hours from logs
   const currentInternId = internId ?? user?.id
 
@@ -237,7 +267,10 @@ export function InternProfile({
                 (log.user_id?.toString() === currentInternId?.toString() ||
                   log.internId?.toString() === currentInternId?.toString())
             )
-            .reduce((sum, log) => sum + getTruncatedDecimalHours(log), 0)
+            .reduce((sum, log) => {
+              if (!log.time_in || !log.time_out) return sum
+              return sum + getTruncatedDecimalHours(log.time_in, log.time_out)
+            }, 0)
         : profileData.completedHours || 0
 
   const requiredHours = profileData?.requiredHours || 0
@@ -262,16 +295,38 @@ export function InternProfile({
     setLoading(true)
     setError(null)
     try {
+      // Save profile data first
+      console.log("Saving profile data:", profileData)
       const res = await fetch(`/api/profile${internId ? `?userId=${internId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profileData),
       })
-      if (!res.ok) throw new Error("Failed to save profile")
+      
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(`Failed to save profile: ${errorData.error || res.statusText}`)
+      }
+
+      // Save work schedule
+      if (workSchedule) {
+        const scheduleRes = await fetch("/api/user/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ schedule: workSchedule }),
+        })
+        
+        if (!scheduleRes.ok) {
+          const errorData = await scheduleRes.json()
+          throw new Error(`Failed to save work schedule: ${errorData.error || scheduleRes.statusText}`)
+        }
+      }
+
       await refreshUser()
       alert("Profile saved successfully!")
     } catch (err) {
       setError((err as Error).message || "Failed to save profile")
+      setIsEditing(true) // Re-enable editing on error
     } finally {
       setLoading(false)
     }
@@ -700,9 +755,133 @@ export function InternProfile({
                       value={completedHours.toFixed(2)}
                       disabled
                       readOnly
-                      placeholder="Completed Hours"
                     />
                   </div>
+                </div>
+
+                {/* Work Schedule */}
+                <div className="pt-6 mt-6 border-t">
+                  <h3 className="text-lg font-medium mb-4">Work Schedule</h3>
+                  {workSchedule ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="start-time">Start Time</Label>
+                        {isEditing ? (
+                          <Input
+                            id="start-time"
+                            type="time"
+                            value={workSchedule.start || "09:00"}
+                            onChange={(e) => {
+                              setWorkSchedule(prev => prev ? { ...prev, start: e.target.value } : { start: e.target.value, end: "18:00", days: [] })
+                            }}
+                          />
+                        ) : (
+                          <Input
+                            value={(() => {
+                              const time = workSchedule.start || "09:00"
+                              const [hours, minutes] = time.split(':')
+                              const hour = parseInt(hours)
+                              const ampm = hour >= 12 ? 'PM' : 'AM'
+                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+                              return `${displayHour}:${minutes} ${ampm}`
+                            })()}
+                            disabled
+                          />
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="end-time">End Time</Label>
+                        {isEditing ? (
+                          <Input
+                            id="end-time"
+                            type="time"
+                            value={workSchedule.end || "18:00"}
+                            onChange={(e) => {
+                              setWorkSchedule(prev => prev ? { ...prev, end: e.target.value } : { start: "09:00", end: e.target.value, days: [] })
+                            }}
+                          />
+                        ) : (
+                          <Input
+                            value={(() => {
+                              const time = workSchedule.end || "18:00"
+                              const [hours, minutes] = time.split(':')
+                              const hour = parseInt(hours)
+                              const ampm = hour >= 12 ? 'PM' : 'AM'
+                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
+                              return `${displayHour}:${minutes} ${ampm}`
+                            })()}
+                            disabled
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 text-sm">No work schedule set</div>
+                  )}
+                  
+                  {workSchedule && (
+                    <div className="space-y-2 mt-4">
+                      <Label>Work Days</Label>
+                      {isEditing ? (
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            { value: 1, label: "Mon" },
+                            { value: 2, label: "Tue" },
+                            { value: 3, label: "Wed" },
+                            { value: 4, label: "Thu" },
+                            { value: 5, label: "Fri" },
+                            { value: 6, label: "Sat" },
+                            { value: 7, label: "Sun" }
+                          ].map((day) => (
+                            <label key={day.value} className={cn(
+                              "flex items-center gap-2 px-3 py-2 border rounded-md text-sm transition-colors",
+                              "cursor-pointer hover:bg-gray-50",
+                              workSchedule.days?.includes(day.value) && "bg-green-50 border-green-200 text-green-700"
+                            )}>
+                              <input
+                                type="checkbox"
+                                checked={workSchedule.days?.includes(day.value) || false}
+                                onChange={(e) => {
+                                  const currentDays = workSchedule.days || []
+                                  const newDays = e.target.checked 
+                                    ? [...currentDays, day.value]
+                                    : currentDays.filter((d: number) => d !== day.value)
+                                  setWorkSchedule(prev => prev ? { ...prev, days: newDays } : { start: "09:00", end: "18:00", days: newDays })
+                                }}
+                                className="rounded border-gray-300"
+                              />
+                              <span>{day.label}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 flex-wrap">
+                          {[
+                            { value: 1, label: "Mon" },
+                            { value: 2, label: "Tue" },
+                            { value: 3, label: "Wed" },
+                            { value: 4, label: "Thu" },
+                            { value: 5, label: "Fri" },
+                            { value: 6, label: "Sat" },
+                            { value: 7, label: "Sun" }
+                          ].map((day) => (
+                            <Badge 
+                              key={day.value} 
+                              variant={workSchedule.days?.includes(day.value) ? "default" : "outline"}
+                              className={cn(
+                                "text-sm",
+                                workSchedule.days?.includes(day.value) 
+                                  ? "bg-green-100 text-green-800 hover:bg-green-200" 
+                                  : "text-gray-400"
+                              )}
+                            >
+                              {day.label}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

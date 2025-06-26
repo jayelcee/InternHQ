@@ -1,23 +1,32 @@
 import postgres from "postgres"
 
-// Use DATABASE_URL from .env for connection string
-// This is compatible with Vercel, Railway, and local setups
+/**
+ * PostgreSQL database connection using the DATABASE_URL environment variable.
+ * Compatible with Vercel, Railway, and local development setups.
+ */
 export const sql = postgres(process.env.DATABASE_URL!, {
   ssl: process.env.DB_SSL === "true" ? "require" : undefined,
 })
 
-// --- Types ---
+// --- Database Type Definitions ---
 
+/**
+ * User entity representing system users (interns and admins)
+ */
 export interface User {
   id: number
   email: string
   first_name: string
   last_name: string
   role: "intern" | "admin"
+  work_schedule?: string | object
   created_at: string
   updated_at: string
 }
 
+/**
+ * School entity representing educational institutions
+ */
 export interface School {
   id: number
   name: string
@@ -27,6 +36,9 @@ export interface School {
   created_at: string
 }
 
+/**
+ * Department entity representing organizational departments
+ */
 export interface Department {
   id: number
   name: string
@@ -35,6 +47,9 @@ export interface Department {
   created_at: string
 }
 
+/**
+ * Project entity representing work projects
+ */
 export interface Project {
   id: number
   name: string
@@ -48,6 +63,9 @@ export interface Project {
   department?: Department
 }
 
+/**
+ * Intern project assignment linking users to projects
+ */
 export interface InternProjectAssignment {
   id: number
   user_id: number
@@ -59,6 +77,9 @@ export interface InternProjectAssignment {
   project?: Project
 }
 
+/**
+ * Internship program entity representing an intern's program details
+ */
 export interface InternshipProgram {
   id: number
   user_id: number
@@ -73,6 +94,9 @@ export interface InternshipProgram {
   updated_at: string
 }
 
+/**
+ * Time log entity for tracking work hours
+ */
 export interface TimeLog {
   id: number
   user_id: number
@@ -87,6 +111,9 @@ export interface TimeLog {
   updated_at: string
 }
 
+/**
+ * User profile entity containing additional user information
+ */
 export interface UserProfile {
   id: number
   user_id: number
@@ -112,7 +139,9 @@ export interface UserProfile {
   updated_at: string
 }
 
-// Extended types for joined data
+/**
+ * Extended user type with joined profile, internship, and project data
+ */
 export interface UserWithDetails extends User {
   profile?: UserProfile
   internship?: InternshipProgram & {
@@ -122,13 +151,15 @@ export interface UserWithDetails extends User {
   projects?: (InternProjectAssignment & {
     project: Project
   })[]
-  // Computed fields for UI compatibility
   completedHours?: number
   todayStatus?: "in" | "out"
   todayTimeIn?: string
   todayTimeOut?: string
 }
 
+/**
+ * Extended time log type with joined user and department data
+ */
 export interface TimeLogWithDetails extends TimeLog {
   user: User
   user_profile?: UserProfile

@@ -12,9 +12,16 @@ import type {
 } from "./database"
 import { sql } from "./database"
 
-// --- Project Helpers ---
+/**
+ * Data access layer for InternHQ application.
+ * Provides functions for user, project, and time log operations.
+ */
 
-// Get a project by its ID
+// --- Project Operations ---
+
+/**
+ * Retrieves a project by its ID
+ */
 async function getProjectById(projectId: number): Promise<Project | null> {
   const res = await sql`SELECT * FROM projects WHERE id = ${projectId}`
   return res.length === 0 ? null : (res[0] as Project)
@@ -22,23 +29,29 @@ async function getProjectById(projectId: number): Promise<Project | null> {
 
 // --- User Operations ---
 
-// Fetch user details, profile, internship, completed hours, today's status, and projects
+/**
+ * Fetches comprehensive user details including profile, internship, and projects
+ */
 export async function getUserWithDetails(userId: string): Promise<UserWithDetails | null> {
   try {
     const userIdNum = Number(userId)
+    
+    // Fetch user data
     const userRes = await sql`
-      SELECT id, email, first_name, last_name, role, created_at, updated_at
+      SELECT id, email, first_name, last_name, role, work_schedule, created_at, updated_at
       FROM users
       WHERE id = ${userIdNum}
     `
     if (userRes.length === 0) return null
     const user = userRes[0] as User
 
+    // Fetch user profile
     const profileRes = await sql`
       SELECT * FROM user_profiles WHERE user_id = ${userIdNum}
     `
     const profile = profileRes.length > 0 ? (profileRes[0] as UserProfile) : undefined
 
+    // Fetch internship details with related data
     const internshipRes = await sql`
       SELECT ip.*, 
              s.id as school_id, s.name AS school_name, 
@@ -52,6 +65,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
       ORDER BY ip.created_at DESC
       LIMIT 1
     `
+    
     let internship: (InternshipProgram & { school: School; department: Department; supervisor_name?: string }) | undefined = undefined
     if (internshipRes.length > 0) {
       const row = internshipRes[0]
@@ -70,11 +84,25 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
-        school: { id: row.school_id, name: row.school_name, created_at: "", address: undefined, contact_email: undefined, contact_phone: undefined },
-        department: { id: row.department_id, name: row.department_name, created_at: "", description: undefined, supervisor_id: row.supervisor_id },
+        school: { 
+          id: row.school_id, 
+          name: row.school_name, 
+          created_at: "", 
+          address: undefined, 
+          contact_email: undefined, 
+          contact_phone: undefined 
+        },
+        department: { 
+          id: row.department_id, 
+          name: row.department_name, 
+          created_at: "", 
+          description: undefined, 
+          supervisor_id: row.supervisor_id 
+        },
       }
     }
 
+    // Calculate completed hours
     const completedHoursRes = await sql`
       SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_out - time_in))/3600), 0) AS completed_hours
       FROM time_logs
@@ -82,6 +110,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
     `
     const completedHours = Number(completedHoursRes[0]?.completed_hours || 0)
 
+    // Get today's status
     const today = new Date().toISOString().split("T")[0]
     const todayLogRes = await sql`
       SELECT * FROM time_logs WHERE user_id = ${userIdNum} AND time_in::date = ${today}
@@ -91,6 +120,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
       todayStatus = "in"
     }
 
+    // Get assigned projects
     const projects = await getInternProjects(userId)
 
     return {
@@ -99,6 +129,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
       first_name: user.first_name,
       last_name: user.last_name,
       role: user.role,
+      work_schedule: user.work_schedule,
       created_at: user.created_at,
       updated_at: user.updated_at,
       profile,
@@ -115,7 +146,9 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 
 // --- Time Log Operations ---
 
-// Clock in for a user
+/**
+ * Clock in a user for regular or overtime work
+ */
 export async function clockIn(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -137,7 +170,9 @@ export async function clockIn(userId: string, time?: string, logType: "regular" 
   }
 }
 
-// Clock out for a user
+/**
+ * Clock out a user from regular or overtime work
+ */
 export async function clockOut(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -157,7 +192,9 @@ export async function clockOut(userId: string, time?: string, logType: "regular"
   }
 }
 
-// Get all time logs for a user
+/**
+ * Retrieves all time logs for a specific user
+ */
 export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | null = null): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
@@ -181,7 +218,9 @@ export async function getTimeLogsForUser(userId: string, logType: "regular" | "o
   }
 }
 
-// Get today's time log for a user
+/**
+ * Retrieves today's time log for a specific user and log type
+ */
 export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" = "regular"): Promise<TimeLog | null> {
   try {
     const userIdNum = Number(userId)
@@ -201,7 +240,9 @@ export async function getTodayTimeLog(userId: string, logType: "regular" | "over
 
 // --- Intern-Project Assignment Operations ---
 
-// Get all projects assigned to an intern
+/**
+ * Retrieves all projects assigned to a specific intern
+ */
 export async function getInternProjects(userId: string): Promise<(InternProjectAssignment & { project: Project })[]> {
   try {
     const userIdNum = Number(userId)
@@ -243,7 +284,9 @@ export async function getInternProjects(userId: string): Promise<(InternProjectA
   }
 }
 
-// Delete an intern user
+/**
+ * Deletes an intern user and all associated data
+ */
 export async function deleteIntern(userId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
@@ -262,7 +305,9 @@ export async function deleteIntern(userId: string): Promise<{ success: boolean; 
   }
 }
 
-// Update user profile and internship info
+/**
+ * Updates user profile and internship information
+ */
 export async function updateUserProfile(
   userId: string,
   profileData: {

@@ -1,6 +1,10 @@
+-- InternHQ Database Seed Data
+-- This file populates the database with initial test data
+
+-- Enable password hashing extension
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
--- Insert admin and intern users
+-- Insert admin and intern users with hashed passwords
 INSERT INTO users (email, password_hash, first_name, last_name, role)
 VALUES
     ('rhea.masiglat@cybersoftbpo.com', crypt('admin123', gen_salt('bf')), 'Rhea', 'Masiglat', 'admin'),
@@ -13,7 +17,7 @@ INSERT INTO supervisors (email, first_name, last_name)
 VALUES ('carlo.lagrama@cybersoftbpo.com', 'Carlo', 'Lagrama')
 ON CONFLICT (email) DO NOTHING;
 
--- Seed school, department, and internship for FEU Institute of Technology
+-- Insert schools and departments with supervisor relationships
 WITH
     supervisor_row AS (
         SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'
@@ -32,12 +36,12 @@ WITH
     )
 SELECT 'School and department seeded';
 
--- Seed school for University of Caloocan
+-- Insert additional school
 INSERT INTO schools (name)
 VALUES ('University of Caloocan')
 ON CONFLICT (name) DO NOTHING;
 
--- Internships
+-- Create internship programs for interns
 INSERT INTO internship_programs (user_id, school_id, department_id, required_hours, start_date, end_date, supervisor_id)
 SELECT u.id, s.id, d.id, 520, '2025-04-23', '2025-07-18', d.supervisor_id
 FROM users u
@@ -110,7 +114,10 @@ FROM
         ('2025-06-16', '09:04:00', '20:11:00'),
         ('2025-06-17', '09:00:00', '21:00:00'),
         ('2025-06-18', '09:01:00', '18:10:00'),
-        ('2025-06-19', '09:00:00', '21:09:00')
+        ('2025-06-19', '09:00:00', '21:09:00'),
+        ('2025-06-20', '09:00:00', '18:00:00'),
+        ('2025-06-23', '09:00:00', '18:00:00'),
+        ('2025-06-24', '09:00:00', '18:00:00')
     ) AS logs(d, t_in, t_out);
 
 -- Giro Manzano time logs
@@ -162,7 +169,10 @@ FROM
         ('2025-06-16', '13:00:00', '23:00:00'),
         ('2025-06-17', '13:00:00', '23:00:00'),
         ('2025-06-18', '13:00:00', '23:00:00'),
-        ('2025-06-19', '13:00:00', '23:00:00')
+        ('2025-06-19', '13:00:00', '23:00:00'),
+        ('2025-06-20', '13:00:00', '23:00:00'),
+        ('2025-06-23', '13:00:00', '23:00:00'),
+        ('2025-06-24', '13:00:00', '23:00:00')
     ) AS logs(d, t_in, t_out);
 
 -- Jireh Walter Sodsod time logs
@@ -210,5 +220,23 @@ FROM
         ('2025-06-16', '09:00:00', '18:00:00'),
         ('2025-06-17', '09:00:00', '18:00:00'),
         ('2025-06-18', '09:00:00', '18:00:00'),
-        ('2025-06-19', '09:00:00', '18:00:00')
+        ('2025-06-19', '09:00:00', '18:00:00'),
+        ('2025-06-20', '09:00:00', '18:00:00'),
+        ('2025-06-23', '09:00:00', '18:00:00'),
+        ('2025-06-24', '09:00:00', '18:00:00')
     ) AS logs(d, t_in, t_out);
+
+-- Update seeded interns with a 9am-6pm regular schedule (Monday to Friday)
+UPDATE users
+SET work_schedule = '{
+  "monday":    { "start": "09:00", "end": "18:00" },
+  "tuesday":   { "start": "09:00", "end": "18:00" },
+  "wednesday": { "start": "09:00", "end": "18:00" },
+  "thursday":  { "start": "09:00", "end": "18:00" },
+  "friday":    { "start": "09:00", "end": "18:00" }
+}'
+WHERE email IN (
+  'jasmine.camasura@cybersoftbpo.com',
+  'giro.manzano@cybersoftbpo.com',
+  'jireh.sodsod@cybersoftbpo.com'
+);
