@@ -108,105 +108,8 @@ function getTodayTotalDuration(logs: TimeLog[], isTimedIn: boolean, timeInTimest
   return formatDuration(hours, minutes)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseSchedule(schedule: any) {
-  if (!schedule || typeof schedule !== "object") return null
-  
-  // Handle the unified format first
-  if (schedule.start && schedule.end && Array.isArray(schedule.days)) {
-    return {
-      start: schedule.start,
-      end: schedule.end,
-      days: schedule.days,
-    }
-  }
-  
-  // Handle the database per-day format: {monday: {start, end}, tuesday: {start, end}, ...}
-  const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-  const days: number[] = []
-  let start = "09:00"
-  let end = "18:00"
-  
-  dayNames.forEach((dayName, index) => {
-    if (schedule[dayName] && schedule[dayName].start && schedule[dayName].end) {
-      // Map array index to day numbers: Monday=1, Tuesday=2, ..., Saturday=6, Sunday=7
-      const dayNum = index === 6 ? 7 : index + 1 // Sunday (index 6) = 7, others = index + 1
-      days.push(dayNum)
-      
-      // Use the first found day's times as the unified times
-      if (days.length === 1) {
-        start = schedule[dayName].start
-        end = schedule[dayName].end
-      }
-    }
-  })
-  
-  if (days.length === 0) return null
-  
-  return { start, end, days }
-}
-
-function isNowScheduled(timeStr: string) {
-  if (!timeStr) return false
-  const [h, m] = timeStr.split(":").map(Number)
-  const now = new Date()
-  const currentHour = now.getHours()
-  const currentMinute = now.getMinutes()
-  
-  // Check if we're at the exact scheduled time (within the same minute)
-  const isScheduledTime = currentHour === h && currentMinute === m
-  
-  // Debug logging (remove in production)
-  if (isScheduledTime) {
-    console.log(`Auto trigger time reached: ${timeStr} (${h}:${m}) - Current: ${currentHour}:${currentMinute}`)
-  }
-  
-  return isScheduledTime
-}
-
-// Helper function to get effective schedule (including localStorage overrides)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getEffectiveSchedule(user: any) {
-  if (!user?.work_schedule) return null
-  
-  // Get today's custom schedule from localStorage if it exists
-  const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
-  const storageKey = `custom_schedule_${today}_${user.id}`
-  const savedSchedule = localStorage.getItem(storageKey)
-  
-  if (savedSchedule) {
-    try {
-      const customSchedule = JSON.parse(savedSchedule)
-      if (customSchedule.start && customSchedule.end && customSchedule.isWorkDay) {
-        // Convert custom schedule to the format expected by automatic tracking
-        const now = new Date()
-        const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // 1=Mon, 7=Sun
-        return {
-          start: customSchedule.start,
-          end: customSchedule.end,
-          days: [dayOfWeek] // Only today is a work day for custom schedule
-        }
-      }
-    } catch {
-      // Fall through to database schedule
-    }
-  }
-  
-  // Use database schedule
-  let schedule
-  try {
-    schedule = typeof user.work_schedule === "string"
-      ? JSON.parse(user.work_schedule)
-      : user.work_schedule
-  } catch {
-    return null
-  }
-  
-  return parseSchedule(schedule)
-}
-
 export function InternDashboardContent() {
-  const { user, refreshUser } = useAuth()
+  const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isTimedIn, setIsTimedIn] = useState(false)
   const [timeInTimestamp, setTimeInTimestamp] = useState<Date | null>(null)
@@ -220,29 +123,9 @@ export function InternDashboardContent() {
   const [overtimeInTimestamp, setOvertimeInTimestamp] = useState<Date | null>(null)
   const [freezeSessionAt, setFreezeSessionAt] = useState<Date | null>(null)
   const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
-  const [trackingMode, setTrackingMode] = useState<"manual" | "automatic">("automatic")
   const prevTodayHours = useRef(0)
-  const lastAutoActionRef = useRef<{ date: string; type: "in" | "out" | null }>({ date: "", type: null })
 
-  // Load tracking mode from localStorage on component mount
-  useEffect(() => {
-    if (user?.id) {
-      const savedMode = localStorage.getItem(`tracking_mode_${user.id}`)
-      if (savedMode === "manual" || savedMode === "automatic") {
-        setTrackingMode(savedMode)
-      }
-    }
-  }, [user?.id])
-
-  // Save tracking mode to localStorage when it changes
-  const handleTrackingModeChange = (mode: "manual" | "automatic") => {
-    setTrackingMode(mode)
-    if (user?.id) {
-      localStorage.setItem(`tracking_mode_${user.id}`, mode)
-    }
-  }
-
-  // --- Button Handlers (move these above the scheduled effect) ---
+  // --- Button Handlers ---
   const handleTimeIn = useCallback(async () => {
     if (actionLoading) return
     setActionLoading(true)
@@ -334,49 +217,6 @@ export function InternDashboardContent() {
     setActionLoading(false)
     setLoadingAction(null)
   }, [])
-
-  // --- Scheduled Auto Time In/Out Effect ---
-  useEffect(() => {
-    if (!user?.work_schedule) return
-    let schedule
-    try {
-      schedule = typeof user.work_schedule === "string"
-        ? JSON.parse(user.work_schedule)
-        : user.work_schedule
-    } catch {
-      schedule = null
-    }
-    schedule = parseSchedule(schedule)
-    if (!schedule) return
-
-    const checkSchedule = () => {
-      const now = new Date()
-      const todayStr = getLocalDateString(now.toISOString())
-      const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay()
-      if (!schedule.days.includes(dayOfWeek)) return
-
-      if (
-        isNowScheduled(schedule.start) &&
-        !isTimedIn &&
-        lastAutoActionRef.current.date !== todayStr + "-in"
-      ) {
-        lastAutoActionRef.current = { date: todayStr + "-in", type: "in" }
-        handleTimeIn()
-      }
-      if (
-        isNowScheduled(schedule.end) &&
-        isTimedIn &&
-        lastAutoActionRef.current.date !== todayStr + "-out"
-      ) {
-        lastAutoActionRef.current = { date: todayStr + "-out", type: "out" }
-        handleTimeOut(true)
-      }
-    }
-
-    checkSchedule()
-    const interval = setInterval(checkSchedule, 15 * 1000) // Check every 15 seconds
-    return () => clearInterval(interval)
-  }, [user?.work_schedule, isTimedIn, handleTimeIn, handleTimeOut])
 
   // Internship details from user context
   const internshipDetails = user?.internship
@@ -579,57 +419,6 @@ export function InternDashboardContent() {
       setAutoTimeoutTriggered(true)
     }
   }, [stateReady, allLogs])
-
-  // --- Scheduled Auto Time In/Out Effect ---
-  useEffect(() => {
-    // Only run automatic time in/out when tracking mode is "automatic"
-    if (!user?.work_schedule || trackingMode !== "automatic") return
-    
-    const schedule = getEffectiveSchedule(user)
-    if (!schedule) return
-
-    const checkSchedule = () => {
-      const now = new Date()
-      const todayStr = getLocalDateString(now.toISOString())
-      const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay() // 1=Mon, 7=Sun
-
-      // Debug logging
-      console.log(`Auto check: day=${dayOfWeek}, scheduleDays=${schedule.days}, start=${schedule.start}, end=${schedule.end}, isTimedIn=${isTimedIn}`)
-
-      if (!schedule.days.includes(dayOfWeek)) {
-        console.log(`Today (${dayOfWeek}) is not a work day according to schedule`)
-        return
-      }
-
-      // Auto Time In
-      if (
-        isNowScheduled(schedule.start) &&
-        !isTimedIn &&
-        lastAutoActionRef.current.date !== todayStr + "-in"
-      ) {
-        console.log(`Triggering auto time in at ${schedule.start}`)
-        lastAutoActionRef.current = { date: todayStr + "-in", type: "in" }
-        handleTimeIn()
-      }
-
-      // Auto Time Out
-      if (
-        isNowScheduled(schedule.end) &&
-        isTimedIn &&
-        lastAutoActionRef.current.date !== todayStr + "-out"
-      ) {
-        console.log(`Triggering auto time out at ${schedule.end}`)
-        lastAutoActionRef.current = { date: todayStr + "-out", type: "out" }
-        handleTimeOut(true)
-      }
-    }
-
-    // Run immediately and then every 15 seconds
-    checkSchedule()
-    const interval = setInterval(checkSchedule, 15 * 1000) // Check every 15 seconds
-    return () => clearInterval(interval)
-    // eslint-disable-next-line
-  }, [user?.work_schedule, isTimedIn, handleTimeIn, handleTimeOut, trackingMode])
 
   // --- Button Handlers ---
 
@@ -896,10 +685,6 @@ export function InternDashboardContent() {
               autoTimeoutTriggered={autoTimeoutTriggered}
               handleTimeIn={handleTimeIn}
               handleTimeOut={handleTimeOut}
-              user={user}
-              refreshUser={refreshUser}
-              trackingMode={trackingMode}
-              onTrackingModeChange={handleTrackingModeChange}
             />
           </CardContent>
         </Card>

@@ -18,6 +18,7 @@ interface TimeLog {
   time_in: string | null
   time_out: string | null
   status: "pending" | "completed"
+  log_type: "regular" | "overtime"
   notes?: string
   user_id?: number | string
   internId?: number | string
@@ -42,7 +43,7 @@ interface UserShape {
   internship?: InternshipDetails
 }
 
-const STANDARD_SHIFT_HOURS = 9
+const REQUIRED_HOURS_PER_DAY = 9
 
 /**
  * DailyTimeRecord
@@ -69,15 +70,35 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         if (!res.ok) throw new Error("Failed to fetch logs")
         const data = await res.json()
         const logsArray = Array.isArray(data) ? data : data.logs || []
-        const normalizedLogs: TimeLog[] = logsArray.map((log: Record<string, unknown>) => ({
-          ...log,
-          time_in: (log.time_in as string) ?? (log.timeIn as string) ?? null,
-          time_out: (log.time_out as string) ?? (log.timeOut as string) ?? null,
-          date:
-            typeof log.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(log.date)
-              ? log.date.slice(0, 10)
-              : ((log.time_in as string) ?? (log.timeIn as string) ?? "").slice(0, 10),
-        }))
+        const normalizedLogs: TimeLog[] = logsArray.map((log: Record<string, unknown>) => {
+          const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
+          const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
+          
+          // Extract date from time_in or time_out, fallback to provided date
+          let dateStr = ""
+          if (timeIn) {
+            // Use local date extraction to avoid timezone issues
+            const date = new Date(timeIn)
+            dateStr = date.getFullYear() + "-" + 
+                     String(date.getMonth() + 1).padStart(2, "0") + "-" + 
+                     String(date.getDate()).padStart(2, "0")
+          } else if (timeOut) {
+            const date = new Date(timeOut)
+            dateStr = date.getFullYear() + "-" + 
+                     String(date.getMonth() + 1).padStart(2, "0") + "-" + 
+                     String(date.getDate()).padStart(2, "0")
+          } else if (typeof log.date === "string" && /^\d{4}-\d{2}-\d{2}/.test(log.date)) {
+            dateStr = log.date.slice(0, 10)
+          }
+
+          return {
+            ...log,
+            time_in: timeIn,
+            time_out: timeOut,
+            log_type: (log.log_type as "regular" | "overtime") ?? "regular",
+            date: dateStr,
+          }
+        })
         setLogs(normalizedLogs)
       } catch {
         setError("Failed to load logs")
@@ -137,7 +158,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
   /**
    * Calculate completed hours for the selected intern
    */
-  const completedHours = (() => {
+  const { completedHours, totalHoursWorked } = (() => {
     // Filter logs for the selected intern if internId is provided
     const filteredLogs = internId
       ? logs.filter(
@@ -146,6 +167,8 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
             log.internId?.toString() === internId.toString()
         )
       : logs
+    
+    // Calculate total completed hours (all time worked)
     const total = filteredLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => {
@@ -153,7 +176,13 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         const result = calculateTimeWorked(log.time_in, log.time_out)
         return sum + result.hoursWorked
       }, 0)
-    return Number(truncateTo2Decimals(total))
+    
+    const totalWorked = Number(truncateTo2Decimals(total))
+    
+    // Cap completed hours at required hours for progress calculation
+    const completed = Math.min(totalWorked, internshipDetails.required_hours)
+    
+    return { completedHours: completed, totalHoursWorked: totalWorked }
   })()
 
   const progressPercentage = internshipDetails.required_hours > 0
@@ -212,6 +241,11 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                 <span className="font-medium text-base">Completed</span>
                 <span className="font-medium text-base">
                   {completedHours.toFixed(2)}h / {internshipDetails.required_hours}h
+                  {totalHoursWorked > internshipDetails.required_hours && (
+                    <span className="text-yellow-600 ml-2 text-sm">
+                      (+{(totalHoursWorked - internshipDetails.required_hours).toFixed(2)}h overtime)
+                    </span>
+                  )}
                 </span>
               </div>
               <Progress value={progressPercentage} className="h-2 mb-6" />
@@ -284,18 +318,20 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                 // Extract date part from the group key (format: "internId-YYYY-MM-DD")
                 const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
 
-                // Calculate total hours worked for this date group (limit to STANDARD_SHIFT_HOURS)
-                const rawHoursWorked = logsForDate
-                  .filter(log => log.time_in && log.time_out)
+                // Calculate total hours for this date (all logs combined)
+                const totalHoursWorked = logsForDate
+                  .filter(log => log.time_in && log.time_out && log.status === "completed")
                   .reduce((sum, log) => {
                     if (!log.time_in || !log.time_out) return sum
                     const result = calculateTimeWorked(log.time_in, log.time_out)
                     return sum + result.hoursWorked
                   }, 0)
-                const hoursWorked = Math.min(rawHoursWorked, STANDARD_SHIFT_HOURS)
 
-                // Calculate overtime for this date group
-                const overtime = Math.max(0, rawHoursWorked - STANDARD_SHIFT_HOURS)
+                // For existing data or mixed data, treat as regular hours up to required hours limit
+                // then overtime for the rest
+                const dailyRequiredHours = REQUIRED_HOURS_PER_DAY
+                const regularHoursWorked = Math.min(totalHoursWorked, dailyRequiredHours)
+                const overtimeHours = Math.max(0, totalHoursWorked - dailyRequiredHours)
 
                 return (
                   <TableRow key={key}>
@@ -311,7 +347,15 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                       <div className="flex flex-col gap-1">
                         {logsForDate.map((log, idx) =>
                           log.time_in ? (
-                            <Badge key={idx} variant="outline" className="bg-green-50 text-green-700">
+                            <Badge 
+                              key={idx} 
+                              variant="outline" 
+                              className={
+                                log.log_type === "overtime" 
+                                  ? "bg-purple-50 text-purple-700 border-purple-300" 
+                                  : "bg-green-50 text-green-700"
+                              }
+                            >
                               {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </Badge>
                           ) : (
@@ -324,11 +368,27 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                       <div className="flex flex-col gap-1">
                         {logsForDate.map((log, idx) =>
                           log.time_out ? (
-                            <Badge key={idx} variant="outline" className="bg-red-50 text-red-700">
+                            <Badge 
+                              key={idx} 
+                              variant="outline" 
+                              className={
+                                log.log_type === "overtime" 
+                                  ? "bg-purple-50 text-purple-700 border-purple-300" 
+                                  : "bg-red-50 text-red-700"
+                              }
+                            >
                               {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                             </Badge>
                           ) : log.time_in && log.status === "pending" ? (
-                            <Badge key={idx} variant="outline" className="bg-yellow-50 text-yellow-700">
+                            <Badge 
+                              key={idx} 
+                              variant="outline" 
+                              className={
+                                log.log_type === "overtime" 
+                                  ? "bg-purple-50 text-purple-700 border-purple-300" 
+                                  : "bg-yellow-50 text-yellow-700"
+                              }
+                            >
                               In Progress
                             </Badge>
                           ) : (
@@ -339,13 +399,13 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                        {truncateTo2Decimals(hoursWorked)}h
+                        {truncateTo2Decimals(regularHoursWorked)}h
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {Number(truncateTo2Decimals(overtime)) > 0 ? (
+                      {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
                         <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                          {truncateTo2Decimals(overtime)}h
+                          {truncateTo2Decimals(overtimeHours)}h
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
@@ -372,23 +432,41 @@ function groupLogsByDate(logs: TimeLog[]) {
   logs.forEach(log => {
     // Use intern id + date as key to separate different interns' logs
     const internId = log.user_id ?? log.internId ?? ""
-    const dateKey = log.time_in
-      ? log.time_in.slice(0, 10)
-      : log.date?.slice(0, 10)
+    
+    // Extract date from time_in, time_out, or date field using proper date extraction
+    let dateKey = ""
+    if (log.time_in) {
+      const date = new Date(log.time_in)
+      dateKey = date.getFullYear() + "-" + 
+               String(date.getMonth() + 1).padStart(2, "0") + "-" + 
+               String(date.getDate()).padStart(2, "0")
+    } else if (log.time_out) {
+      const date = new Date(log.time_out)
+      dateKey = date.getFullYear() + "-" + 
+               String(date.getMonth() + 1).padStart(2, "0") + "-" + 
+               String(date.getDate()).padStart(2, "0")
+    } else if (log.date) {
+      dateKey = log.date.slice(0, 10)
+    }
+    
     if (!dateKey) return
     const key = `${internId}-${dateKey}`
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(log)
   })
+  
   // Sort logs within each group by time_in
-  map.forEach(arr => arr.sort((a, b) =>
-    new Date(a.time_in ?? a.date).getTime() - new Date(b.time_in ?? b.date).getTime()
-  ))
+  map.forEach(arr => arr.sort((a, b) => {
+    const aTime = a.time_in || a.time_out || a.date || ""
+    const bTime = b.time_in || b.time_out || b.date || ""
+    return new Date(aTime).getTime() - new Date(bTime).getTime()
+  }))
+  
   // Return as array of [key, logs[]], sorted by date ascending
   return Array.from(map.entries()).sort((a, b) => {
     // Extract date part for sorting
-    const aDate = a[1][0].time_in?.slice(0, 10) || a[1][0].date?.slice(0, 10) || ""
-    const bDate = b[1][0].time_in?.slice(0, 10) || b[1][0].date?.slice(0, 10) || ""
+    const aDate = a[0].split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
+    const bDate = b[0].split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
     return new Date(aDate).getTime() - new Date(bDate).getTime()
   })
 }
