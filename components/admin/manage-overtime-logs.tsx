@@ -1,15 +1,19 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield, Search, Calendar } from "lucide-react"
 import { calculateTimeWorked, truncateTo2Decimals } from "@/lib/time-utils"
 import { formatLogDate } from "@/lib/ui-utils"
+import { format } from "date-fns"
 
 /**
  * Overtime log data structure
@@ -72,6 +76,12 @@ export function OvertimeLogsDashboard() {
   const [minOvertimeHours, setMinOvertimeHours] = useState<number>(1)
   const [bulkActionLoading, setBulkActionLoading] = useState<string | null>(null)
   const [showBulkActions, setShowBulkActions] = useState<boolean>(false)
+  
+  // Filter and search state
+  const [searchTerm, setSearchTerm] = useState("")
+  const [departmentFilter, setDepartmentFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
 
   /**
    * Fetch overtime logs from API
@@ -185,8 +195,7 @@ export function OvertimeLogsDashboard() {
    * Handle bulk auto-reject for logs below minimum hours
    */
   const handleBulkAutoReject = async () => {
-    const pendingLogs = logs.filter(log => log.overtime_status === "pending")
-    const logsToReject = pendingLogs.filter(log => {
+    const logsToReject = filteredPendingLogs.filter(log => {
       const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
       return timeWorked.hoursWorked < minOvertimeHours
     })
@@ -239,8 +248,7 @@ export function OvertimeLogsDashboard() {
    * Handle bulk auto-approve for logs above minimum hours
    */
   const handleBulkAutoApprove = async () => {
-    const pendingLogs = logs.filter(log => log.overtime_status === "pending")
-    const logsToApprove = pendingLogs.filter(log => {
+    const logsToApprove = filteredPendingLogs.filter(log => {
       const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
       return timeWorked.hoursWorked >= minOvertimeHours
     })
@@ -293,17 +301,13 @@ export function OvertimeLogsDashboard() {
    * Handle bulk revert for approved/rejected logs back to pending
    */
   const handleBulkRevert = async () => {
-    const processedLogs = logs.filter(log => 
-      log.overtime_status === "approved" || log.overtime_status === "rejected"
-    )
-
-    if (processedLogs.length === 0) {
+    if (filteredProcessedLogs.length === 0) {
       alert("No approved or rejected logs found to revert.")
       return
     }
 
     const confirmRevert = window.confirm(
-      `Are you sure you want to revert ${processedLogs.length} approved/rejected overtime logs back to pending status? This will undo all previous decisions.`
+      `Are you sure you want to revert ${filteredProcessedLogs.length} approved/rejected overtime logs back to pending status? This will undo all previous decisions.`
     )
     if (!confirmRevert) return
 
@@ -312,7 +316,7 @@ export function OvertimeLogsDashboard() {
       let successCount = 0
       let errorCount = 0
 
-      for (const log of processedLogs) {
+      for (const log of filteredProcessedLogs) {
         try {
           const response = await fetch(`/api/admin/overtime/${log.id}`, {
             method: "PUT",
@@ -381,25 +385,60 @@ export function OvertimeLogsDashboard() {
     rejected: logs.filter(log => log.overtime_status === "rejected").length
   }
 
-  // Calculate bulk action stats for pending logs
-  const pendingLogs = logs.filter(log => log.overtime_status === "pending")
-  const processedLogs = logs.filter(log => 
+  // Get departments for filter
+  const departments = useMemo(() => {
+    const depts = new Set<string>()
+    logs.forEach(log => {
+      if (log.user.department) {
+        depts.add(log.user.department)
+      }
+    })
+    return Array.from(depts).sort()
+  }, [logs])
+
+  // Filtered logs based on search and filters
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      // Search filter
+      const searchMatch = searchTerm === "" || 
+        `${log.user.first_name} ${log.user.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.user.school.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        log.user.department.toLowerCase().includes(searchTerm.toLowerCase())
+
+      // Department filter
+      const departmentMatch = departmentFilter === "all" || log.user.department === departmentFilter
+
+      // Status filter
+      const statusMatch = statusFilter === "all" || log.overtime_status === statusFilter
+
+      // Date filter
+      const dateMatch = !selectedDate || 
+        new Date(log.time_in).toDateString() === selectedDate.toDateString()
+
+      return searchMatch && departmentMatch && statusMatch && dateMatch
+    })
+  }, [logs, searchTerm, departmentFilter, statusFilter, selectedDate])
+
+  // Calculate bulk action stats for filtered pending logs
+  const filteredPendingLogs = filteredLogs.filter(log => log.overtime_status === "pending")
+  const filteredProcessedLogs = filteredLogs.filter(log => 
     log.overtime_status === "approved" || log.overtime_status === "rejected"
   )
   const bulkStats = {
-    belowMinimum: pendingLogs.filter(log => {
+    belowMinimum: filteredPendingLogs.filter(log => {
       const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
       return timeWorked.hoursWorked < minOvertimeHours
     }).length,
-    aboveMinimum: pendingLogs.filter(log => {
+    aboveMinimum: filteredPendingLogs.filter(log => {
       const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
       return timeWorked.hoursWorked >= minOvertimeHours
     }).length,
-    processed: processedLogs.length
+    processed: filteredProcessedLogs.length
   }
 
-  // Sort logs by date
-  const sortedLogs = [...logs].sort((a, b) => {
+  // Sort filtered logs by date
+  const sortedLogs = [...filteredLogs].sort((a, b) => {
     const aDate = new Date(a.time_in).getTime()
     const bDate = new Date(b.time_in).getTime()
     
@@ -461,8 +500,91 @@ export function OvertimeLogsDashboard() {
         </Card>
       </div>
 
+      {/* Filters & Search Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Filters & Search</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* Search input */}
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search by name, email, school, or department..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Department filter */}
+            <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+              <SelectTrigger className="w-full sm:w-48">
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {departments.map((dept: string) => (
+                  <SelectItem key={dept} value={dept}>
+                    {dept}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Status filter */}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Date filter */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-48"
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  {selectedDate
+                    ? format(selectedDate, "MMM dd, yyyy")
+                    : "All Dates"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarComponent
+                  mode="single"
+                  selected={selectedDate ?? undefined}
+                  onSelect={(date) => setSelectedDate(date ?? null)}
+                  initialFocus
+                />
+                <div className="p-2">
+                  <Button
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => setSelectedDate(null)}
+                  >
+                    All Dates
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Bulk Actions Panel */}
-      {(stats.pending > 0 || processedLogs.length > 0) && showBulkActions && (
+      {(stats.pending > 0 || filteredProcessedLogs.length > 0) && showBulkActions && (
         <Card className="border-amber-200 bg-amber-50">
           <CardHeader>
             <CardTitle className="text-amber-800 flex items-center gap-2">
@@ -496,7 +618,7 @@ export function OvertimeLogsDashboard() {
                     <div className="text-sm text-gray-600">
                       <div>• {bulkStats.belowMinimum} logs below {minOvertimeHours}h (can auto-reject)</div>
                       <div>• {bulkStats.aboveMinimum} logs {minOvertimeHours}h+ (can auto-approve)</div>
-                      {processedLogs.length > 0 && (
+                      {filteredProcessedLogs.length > 0 && (
                         <div>• {bulkStats.processed} approved/rejected logs (can revert to pending)</div>
                       )}
                     </div>
@@ -543,7 +665,7 @@ export function OvertimeLogsDashboard() {
                       )}
                     </Button>
 
-                    {processedLogs.length > 0 && (
+                    {filteredProcessedLogs.length > 0 && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -568,7 +690,7 @@ export function OvertimeLogsDashboard() {
                 </>
               )}
 
-              {stats.pending === 0 && processedLogs.length > 0 && (
+              {stats.pending === 0 && filteredProcessedLogs.length > 0 && (
                 <>
                   <div className="flex items-center gap-4">
                     <div className="text-sm text-gray-600">
@@ -619,7 +741,8 @@ export function OvertimeLogsDashboard() {
             <div>
               <CardTitle>Overtime Logs</CardTitle>
               <CardDescription>
-                Review and manage overtime hours submitted by interns.
+                Review and manage overtime hours submitted by interns. 
+                Showing {filteredLogs.length} of {logs.length} logs.
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -633,7 +756,7 @@ export function OvertimeLogsDashboard() {
                 Sort by Date&nbsp;
                 {sortDirection === "desc" ? "↓" : "↑"}
               </Button>
-              {(stats.pending > 0 || processedLogs.length > 0) && (
+              {(stats.pending > 0 || filteredProcessedLogs.length > 0) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -660,9 +783,11 @@ export function OvertimeLogsDashboard() {
           </div>
         </CardHeader>
         <CardContent>
-          {logs.length === 0 ? (
+          {filteredLogs.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              No overtime logs found.
+              {logs.length === 0 
+                ? "No overtime logs found."
+                : "No overtime logs match your current filters."}
             </div>
           ) : (
             <div className="overflow-x-auto">

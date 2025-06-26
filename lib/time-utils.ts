@@ -219,3 +219,124 @@ export const DEFAULT_INTERNSHIP_DETAILS = {
   end_date: "",
   status: "",
 } as const
+
+/**
+ * Process logs for continuous time display (earliest time in, latest time out)
+ * Handles overtime approval/rejection logic
+ * @param logs - Array of time logs for a specific day
+ * @returns Object with continuous time info and calculated hours
+ */
+export function getContinuousTime(logs: Array<{
+  id?: number
+  time_in?: string | null
+  time_out?: string | null
+  timeIn?: string | null
+  timeOut?: string | null
+  log_type?: string
+  overtime_status?: string
+  status?: string
+}>) {
+  // Separate regular and overtime logs
+  const regularLogs = logs.filter(log => log.log_type !== "overtime")
+  const overtimeLogs = logs.filter(log => log.log_type === "overtime")
+  
+  // Get the earliest time_in and latest time_out for continuous display
+  // Handle both naming conventions: time_in/time_out and timeIn/timeOut
+  const allCompletedLogs = [...regularLogs, ...overtimeLogs].filter(log => {
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+    return timeIn && timeOut
+  })
+  
+  let earliestTimeIn: string | null = null
+  let latestTimeOut: string | null = null
+  let isCurrentlyActive = false
+  
+  if (allCompletedLogs.length > 0) {
+    // Find earliest time_in
+    earliestTimeIn = allCompletedLogs.reduce((earliest, log) => {
+      const timeIn = log.time_in || log.timeIn
+      if (!timeIn) return earliest
+      if (!earliest) return timeIn
+      return new Date(timeIn) < new Date(earliest) ? timeIn : earliest
+    }, null as string | null)
+    
+    // Find latest time_out, but adjust based on overtime status
+    const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
+    const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
+    
+    if (hasRejectedOvertime && !hasApprovedOvertime) {
+      // If overtime is rejected, cut time_out to required daily hours from time_in
+      if (earliestTimeIn) {
+        const startTime = new Date(earliestTimeIn)
+        const cutoffTime = new Date(startTime.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        latestTimeOut = cutoffTime.toISOString()
+      }
+    } else {
+      // Show full time (approved overtime or no overtime)
+      latestTimeOut = allCompletedLogs.reduce((latest, log) => {
+        const timeOut = log.time_out || log.timeOut
+        if (!timeOut) return latest
+        if (!latest) return timeOut
+        return new Date(timeOut) > new Date(latest) ? timeOut : latest
+      }, null as string | null)
+    }
+  }
+  
+  // Check for active sessions (pending logs)
+  const activeLogs = [...regularLogs, ...overtimeLogs].filter(log => {
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+    return timeIn && !timeOut && log.status === "pending"
+  })
+  if (activeLogs.length > 0) {
+    isCurrentlyActive = true
+    if (!earliestTimeIn) {
+      const timeIn = activeLogs[0].time_in || activeLogs[0].timeIn
+      if (timeIn) earliestTimeIn = timeIn
+    }
+  }
+
+  // Calculate total hours worked (considering overtime approval/rejection)
+  let totalHoursWorked = 0
+  if (earliestTimeIn && latestTimeOut) {
+    const result = calculateTimeWorked(earliestTimeIn, latestTimeOut)
+    totalHoursWorked = result.hoursWorked
+  }
+
+  // Calculate regular hours (capped at required daily hours) and overtime hours
+  const regularHours = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
+  let overtimeHours = 0
+  let overtimeStatus = "none"
+  
+  if (overtimeLogs.length > 0) {
+    const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
+    const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
+    const hasPendingOvertime = overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending")
+    
+    if (totalHoursWorked > DAILY_REQUIRED_HOURS) {
+      overtimeHours = totalHoursWorked - DAILY_REQUIRED_HOURS
+      
+      if (hasApprovedOvertime) {
+        overtimeStatus = "approved"
+      } else if (hasPendingOvertime) {
+        overtimeStatus = "pending"
+      } else if (hasRejectedOvertime) {
+        overtimeStatus = "rejected"
+        // For rejected overtime, we already cut the time_out above, so overtime should be 0
+        overtimeHours = 0
+      }
+    }
+  }
+
+  return {
+    earliestTimeIn,
+    latestTimeOut,
+    isCurrentlyActive,
+    regularHours,
+    overtimeHours,
+    overtimeStatus,
+    overtimeLogs,
+    allLogs: logs
+  }
+}
