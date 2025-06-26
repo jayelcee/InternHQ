@@ -220,7 +220,7 @@ export function OvertimeLogsDashboard() {
           } else {
             errorCount++
           }
-        } catch (error) {
+        } catch {
           errorCount++
         }
       }
@@ -274,7 +274,7 @@ export function OvertimeLogsDashboard() {
           } else {
             errorCount++
           }
-        } catch (error) {
+        } catch {
           errorCount++
         }
       }
@@ -326,7 +326,7 @@ export function OvertimeLogsDashboard() {
           } else {
             errorCount++
           }
-        } catch (error) {
+        } catch {
           errorCount++
         }
       }
