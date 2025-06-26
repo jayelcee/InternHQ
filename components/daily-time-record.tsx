@@ -200,9 +200,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
               }
             }
 
-            // Check overtime status for badge display
-            const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
-            const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
             const hasPendingOvertime = overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending")
 
             return (

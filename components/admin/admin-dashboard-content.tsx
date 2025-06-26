@@ -15,8 +15,8 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
-import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS, getContinuousTime } from "@/lib/time-utils"
-import { formatLogDate, getTimeEntryBadgeConfig } from "@/lib/ui-utils"
+import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime } from "@/lib/time-utils"
+import { formatLogDate } from "@/lib/ui-utils"
 
 /**
  * Types for intern logs and intern records
