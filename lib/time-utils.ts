@@ -82,6 +82,7 @@ export function getTruncatedDecimalHours(timeIn: string, timeOut: string): numbe
 /**
  * Centralized internship progress calculation function
  * Calculates total completed hours from time logs using consistent truncation logic
+ * Only counts approved overtime hours towards internship progress
  * @param logs - Array of time logs with time_in and time_out fields
  * @param internId - Optional intern ID to filter logs (can be string or number)
  * @returns Total completed hours as a number, truncated to 2 decimal places
@@ -95,6 +96,8 @@ export function calculateInternshipProgress(
     status?: string
     user_id?: number | string
     internId?: number | string
+    log_type?: string
+    overtime_status?: string
   }>,
   internId?: string | number
 ): number {
@@ -116,6 +119,13 @@ export function calculateInternshipProgress(
 
     // Only count completed logs with both times
     if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
+      // For overtime logs, only count if approved, skip if rejected or pending
+      if (log.log_type === 'overtime') {
+        if (log.overtime_status !== 'approved') {
+          return // Skip pending or rejected overtime
+        }
+      }
+
       const inDate = new Date(timeIn)
       const outDate = new Date(timeOut)
       const diffMs = outDate.getTime() - inDate.getTime()

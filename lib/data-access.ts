@@ -11,7 +11,7 @@ import type {
   InternshipProgram,
 } from "./database"
 import { sql } from "./database"
-import { calculateInternshipProgress, calculateTimeWorked } from "./time-utils"
+import { calculateInternshipProgress, calculateTimeWorked, DAILY_REQUIRED_HOURS } from "./time-utils"
 
 /**
  * Data access layer for InternHQ application.
@@ -152,21 +152,25 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 // --- Time Log Operations ---
 
 /**
- * Clock in a user for regular or overtime work
+ * Clock in a user (always as regular - overtime is determined during clock-out)
  */
-export async function clockIn(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
+export async function clockIn(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
+    
+    // Check if user already has an active clock-in
     const existing = await sql`
       SELECT * FROM time_logs
-      WHERE user_id = ${userIdNum} AND status = 'pending' AND log_type = ${logType}
+      WHERE user_id = ${userIdNum} AND status = 'pending'
     `
     if (existing.length > 0) {
-      return { success: false, error: `You are already clocked in for ${logType}. Please clock out before clocking in again.` }
+      return { success: false, error: "You are already clocked in. Please clock out before clocking in again." }
     }
+    
+    // Always clock in as regular - overtime will be determined during clock-out
     await sql`
       INSERT INTO time_logs (user_id, time_in, status, log_type, created_at, updated_at)
-      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', ${logType}, NOW(), NOW())
+      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', 'regular', NOW(), NOW())
     `
     return { success: true }
   } catch (error) {
@@ -176,20 +180,77 @@ export async function clockIn(userId: string, time?: string, logType: "regular" 
 }
 
 /**
- * Clock out a user from regular or overtime work
+ * Clock out a user (automatically splits into regular + overtime if >9 hours)
  */
-export async function clockOut(userId: string, time?: string, logType: "regular" | "overtime" = "regular"): Promise<{ success: boolean; error?: string }> {
+export async function clockOut(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
-    const res = await sql`
-      UPDATE time_logs
-      SET time_out = ${time ?? sql`NOW()`}, status = 'completed', updated_at = NOW()
-      WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL AND log_type = ${logType}
-      RETURNING *
+    
+    // Get the active log to check duration
+    const activeLog = await sql`
+      SELECT * FROM time_logs
+      WHERE user_id = ${userIdNum} AND status = 'pending' AND time_out IS NULL
+      ORDER BY time_in DESC
+      LIMIT 1
     `
-    if (res.length === 0) {
-      return { success: false, error: `No active ${logType} clock-in found` }
+    
+    if (activeLog.length === 0) {
+      return { success: false, error: "No active clock-in found" }
     }
+    
+    const log = activeLog[0]
+    const timeIn = new Date(log.time_in)
+    const timeOut = time ? new Date(time) : new Date()
+    const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+    
+    // Always split logs that exceed DAILY_REQUIRED_HOURS, regardless of the chosen logType
+    if (totalHours > DAILY_REQUIRED_HOURS) {
+      // Calculate split points
+      const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+      const overtimeStart = new Date(regularCutoff.getTime() + (1 * 60 * 1000)) // 1 min gap
+      
+      // Begin transaction for atomic operation
+      await sql.begin(async (tx) => {
+        // Update the original log to be regular time (first 9 hours)
+        await tx`
+          UPDATE time_logs
+          SET time_out = ${regularCutoff.toISOString()}, 
+              status = 'completed', 
+              log_type = 'regular',
+              updated_at = NOW()
+          WHERE id = ${log.id}
+        `
+        
+        // Create overtime log for remaining time
+        await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, 
+            log_type, overtime_status, created_at, updated_at
+          )
+          VALUES (
+            ${userIdNum}, 
+            ${overtimeStart.toISOString()}, 
+            ${timeOut.toISOString()}, 
+            'completed', 
+            'overtime', 
+            'pending', 
+            ${log.created_at}, 
+            NOW()
+          )
+        `
+      })
+    } else {
+      // For logs <= 9 hours, just complete them normally
+      await sql`
+        UPDATE time_logs
+        SET time_out = ${timeOut.toISOString()}, 
+            status = 'completed', 
+            log_type = 'regular',
+            updated_at = NOW()
+        WHERE id = ${log.id}
+      `
+    }
+    
     return { success: true }
   } catch (error) {
     console.error("Error clocking out:", error)
@@ -214,6 +275,9 @@ export async function getTimeLogsForUser(userId: string, logType: "regular" | "o
       notes: row.notes,
       status: row.status,
       log_type: row.log_type,
+      overtime_status: row.overtime_status,
+      approved_by: row.approved_by,
+      approved_at: row.approved_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
     })) as TimeLog[]
@@ -236,7 +300,24 @@ export async function getTodayTimeLog(userId: string, logType: "regular" | "over
       ORDER BY time_in DESC
       LIMIT 1
     `
-    return res.length > 0 ? (res[0] as TimeLog) : null
+    if (res.length > 0) {
+      const row = res[0]
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        time_in: row.time_in,
+        time_out: row.time_out,
+        notes: row.notes,
+        status: row.status,
+        log_type: row.log_type,
+        overtime_status: row.overtime_status,
+        approved_by: row.approved_by,
+        approved_at: row.approved_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      } as TimeLog
+    }
+    return null
   } catch (error) {
     console.error("Error fetching today time log:", error)
     return null
@@ -447,6 +528,7 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
       tl.time_out,
       tl.status,
       tl.log_type,
+      tl.overtime_status,
       tl.created_at,
       tl.updated_at,
       u.first_name,
@@ -485,6 +567,7 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     timeOut: row.time_out,
     status: row.status,
     log_type: row.log_type,
+    overtime_status: row.overtime_status,
     created_at: row.created_at,
     updated_at: row.updated_at,
     duration: row.time_in && row.time_out
@@ -818,5 +901,247 @@ export async function deleteTimeLog(timeLogId: number): Promise<{ success: boole
   } catch (error) {
     console.error("Error deleting time log:", error)
     return { success: false, error: "Failed to delete time log" }
+  }
+}
+
+/**
+ * Get all overtime logs for approval (admin only)
+ */
+export async function getOvertimeLogsForApproval(): Promise<TimeLogWithDetails[]> {
+  const rows = await sql`
+    SELECT
+      tl.id,
+      tl.user_id,
+      tl.time_in,
+      tl.time_out,
+      tl.status,
+      tl.log_type,
+      tl.overtime_status,
+      tl.approved_by,
+      tl.approved_at,
+      tl.notes,
+      tl.created_at,
+      tl.updated_at,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.role,
+      u.created_at as user_created_at,
+      u.updated_at as user_updated_at,
+      d.name AS department,
+      s.name AS school,
+      approver.first_name as approver_first_name,
+      approver.last_name as approver_last_name
+    FROM time_logs tl
+    LEFT JOIN users u ON tl.user_id = u.id
+    LEFT JOIN users approver ON tl.approved_by = approver.id
+    LEFT JOIN internship_programs ip ON ip.user_id = u.id
+    LEFT JOIN departments d ON ip.department_id = d.id
+    LEFT JOIN schools s ON ip.school_id = s.id
+    WHERE tl.log_type = 'overtime' AND tl.status = 'completed'
+    ORDER BY tl.created_at DESC
+  `
+
+  return rows.map(row => ({
+    id: row.id,
+    user_id: row.user_id,
+    time_in: row.time_in,
+    time_out: row.time_out,
+    status: row.status,
+    log_type: row.log_type,
+    overtime_status: row.overtime_status || 'pending',
+    approved_by: row.approved_by,
+    approved_at: row.approved_at,
+    notes: row.notes,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    user: {
+      id: row.user_id,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+      role: row.role,
+      created_at: row.user_created_at,
+      updated_at: row.user_updated_at,
+      department: row.department || "",
+      school: row.school || "",
+    },
+    department: row.department || "",
+    school: row.school || "",
+    approver_name: row.approver_first_name && row.approver_last_name 
+      ? `${row.approver_first_name} ${row.approver_last_name}`
+      : null,
+  })) as TimeLogWithDetails[]
+}
+
+/**
+ * Approve or reject overtime log (admin only)
+ */
+export async function updateOvertimeStatus(
+  timeLogId: number, 
+  status: "approved" | "rejected" | "pending", 
+  adminId: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    let updateQuery
+    
+    if (status === "pending") {
+      // When reverting to pending, clear approval data
+      updateQuery = sql`
+        UPDATE time_logs 
+        SET 
+          overtime_status = ${status},
+          approved_by = NULL,
+          approved_at = NULL,
+          updated_at = NOW()
+        WHERE id = ${timeLogId} AND log_type = 'overtime'
+        RETURNING id
+      `
+    } else {
+      // When approving or rejecting, set approval data
+      updateQuery = sql`
+        UPDATE time_logs 
+        SET 
+          overtime_status = ${status},
+          approved_by = ${adminId},
+          approved_at = NOW(),
+          updated_at = NOW()
+        WHERE id = ${timeLogId} AND log_type = 'overtime'
+        RETURNING id
+      `
+    }
+
+    const res = await updateQuery
+
+    if (res.length === 0) {
+      return { success: false, error: "Overtime log not found" }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating overtime status:", error)
+    return { success: false, error: "Failed to update overtime status" }
+  }
+}
+
+/**
+ * One-time migration to split existing long logs into regular and overtime portions
+ * 
+ * Finds all regular logs >9 hours and splits them:
+ * - Original log is trimmed to 9 hours (regular time)
+ * - New overtime log created for remaining time with pending status
+ * 
+ * @returns Migration result with success status, processed count, and errors
+ */
+export async function migrateExistingLongLogs(): Promise<{ 
+  success: boolean; 
+  processed: number; 
+  errors: string[] 
+}> {
+  const errors: string[] = []
+  let processed = 0
+
+  try {
+    // Find all unsplit long logs (both regular and overtime types)
+    const longLogs = await sql`
+      SELECT id, user_id, time_in, time_out, created_at, log_type
+      FROM time_logs 
+      WHERE status = 'completed' 
+        AND time_in IS NOT NULL 
+        AND time_out IS NOT NULL
+        AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
+        AND (
+          log_type = 'regular' 
+          OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+        )
+      ORDER BY created_at ASC
+    `
+
+    // Process each long log
+    for (const log of longLogs) {
+      try {
+        const timeIn = new Date(log.time_in)
+        const timeOut = new Date(log.time_out)
+        const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+        
+        if (totalHours <= DAILY_REQUIRED_HOURS) continue // Skip if already within limits
+
+        // Calculate split points
+        const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        const overtimeStartTime = new Date(regularEndTime.getTime() + (60 * 1000)) // 1 min gap
+
+        // Begin transaction for atomic operation
+        await sql.begin(async (tx) => {
+          if (log.log_type === 'regular') {
+            // For regular logs: Update to regular hours only, create overtime log
+            await tx`
+              UPDATE time_logs
+              SET time_out = ${regularEndTime.toISOString()}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+            
+            // Create overtime log for remaining time
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${overtimeStartTime.toISOString()}, 
+                ${log.time_out}, 
+                'completed', 
+                'overtime', 
+                'pending', 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+          } else if (log.log_type === 'overtime') {
+            // For overtime logs that are too long: Create regular log, update overtime log
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${log.time_in}, 
+                ${regularEndTime.toISOString()}, 
+                'completed', 
+                'regular', 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+            
+            // Update the overtime log to start after regular hours
+            await tx`
+              UPDATE time_logs
+              SET time_in = ${overtimeStartTime.toISOString()}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+          }
+        })
+        
+        processed++
+      } catch (error) {
+        const errorMsg = `Log ${log.id}: ${error instanceof Error ? error.message : 'Unknown error'}`
+        errors.push(errorMsg)
+        console.error('Migration error for log:', log.id, error)
+      }
+    }
+
+    return { success: true, processed, errors }
+
+  } catch (error) {
+    console.error("Migration failed:", error)
+    return { 
+      success: false, 
+      processed, 
+      errors: [...errors, `Migration failed: ${error instanceof Error ? error.message : 'Unknown error'}`] 
+    }
   }
 }

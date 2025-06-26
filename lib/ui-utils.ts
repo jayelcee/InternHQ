@@ -22,6 +22,7 @@ export interface TimeLogDisplay {
   time_out: string | null
   status: "pending" | "completed"
   log_type?: "regular" | "overtime"
+  overtime_status?: "pending" | "approved" | "rejected"
   user_id?: number | string
   internId?: number | string
   hoursWorked?: number
@@ -253,4 +254,89 @@ export async function fetchWithErrorHandling<T>(
       error: error instanceof Error ? error.message : "Network error" 
     }
   }
+}
+
+/**
+ * Overtime status configuration for badges and styling
+ */
+export const OVERTIME_STATUS_CONFIG = {
+  pending: {
+    className: "bg-yellow-50 text-yellow-700 border-yellow-300",
+    label: "Pending",
+    icon: "Clock"
+  },
+  approved: {
+    className: "bg-purple-50 text-purple-700 border-purple-300", 
+    label: "Approved",
+    icon: "CheckCircle"
+  },
+  rejected: {
+    className: "bg-gray-100 text-gray-400 border-gray-200",
+    label: "Rejected", 
+    icon: "XCircle"
+  }
+} as const
+
+/**
+ * Get overtime badge styling based on status
+ */
+export function getOvertimeBadgeConfig(status?: "pending" | "approved" | "rejected") {
+  const normalizedStatus = status || "pending"
+  return OVERTIME_STATUS_CONFIG[normalizedStatus]
+}
+
+/**
+ * Get time badge styling with overtime status consideration
+ */
+export function getTimeEntryBadgeConfig(
+  logType: "regular" | "overtime" = "regular",
+  variant: "in" | "out" | "active" = "in",
+  overtimeStatus?: "pending" | "approved" | "rejected"
+) {
+  if (logType === "overtime" && overtimeStatus) {
+    return getOvertimeBadgeConfig(overtimeStatus).className
+  }
+  
+  // Regular time badge styling
+  const regularClasses = {
+    in: "bg-green-50 text-green-700 border-green-300",
+    out: "bg-red-50 text-red-700 border-red-300", 
+    active: "bg-yellow-50 text-yellow-700 border-yellow-300"
+  }
+  
+  return regularClasses[variant]
+}
+
+/**
+ * Calculate overtime statistics from a list of logs
+ */
+export function calculateOvertimeStats(logs: TimeLogDisplay[]) {
+  const overtimeLogs = logs.filter(log => log.log_type === "overtime")
+  
+  return {
+    hasApproved: overtimeLogs.some(log => log.overtime_status === "approved"),
+    hasRejected: overtimeLogs.some(log => log.overtime_status === "rejected"), 
+    hasPending: overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending"),
+    approved: overtimeLogs.filter(log => log.overtime_status === "approved"),
+    rejected: overtimeLogs.filter(log => log.overtime_status === "rejected"),
+    pending: overtimeLogs.filter(log => !log.overtime_status || log.overtime_status === "pending")
+  }
+}
+
+/**
+ * Calculate overtime hours for different statuses
+ */
+export function calculateOvertimeHours(logs: TimeLogDisplay[], status: "approved" | "rejected" | "pending") {
+  return logs
+    .filter(log => {
+      if (status === "pending") {
+        return !log.overtime_status || log.overtime_status === "pending"
+      }
+      return log.overtime_status === status
+    })
+    .reduce((sum, log) => {
+      if (!log.time_in || !log.time_out) return sum
+      const result = calculateTimeWorked(log.time_in, log.time_out)
+      return sum + result.hoursWorked
+    }, 0)
 }

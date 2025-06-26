@@ -88,6 +88,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       setIsUpdating(false)
     }
   }
+
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
   }
@@ -109,7 +110,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             <TableHead>Time In</TableHead>
             <TableHead>Time Out</TableHead>
             <TableHead>Hours Worked</TableHead>
-            <TableHead className={isAdmin ? "" : "text-right"}>Overtime</TableHead>
+            <TableHead>Overtime</TableHead>
             {isAdmin && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
@@ -118,8 +119,19 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             // Extract date part from the group key (format: "internId-YYYY-MM-DD")
             const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
 
-            // Calculate total hours for this date (all logs combined)
-            const totalHoursWorked = logsForDate
+            // Process each log - no need to split since database handles this automatically
+            const processedLogs: TimeLogDisplay[] = []
+            
+            logsForDate.forEach(log => {
+              processedLogs.push(log)
+            })
+
+            // Now calculate hours from processed logs
+            const regularLogs = processedLogs.filter(log => log.log_type !== "overtime")
+            const overtimeLogs = processedLogs.filter(log => log.log_type === "overtime")
+            
+            // Calculate regular hours
+            const regularHoursWorked = regularLogs
               .filter(log => log.time_in && log.time_out && log.status === "completed")
               .reduce((sum, log) => {
                 if (!log.time_in || !log.time_out) return sum
@@ -127,13 +139,13 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 return sum + result.hoursWorked
               }, 0)
 
-            // For existing data or mixed data, treat as regular hours up to required hours limit
-            // then overtime for the rest
-            const regularHoursWorked = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
-            const overtimeHours = Math.max(0, totalHoursWorked - DAILY_REQUIRED_HOURS)
+            // Check overtime approval status for this date
+            const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
+            const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
+            const hasPendingOvertime = overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending")
 
             return (
-              <TableRow key={key}>
+              <TableRow key={key} className={hasRejectedOvertime && !hasApprovedOvertime && !hasPendingOvertime ? "opacity-60" : ""}>
                 <TableCell className="font-medium">
                   <div className="flex flex-col items-start">
                     <span className="text-xs text-gray-500">
@@ -144,14 +156,18 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col gap-1">
-                    {logsForDate.map((log, idx) =>
+                    {processedLogs.map((log, idx) =>
                       log.time_in ? (
                         <Badge 
                           key={idx} 
                           variant="outline" 
                           className={
                             log.log_type === "overtime" 
-                              ? "bg-purple-50 text-purple-700 border-purple-300" 
+                              ? log.overtime_status === "rejected"
+                                ? "bg-gray-100 text-gray-400 border-gray-200"
+                                : log.overtime_status === "approved"
+                                  ? "bg-purple-50 text-purple-700 border-purple-300"
+                                  : "bg-yellow-50 text-yellow-700 border-yellow-300"
                               : "bg-green-50 text-green-700"
                           }
                         >
@@ -165,15 +181,19 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col gap-1">
-                    {logsForDate.map((log, idx) =>
+                    {processedLogs.map((log, idx) =>
                       log.time_out ? (
                         <Badge 
                           key={idx} 
                           variant="outline" 
                           className={
                             log.log_type === "overtime" 
-                              ? "bg-purple-50 text-purple-700 border-purple-300" 
-                              : "bg-blue-50 text-blue-700"
+                              ? log.overtime_status === "rejected"
+                                ? "bg-gray-100 text-gray-400 border-gray-200"
+                                : log.overtime_status === "approved"
+                                  ? "bg-purple-50 text-purple-700 border-purple-300"
+                                  : "bg-yellow-50 text-yellow-700 border-yellow-300"
+                              : "bg-red-50 text-red-700 border-red-300"
                           }
                         >
                           {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -184,7 +204,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                           variant="outline" 
                           className={
                             log.log_type === "overtime" 
-                              ? "bg-purple-50 text-purple-700 border-purple-300" 
+                              ? "bg-yellow-50 text-yellow-700 border-yellow-300"
                               : "bg-yellow-50 text-yellow-700"
                           }
                         >
@@ -201,11 +221,49 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                     {truncateTo2Decimals(regularHoursWorked)}h
                   </Badge>
                 </TableCell>
-                <TableCell className={isAdmin ? "" : "text-right"}>
-                  {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
-                    <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                      {truncateTo2Decimals(overtimeHours)}h
-                    </Badge>
+                <TableCell>
+                  {overtimeLogs.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {hasApprovedOvertime && (
+                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+                          {truncateTo2Decimals(
+                            overtimeLogs
+                              .filter(log => log.overtime_status === "approved")
+                              .reduce((sum, log) => {
+                                if (!log.time_in || !log.time_out) return sum
+                                const result = calculateTimeWorked(log.time_in, log.time_out)
+                                return sum + result.hoursWorked
+                              }, 0)
+                          )}h
+                        </Badge>
+                      )}
+                      {hasPendingOvertime && (
+                        <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                          {truncateTo2Decimals(
+                            overtimeLogs
+                              .filter(log => !log.overtime_status || log.overtime_status === "pending")
+                              .reduce((sum, log) => {
+                                if (!log.time_in || !log.time_out) return sum
+                                const result = calculateTimeWorked(log.time_in, log.time_out)
+                                return sum + result.hoursWorked
+                              }, 0)
+                          )}h
+                        </Badge>
+                      )}
+                      {hasRejectedOvertime && (
+                        <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+                          {truncateTo2Decimals(
+                            overtimeLogs
+                              .filter(log => log.overtime_status === "rejected")
+                              .reduce((sum, log) => {
+                                if (!log.time_in || !log.time_out) return sum
+                                const result = calculateTimeWorked(log.time_in, log.time_out)
+                                return sum + result.hoursWorked
+                              }, 0)
+                          )}h
+                        </Badge>
+                      )}
+                    </div>
                   ) : (
                     <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
                       0.00h

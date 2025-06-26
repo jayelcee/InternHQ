@@ -16,7 +16,7 @@ import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
 import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
-import { formatLogDate } from "@/lib/ui-utils"
+import { formatLogDate, getTimeEntryBadgeConfig, getOvertimeBadgeConfig, calculateOvertimeStats, calculateOvertimeHours } from "@/lib/ui-utils"
 
 /**
  * Types for intern logs and intern records
@@ -60,6 +60,8 @@ type TimeLog = {
   hoursWorked: number
   department: string
   school: string
+  log_type?: "regular" | "overtime"
+  overtime_status?: "pending" | "approved" | "rejected"
 }
 
 /**
@@ -794,7 +796,11 @@ export function HRAdminDashboard() {
                                   <Badge 
                                     key={idx} 
                                     variant="outline" 
-                                    className="bg-green-50 text-green-700"
+                                    className={getTimeEntryBadgeConfig(
+                                      log.log_type || "regular", 
+                                      "in", 
+                                      log.overtime_status
+                                    )}
                                   >
                                     {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </Badge>
@@ -813,7 +819,11 @@ export function HRAdminDashboard() {
                                   <Badge 
                                     key={idx} 
                                     variant="outline" 
-                                    className="bg-blue-50 text-blue-700"
+                                    className={getTimeEntryBadgeConfig(
+                                      log.log_type || "regular", 
+                                      "out", 
+                                      log.overtime_status
+                                    )}
                                   >
                                     {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </Badge>
@@ -821,7 +831,11 @@ export function HRAdminDashboard() {
                                   <Badge 
                                     key={idx} 
                                     variant="outline" 
-                                    className="bg-yellow-50 text-yellow-700"
+                                    className={getTimeEntryBadgeConfig(
+                                      log.log_type || "regular", 
+                                      "active", 
+                                      log.overtime_status
+                                    )}
                                   >
                                     In Progress
                                   </Badge>
@@ -841,15 +855,7 @@ export function HRAdminDashboard() {
                           
                           {/* Overtime */}
                           <TableCell>
-                            {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
-                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                {truncateTo2Decimals(overtimeHours)}h
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
-                                0.00h
-                              </Badge>
-                            )}
+                            <OvertimeDisplay logs={logs} />
                           </TableCell>
                           
                           {/* Actions */}
@@ -863,7 +869,8 @@ export function HRAdminDashboard() {
                                     time_in: log.timeIn,
                                     time_out: log.timeOut,
                                     status: "completed" as const,
-                                    log_type: "regular" as const,
+                                    log_type: log.log_type || "regular",
+                                    overtime_status: log.overtime_status,
                                     user_id: log.internId,
                                   }}
                                   onSave={handleTimeLogUpdate}
@@ -891,4 +898,51 @@ export function HRAdminDashboard() {
       </div>
     )
   );
+}
+
+/**
+ * Helper component for displaying overtime badges with hours
+ */
+function OvertimeDisplay({ logs }: { logs: TimeLog[] }) {
+  const overtimeLogs = logs.filter(log => log.log_type === "overtime")
+  
+  if (overtimeLogs.length === 0) {
+    return (
+      <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+        0.00h
+      </Badge>
+    )
+  }
+
+  // Convert to the format expected by utility functions
+  const overtimeLogsFormatted = overtimeLogs.map(log => ({
+    id: log.id,
+    time_in: log.timeIn,
+    time_out: log.timeOut,
+    status: "completed" as const,
+    log_type: log.log_type,
+    overtime_status: log.overtime_status
+  }))
+
+  const stats = calculateOvertimeStats(overtimeLogsFormatted)
+
+  return (
+    <div className="flex flex-col gap-1">
+      {stats.hasApproved && (
+        <Badge variant="outline" className={getOvertimeBadgeConfig("approved").className}>
+          {truncateTo2Decimals(calculateOvertimeHours(stats.approved, "approved"))}h
+        </Badge>
+      )}
+      {stats.hasPending && (
+        <Badge variant="outline" className={getOvertimeBadgeConfig("pending").className}>
+          {truncateTo2Decimals(calculateOvertimeHours(stats.pending, "pending"))}h
+        </Badge>
+      )}
+      {stats.hasRejected && (
+        <Badge variant="outline" className={getOvertimeBadgeConfig("rejected").className}>
+          {truncateTo2Decimals(calculateOvertimeHours(stats.rejected, "rejected"))}h
+        </Badge>
+      )}
+    </div>
+  )
 }

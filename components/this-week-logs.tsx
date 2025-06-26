@@ -66,7 +66,11 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                               variant="outline"
                               className={
                                 log.log_type === "overtime"
-                                  ? "bg-purple-50 text-purple-700"
+                                  ? log.overtime_status === "rejected"
+                                    ? "bg-gray-100 text-gray-400 border-gray-200"
+                                    : log.overtime_status === "approved"
+                                      ? "bg-purple-50 text-purple-700 border-purple-300"
+                                      : "bg-yellow-50 text-yellow-700 border-yellow-300"
                                   : "bg-green-50 text-green-700"
                               }
                             >
@@ -87,8 +91,12 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                               variant="outline"
                               className={
                                 log.log_type === "overtime"
-                                  ? "bg-purple-50 text-purple-700"
-                                  : "bg-red-50 text-red-700"
+                                  ? log.overtime_status === "rejected"
+                                    ? "bg-gray-100 text-gray-400 border-gray-200"
+                                    : log.overtime_status === "approved"
+                                      ? "bg-purple-50 text-purple-700 border-purple-300"
+                                      : "bg-yellow-50 text-yellow-700 border-yellow-300"
+                                  : "bg-red-50 text-red-700 border-red-300"
                               }
                             >
                               {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -99,7 +107,11 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                               variant="outline"
                               className={
                                 log.log_type === "overtime"
-                                  ? "bg-purple-50 text-purple-700"
+                                  ? log.overtime_status === "rejected"
+                                    ? "bg-gray-100 text-gray-400 border-gray-200"
+                                    : log.overtime_status === "approved"
+                                      ? "bg-purple-50 text-purple-700 border-purple-300"
+                                      : "bg-yellow-50 text-yellow-700 border-yellow-300"
                                   : "bg-yellow-50 text-yellow-700"
                               }
                             >
@@ -136,7 +148,11 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                                 variant="outline"
                                 className={
                                   log.log_type === "overtime"
-                                    ? "bg-purple-50 text-purple-700"
+                                    ? log.overtime_status === "rejected"
+                                      ? "bg-gray-100 text-gray-400 border-gray-200"
+                                      : log.overtime_status === "approved"
+                                        ? "bg-purple-50 text-purple-700 border-purple-300"
+                                        : "bg-yellow-50 text-yellow-700 border-yellow-300"
                                     : "bg-yellow-50 text-yellow-700"
                                 }
                               >

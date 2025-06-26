@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Home, Menu, Users } from "lucide-react"
+import { Home, Menu, Users, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,7 @@ interface NavigationProps {
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
   { id: "manage-interns", label: "Manage Interns", icon: Users },
+  { id: "overtime-logs", label: "Overtime Logs", icon: Clock },
 ]
 
 export function AdminNavigation({ activeTab, onTabChange }: NavigationProps) {
