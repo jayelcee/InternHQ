@@ -13,16 +13,12 @@ import { Badge } from "@/components/ui/badge"
 import { GraduationCap } from "lucide-react"
 import { 
   calculateInternshipProgress, 
-  truncateTo2Decimals, 
   DEFAULT_INTERNSHIP_DETAILS,
-  filterLogsByInternId,
-  extractDateString 
+  filterLogsByInternId
 } from "@/lib/time-utils"
 import { 
   TimeLogDisplay, 
-  InternshipDetails,
-  calculateProgressPercentage,
-  fetchWithErrorHandling 
+  InternshipDetails
 } from "@/lib/ui-utils"
 import { DailyTimeRecord as TimeRecordTable } from "@/components/daily-time-record"
 

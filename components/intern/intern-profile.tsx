@@ -15,7 +15,7 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getTruncatedDecimalHours, calculateInternshipProgress, calculateTimeWorked } from "@/lib/time-utils"
+import { calculateInternshipProgress, calculateTimeWorked } from "@/lib/time-utils"
 
 /**
  * InternProfile component displays and manages intern profile information.

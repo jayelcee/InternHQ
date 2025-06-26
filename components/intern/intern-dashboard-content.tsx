@@ -19,9 +19,7 @@ import {
   calculateInternshipProgress
 } from "@/lib/time-utils"
 import { 
-  TimeLogDisplay,
-  useAsyncAction,
-  fetchWithErrorHandling
+  TimeLogDisplay
 } from "@/lib/ui-utils"
 
 const REQUIRED_HOURS_PER_DAY = 9

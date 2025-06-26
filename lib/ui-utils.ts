@@ -3,8 +3,7 @@
  */
 
 import { useState, useCallback } from "react"
-import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, formatDuration, extractDateString } from "@/lib/time-utils"
+import { calculateTimeWorked, extractDateString } from "@/lib/time-utils"
 
 /**
  * Common time log interface used across components
