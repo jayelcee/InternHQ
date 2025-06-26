@@ -500,13 +500,12 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
 
 // --- Helper Functions ---
 
+// These functions are now deprecated - use calculateTimeWorked from time-utils.ts instead
+// Kept for backward compatibility but should be replaced with centralized functions
+
 function calculateDuration(timeIn: string, timeOut: string) {
-  const inDate = new Date(timeIn)
-  const outDate = new Date(timeOut)
-  const diffMs = outDate.getTime() - inDate.getTime()
-  const hours = Math.floor(diffMs / (1000 * 60 * 60))
-  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-  return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+  const result = calculateTimeWorked(timeIn, timeOut)
+  return result.duration
 }
 
 function calculateHours(timeIn: string, timeOut: string) {
@@ -725,5 +724,77 @@ export async function createIntern(data: {
     const err = error as { message?: string }
     console.error("Error creating intern:", error)
     return { success: false, error: err.message || "Failed to create intern" }
+  }
+}
+
+/**
+ * Updates a time log entry (admin only)
+ */
+export async function updateTimeLog(timeLogId: number, updates: {
+  time_in?: string
+  time_out?: string
+  notes?: string
+  status?: "pending" | "completed"
+  log_type?: "regular" | "overtime"
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const updateFields: string[] = []
+    const updateValues: (string | number)[] = []
+    let paramCount = 1
+
+    if (updates.time_in !== undefined) {
+      updateFields.push(`time_in = $${paramCount}`)
+      updateValues.push(updates.time_in)
+      paramCount++
+    }
+
+    if (updates.time_out !== undefined) {
+      updateFields.push(`time_out = $${paramCount}`)
+      updateValues.push(updates.time_out)
+      paramCount++
+    }
+
+    if (updates.notes !== undefined) {
+      updateFields.push(`notes = $${paramCount}`)
+      updateValues.push(updates.notes)
+      paramCount++
+    }
+
+    if (updates.status !== undefined) {
+      updateFields.push(`status = $${paramCount}`)
+      updateValues.push(updates.status)
+      paramCount++
+    }
+
+    if (updates.log_type !== undefined) {
+      updateFields.push(`log_type = $${paramCount}`)
+      updateValues.push(updates.log_type)
+      paramCount++
+    }
+
+    if (updateFields.length === 0) {
+      return { success: false, error: "No updates provided" }
+    }
+
+    updateFields.push(`updated_at = NOW()`)
+    updateValues.push(timeLogId)
+
+    const query = `
+      UPDATE time_logs 
+      SET ${updateFields.join(", ")}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `
+
+    const res = await sql.unsafe(query, updateValues)
+
+    if (res.length === 0) {
+      return { success: false, error: "Time log not found" }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating time log:", error)
+    return { success: false, error: "Failed to update time log" }
   }
 }

@@ -1,11 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, getLocalDateString } from "@/lib/time-utils"
-import { TimeLogDisplay } from "@/lib/ui-utils"
+import { calculateTimeWorked } from "@/lib/time-utils"
+import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -14,46 +13,7 @@ interface ThisWeekLogsProps {
   currentTime: Date
 }
 
-/**
- * Groups time logs by date and sorts them
- */
-function groupLogsByDate(logs: TimeLogDisplay[]) {
-  const map = new Map<string, TimeLogDisplay[]>()
-  logs.forEach(log => {
-    const dateKey = log.time_in ? getLocalDateString(log.time_in) : undefined
-    if (!dateKey) return
-    if (!map.has(dateKey)) map.set(dateKey, [])
-    map.get(dateKey)!.push(log)
-  })
-  map.forEach(arr => arr.sort((a, b) =>
-    new Date(a.time_in!).getTime() - new Date(b.time_in!).getTime()
-  ))
-  return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
-}
-
-/**
- * Calculates duration and hours for a time log entry using centralized calculation
- */
-function getLogDuration(log: TimeLogDisplay) {
-  if (log.time_in && log.time_out) {
-    const result = calculateTimeWorked(log.time_in, log.time_out)
-    return {
-      duration: result.duration,
-      decimal: result.decimal
-    }
-  }
-  return null
-}
-
 export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWeekLogsProps) {
-  // Utility formatting functions
-  const formatters = useMemo(() => ({
-    logDate: (dateString: string) => {
-      const date = new Date(dateString)
-      return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
-    }
-  }), [])
-
   return (
     <Card>
       <CardHeader>
@@ -80,16 +40,23 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {groupLogsByDate(weeklyLogs).map(([date, logs]) => (
-                  <TableRow key={date}>
-                    <TableCell className="font-medium">
-                      <div className="flex flex-col items-start">
-                        <span className="text-xs text-gray-500">
-                          {new Date(date).toLocaleDateString("en-US", { weekday: "short" })}
-                        </span>
-                        <span>{formatters.logDate(date)}</span>
-                      </div>
-                    </TableCell>
+                {groupLogsByDate(weeklyLogs).map(([key, logs]) => {
+                  // Extract date part from the group key (format: "internId-YYYY-MM-DD")
+                  const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
+                  
+                  return (
+                    <TableRow key={key}>
+                      <TableCell className="font-medium">
+                        <div className="flex flex-col items-start">
+                          <span className="text-xs text-gray-500">
+                            {(() => {
+                              const date = new Date(datePart)
+                              return isNaN(date.getTime()) ? "Invalid" : date.toLocaleDateString("en-US", { weekday: "short" })
+                            })()}
+                          </span>
+                          <span>{formatLogDate(datePart)}</span>
+                        </div>
+                      </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         {logs.map((log, idx) =>
@@ -147,11 +114,11 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                     <TableCell className="text-right font-mono">
                       <div className="flex flex-col gap-1">
                         {logs.map((log, idx) => {
-                          const dur = getLogDuration(log)
-                          if (dur) {
+                          if (log.time_in && log.time_out) {
+                            const result = calculateTimeWorked(log.time_in, log.time_out)
                             return (
                               <span key={idx} className="font-semibold">
-                                {dur.duration}
+                                {result.duration}
                               </span>
                             )
                           } else if (log.time_in && !log.time_out) {
@@ -185,38 +152,43 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                     <TableCell className="text-right font-mono">
                       <div className="flex flex-col gap-1">
                         {logs.map((log, idx) => {
-                          const dur = getLogDuration(log)
-                          return dur ? (
-                            <span
-                              key={idx}
-                              className={
-                                "font-semibold " +
-                                (log.log_type === "overtime" ? "text-purple-700" : "text-blue-600")
-                              }
-                            >
-                              {dur.decimal}h
-                            </span>
-                          ) : log.time_in && !log.time_out ? (
-                            <span key={idx} className="font-semibold text-right block">
-                              <Badge
-                                variant="outline"
+                          if (log.time_in && log.time_out) {
+                            const result = calculateTimeWorked(log.time_in, log.time_out)
+                            return (
+                              <span
+                                key={idx}
                                 className={
-                                  log.log_type === "overtime"
-                                    ? "bg-purple-50 text-purple-700"
-                                    : "bg-blue-50 text-blue-700"
+                                  "font-semibold " +
+                                  (log.log_type === "overtime" ? "text-purple-700" : "text-blue-600")
                                 }
                               >
-                                Active
-                              </Badge>
-                            </span>
-                          ) : (
-                            <span key={idx} className="text-gray-400">--</span>
-                          )
+                                {result.decimal}h
+                              </span>
+                            )
+                          } else if (log.time_in && !log.time_out) {
+                            return (
+                              <span key={idx} className="font-semibold text-right block">
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    log.log_type === "overtime"
+                                      ? "bg-purple-50 text-purple-700"
+                                      : "bg-blue-50 text-blue-700"
+                                  }
+                                >
+                                  Active
+                                </Badge>
+                              </span>
+                            )
+                          } else {
+                            return <span key={idx} className="text-gray-400">--</span>
+                          }
                         })}
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           </div>

@@ -1,5 +1,13 @@
 /**
  * Common UI component utilities and patterns for consistent behavior
+ * 
+ * Key utilities:
+ * - groupLogsByDate: Centralized log grouping logic used by DTR and other components
+ * - formatLogDate: Consistent date formatting across time log displays
+ * - Badge styling utilities for consistent color schemes
+ * 
+ * Usage: Import these functions instead of creating duplicate grouping/formatting
+ * logic in individual components.
  */
 
 import { useState, useCallback } from "react"
@@ -76,6 +84,7 @@ export function groupLogsByDate(logs: TimeLogDisplay[]): Array<[string, TimeLogD
       dateKey = extractDateString(log.time_out)
     }
     
+    // Skip logs with invalid or empty dates
     if (!dateKey) return
     
     const key = `${internId}-${dateKey}`
@@ -87,14 +96,32 @@ export function groupLogsByDate(logs: TimeLogDisplay[]): Array<[string, TimeLogD
   map.forEach(arr => arr.sort((a, b) => {
     const aTime = a.time_in || a.time_out || ""
     const bTime = b.time_in || b.time_out || ""
-    return new Date(aTime).getTime() - new Date(bTime).getTime()
+    
+    // Handle invalid dates in sorting
+    const aDate = new Date(aTime)
+    const bDate = new Date(bTime)
+    
+    if (isNaN(aDate.getTime()) && isNaN(bDate.getTime())) return 0
+    if (isNaN(aDate.getTime())) return 1
+    if (isNaN(bDate.getTime())) return -1
+    
+    return aDate.getTime() - bDate.getTime()
   }))
   
   // Return sorted by date ascending
   return Array.from(map.entries()).sort((a, b) => {
     const aDate = a[0].split("-").slice(-3).join("-")
     const bDate = b[0].split("-").slice(-3).join("-")
-    return new Date(aDate).getTime() - new Date(bDate).getTime()
+    
+    const dateA = new Date(aDate)
+    const dateB = new Date(bDate)
+    
+    // Handle invalid dates in sorting
+    if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0
+    if (isNaN(dateA.getTime())) return 1
+    if (isNaN(dateB.getTime())) return -1
+    
+    return dateA.getTime() - dateB.getTime()
   })
 }
 
@@ -102,7 +129,18 @@ export function groupLogsByDate(logs: TimeLogDisplay[]): Array<[string, TimeLogD
  * Formats a date string for consistent display
  */
 export function formatLogDate(dateStr: string): string {
+  // Handle potential invalid dates gracefully
+  if (!dateStr || dateStr === "Invalid Date") {
+    return "Invalid Date"
+  }
+  
   const date = new Date(dateStr)
+  
+  // Check if the date is valid
+  if (isNaN(date.getTime())) {
+    return "Invalid Date"
+  }
+  
   return date.toLocaleDateString("en-US", { 
     month: "short", 
     day: "numeric", 

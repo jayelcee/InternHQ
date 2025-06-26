@@ -16,27 +16,12 @@ import {
   getCurrentDateString, 
   getWeekRange,
   formatDuration,
-  calculateInternshipProgress
+  calculateInternshipProgress,
+  DAILY_REQUIRED_HOURS
 } from "@/lib/time-utils"
 import { 
   TimeLogDisplay
 } from "@/lib/ui-utils"
-
-const REQUIRED_HOURS_PER_DAY = 9
-
-/**
- * Calculates duration and hours for a time log entry using centralized calculation
- */
-function getLogDuration(log: TimeLogDisplay) {
-  if (log.time_in && log.time_out) {
-    const result = calculateTimeWorked(log.time_in, log.time_out)
-    return {
-      duration: result.duration,
-      decimal: result.decimal
-    }
-  }
-  return null
-}
 
 /**
  * Calculates today's total duration for regular logs only
@@ -176,9 +161,9 @@ export function InternDashboardContent() {
     }
     const totalHoursToday = totalMs / (1000 * 60 * 60)
 
-    if (!auto && totalHoursToday < REQUIRED_HOURS_PER_DAY) {
+    if (!auto && totalHoursToday < DAILY_REQUIRED_HOURS) {
       const confirm = window.confirm(
-        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${REQUIRED_HOURS_PER_DAY} hours. Are you sure you want to time out?`
+        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${DAILY_REQUIRED_HOURS} hours. Are you sure you want to time out?`
       )
       if (!confirm) {
         setActionLoading(false)
@@ -309,8 +294,8 @@ export function InternDashboardContent() {
   // Auto timeout effect - triggers when reaching required hours
   useEffect(() => {
     const justReachedRequired =
-      prevTodayHours.current < REQUIRED_HOURS_PER_DAY &&
-      todayHours >= REQUIRED_HOURS_PER_DAY &&
+      prevTodayHours.current < DAILY_REQUIRED_HOURS &&
+      todayHours >= DAILY_REQUIRED_HOURS &&
       isTimedIn &&
       !actionLoading &&
       !freezeSessionAt
@@ -327,7 +312,7 @@ export function InternDashboardContent() {
       })
     }
 
-    if (!isTimedIn && !freezeSessionAt && todayHours < REQUIRED_HOURS_PER_DAY) {
+    if (!isTimedIn && !freezeSessionAt && todayHours < DAILY_REQUIRED_HOURS) {
       setAutoTimeoutTriggered(false)
     }
 
@@ -346,7 +331,7 @@ export function InternDashboardContent() {
     const todayDuration = getTodayTotalDuration(allLogs, false, null)
     const todayHours = parseDurationToHours(todayDuration)
     
-    if (stored === "true" && todayHours >= REQUIRED_HOURS_PER_DAY) {
+    if (stored === "true" && todayHours >= DAILY_REQUIRED_HOURS) {
       setAutoTimeoutTriggered(true)
     }
   }, [stateReady, allLogs])
@@ -357,7 +342,7 @@ export function InternDashboardContent() {
     const todayDuration = getTodayTotalDuration(allLogs, false, null)
     const todayHours = parseDurationToHours(todayDuration)
     
-    if (todayHours >= REQUIRED_HOURS_PER_DAY) {
+    if (todayHours >= DAILY_REQUIRED_HOURS) {
       setAutoTimeoutTriggered(true)
     }
   }, [stateReady, allLogs])
@@ -478,8 +463,9 @@ export function InternDashboardContent() {
     const weeklyHours = weeklyLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => {
-        const dur = getLogDuration(log)
-        return sum + (dur ? Number(dur.decimal) : 0)
+        if (!log.time_in || !log.time_out) return sum
+        const result = calculateTimeWorked(log.time_in, log.time_out)
+        return sum + result.hoursWorked
       }, 0)
 
     const weeklyDaysWorked = (() => {

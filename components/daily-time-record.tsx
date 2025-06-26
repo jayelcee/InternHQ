@@ -1,31 +1,67 @@
 "use client"
 
+import { useState } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { 
   calculateTimeWorked, 
   truncateTo2Decimals, 
-  filterLogsByInternId 
+  filterLogsByInternId,
+  DAILY_REQUIRED_HOURS
 } from "@/lib/time-utils"
 import { 
   TimeLogDisplay, 
   groupLogsByDate, 
   formatLogDate 
 } from "@/lib/ui-utils"
+import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
+import { useAuth } from "@/contexts/auth-context"
 
 interface DailyTimeRecordProps {
   logs: TimeLogDisplay[]
   internId?: string
   loading?: boolean
   error?: string | null
+  onTimeLogUpdate?: () => void
 }
-
-const REQUIRED_HOURS_PER_DAY = 9
 
 /**
  * DailyTimeRecord - Reusable component for displaying time logs table
  */
-export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRecordProps) {
+export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdate }: DailyTimeRecordProps) {
+  const { user } = useAuth()
+  const [isUpdating, setIsUpdating] = useState(false)
+  const isAdmin = user?.role === "admin"
+
+  const handleTimeLogUpdate = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
+    if (!isAdmin) return
+
+    setIsUpdating(true)
+    try {
+      const response = await fetch(`/api/admin/time-logs/${logId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(updates),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update time log")
+      }
+
+      // Call the callback to refresh data
+      if (onTimeLogUpdate) {
+        onTimeLogUpdate()
+      }
+    } catch (error) {
+      console.error("Error updating time log:", error)
+      // You could add a toast notification here
+    } finally {
+      setIsUpdating(false)
+    }
+  }
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
   }
@@ -40,14 +76,15 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
 
   return (
     <div className="overflow-x-auto">
-      <Table>
+      <Table className="w-full">
         <TableHeader>
           <TableRow>
             <TableHead>Date</TableHead>
             <TableHead>Time In</TableHead>
             <TableHead>Time Out</TableHead>
-            <TableHead className="text-right">Hours Worked</TableHead>
-            <TableHead className="text-right">Overtime</TableHead>
+            <TableHead>Hours Worked</TableHead>
+            <TableHead className={isAdmin ? "" : "text-right"}>Overtime</TableHead>
+            {isAdmin && <TableHead className="text-right">Actions</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -66,9 +103,8 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
 
             // For existing data or mixed data, treat as regular hours up to required hours limit
             // then overtime for the rest
-            const dailyRequiredHours = REQUIRED_HOURS_PER_DAY
-            const regularHoursWorked = Math.min(totalHoursWorked, dailyRequiredHours)
-            const overtimeHours = Math.max(0, totalHoursWorked - dailyRequiredHours)
+            const regularHoursWorked = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
+            const overtimeHours = Math.max(0, totalHoursWorked - DAILY_REQUIRED_HOURS)
 
             return (
               <TableRow key={key}>
@@ -134,12 +170,12 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
                     )}
                   </div>
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell>
                   <Badge variant="outline" className="bg-blue-50 text-blue-700">
                     {truncateTo2Decimals(regularHoursWorked)}h
                   </Badge>
                 </TableCell>
-                <TableCell className="text-right font-mono">
+                <TableCell className={isAdmin ? "" : "text-right"}>
                   {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
                     <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
                       {truncateTo2Decimals(overtimeHours)}h
@@ -150,6 +186,20 @@ export function DailyTimeRecord({ logs, internId, loading, error }: DailyTimeRec
                     </Badge>
                   )}
                 </TableCell>
+                {isAdmin && (
+                  <TableCell className="text-right">
+                    <div className="flex flex-col gap-1 items-end">
+                      {logsForDate.map((log) => (
+                        <EditTimeLogDialog
+                          key={log.id}
+                          log={log}
+                          onSave={handleTimeLogUpdate}
+                          isLoading={isUpdating}
+                        />
+                      ))}
+                    </div>
+                  </TableCell>
+                )}
               </TableRow>
             )
           })}

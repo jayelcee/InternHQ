@@ -14,7 +14,9 @@ import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
-import { calculateInternshipProgress } from "@/lib/time-utils"
+import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
+import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
+import { formatLogDate } from "@/lib/ui-utils"
 
 /**
  * Types for intern logs and intern records
@@ -61,15 +63,6 @@ type TimeLog = {
 }
 
 /**
- * Utility: Format log date as MM-DD-YYYY
- */
-function formatLogDate(dateString: string) {
-  if (!dateString) return ""
-  const date = new Date(dateString)
-  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
-}
-
-/**
  * Utility: Get unique departments from interns
  */
 function getDepartments(interns: InternRecord[]): string[] {
@@ -100,6 +93,7 @@ export function HRAdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [isUpdatingTimeLog, setIsUpdatingTimeLog] = useState(false)
 
   // --- Live time updates for "active" sessions ---
   useEffect(() => {
@@ -156,6 +150,38 @@ export function HRAdminDashboard() {
     return () => clearInterval(interval)
   }, [])
 
+  // --- Time log update handler ---
+  const handleTimeLogUpdate = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
+    setIsUpdatingTimeLog(true)
+    try {
+      const response = await fetch(`/api/admin/time-logs/${logId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify(updates),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to update time log")
+      }
+
+      // Refresh the data
+      const logsRes = await fetch("/api/time-logs")
+      if (logsRes.ok) {
+        const logsData = await logsRes.json()
+        const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
+        setLogs(logsArray)
+      }
+    } catch (error) {
+      console.error("Error updating time log:", error)
+      // You could add a toast notification here
+    } finally {
+      setIsUpdatingTimeLog(false)
+    }
+  }
+
   // --- Dashboard summary statistics ---
   const stats = useMemo(() => {
     if (!interns.length) return { totalInterns: 0, activeInterns: 0, totalRequiredHours: 0, totalCompletedHours: 0, avgProgress: "0.0" }
@@ -192,14 +218,6 @@ export function HRAdminDashboard() {
 
   // --- Filtered logs for logs table ---
   const filteredLogs = useMemo(() => {
-    function getLocalDateString(date: Date | string) {
-      const d = typeof date === "string" ? new Date(date) : date
-      const year = d.getFullYear()
-      const month = String(d.getMonth() + 1).padStart(2, "0")
-      const day = String(d.getDate()).padStart(2, "0")
-      return `${year}-${month}-${day}`
-    }
-
     const filterBySearchAndDept = (log: TimeLog) => {
       const matchesSearch =
         (log.internName ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -212,7 +230,7 @@ export function HRAdminDashboard() {
     let result = logs.filter(filterBySearchAndDept)
 
     if (viewMode === "overview") {
-      const todayLocal = getLocalDateString(new Date())
+      const todayLocal = getLocalDateString(new Date().toISOString())
       result = result.filter(
         log => {
           const logDate =
@@ -225,7 +243,7 @@ export function HRAdminDashboard() {
         }
       )
     } else if (viewMode === "logs" && selectedDate) {
-      const selectedLocal = getLocalDateString(selectedDate)
+      const selectedLocal = getLocalDateString(selectedDate.toISOString())
       result = result.filter(log => {
         const logDate =
           log.date
@@ -250,33 +268,38 @@ export function HRAdminDashboard() {
   }, [viewMode])
 
   /**
-   * Group logs by intern and date for compact display in logs table
+   * Optimized grouping by intern and date for DTR-style display
    */
-  function groupLogsByInternAndDate(logs: TimeLog[]) {
-    const grouped: Record<string, { logs: TimeLog[]; date: string }> = {}
-    logs.forEach((log) => {
+  const groupedLogsForDTR = useMemo(() => {
+    const grouped: Record<string, TimeLog[]> = {}
+    
+    filteredLogs.forEach((log) => {
       const dateKey = (log.date || log.timeIn || "").slice(0, 10)
       const key = `${log.internId}-${dateKey}`
-      if (!grouped[key]) grouped[key] = { logs: [], date: dateKey }
-      grouped[key].logs.push(log)
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push(log)
     })
-    return grouped
-  }
 
-  // --- Grouped logs for logs table ---
-  const groupedLogs = useMemo(() => groupLogsByInternAndDate(filteredLogs), [filteredLogs])
-  const groupedLogsArray = useMemo(() => {
-    // Get entries as [key, { logs, date }]
-    const entries = Object.entries(groupedLogs)
-    // Sort by date property
+    // Convert to array and sort by date
+    const entries = Object.entries(grouped).map(([key, logs]) => {
+      const dateKey = key.split('-').slice(-3).join('-')
+      logs.sort((a, b) => {
+        const aTime = a.timeIn || a.timeOut || ""
+        const bTime = b.timeIn || b.timeOut || ""
+        return new Date(aTime).getTime() - new Date(bTime).getTime()
+      })
+      return { key, logs, dateKey }
+    })
+
+    // Sort by date based on sortDirection
     entries.sort((a, b) => {
-      const aTime = new Date(a[1].date).getTime()
-      const bTime = new Date(b[1].date).getTime()
+      const aTime = new Date(a.dateKey).getTime()
+      const bTime = new Date(b.dateKey).getTime()
       return sortDirection === "desc" ? bTime - aTime : aTime - bTime
     })
-    // Return only the logs arrays
-    return entries.map(([, group]) => group.logs)
-  }, [groupedLogs, sortDirection])
+
+    return entries
+  }, [filteredLogs, sortDirection])
 
   // --- Intern Profile Modal ---
   function handleViewInternDetails(internId: number) {
@@ -538,19 +561,20 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <span className="font-mono font-semibold">
                               {(() => {
-                                const today = new Date().toISOString().slice(0, 10)
-                                let totalMs = 0
+                                const today = getLocalDateString(new Date().toISOString())
+                                let totalHours = 0
                                 if (intern.todayLogs && intern.todayLogs.length > 0) {
                                   intern.todayLogs.forEach(log => {
-                                    if (log.timeIn && log.timeIn.slice(0, 10) === today) {
-                                      const inDate = new Date(log.timeIn)
-                                      const outDate = log.timeOut ? new Date(log.timeOut) : currentTime
-                                      totalMs += outDate.getTime() - inDate.getTime()
+                                    if (log.timeIn && getLocalDateString(log.timeIn) === today) {
+                                      const outTime = log.timeOut ? log.timeOut : currentTime.toISOString()
+                                      const result = calculateTimeWorked(log.timeIn, outTime)
+                                      totalHours += result.hoursWorked
                                     }
                                   })
                                 }
-                                const hours = Math.floor(totalMs / (1000 * 60 * 60))
-                                const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60))
+                                // Convert total hours back to hours and minutes format
+                                const hours = Math.floor(totalHours)
+                                const minutes = Math.floor((totalHours % 1) * 60)
                                 return `${hours}h ${minutes.toString().padStart(2, "0")}m`
                               })()}
                             </span>
@@ -607,14 +631,14 @@ export function HRAdminDashboard() {
             </CardContent>
           </Card>
         ) : (
-          // --- Logs Table ---
+          // --- Logs Table (DTR Style) ---
           <Card>
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div>
                   <CardTitle className="text-lg">All Intern Logs</CardTitle>
                   <p className="text-sm text-gray-600">
-                    Showing {groupedLogsArray.length} of {groupedLogsArray.length} time records
+                    Showing {groupedLogsForDTR.length} of {groupedLogsForDTR.length} time records
                   </p>
                 </div>
                 <div>
@@ -640,47 +664,61 @@ export function HRAdminDashboard() {
                       <TableHead>Date</TableHead>
                       <TableHead>Time In</TableHead>
                       <TableHead>Time Out</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead className="text-right">Hours</TableHead>
-                      <TableHead className="text-right">Department</TableHead>
+                      <TableHead>Hours Worked</TableHead>
+                      <TableHead>Overtime</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {groupedLogsArray.map((logsForDay) => {
-                      const log = logsForDay[0]
-                      const sortedLogs = [...logsForDay].sort((a, b) => {
-                        if (!a.timeIn) return 1
-                        if (!b.timeIn) return -1
-                        return new Date(a.timeIn).getTime() - new Date(b.timeIn).getTime()
-                      })
+                    {groupedLogsForDTR.map(({ key, logs, dateKey }) => {
+                      const firstLog = logs[0]
+                      
+                      // Calculate total hours for this date (all logs combined)
+                      const totalHoursWorked = logs
+                        .filter(log => log.timeIn && log.timeOut)
+                        .reduce((sum, log) => {
+                          if (!log.timeIn || !log.timeOut) return sum
+                          const result = calculateTimeWorked(log.timeIn, log.timeOut)
+                          return sum + result.hoursWorked
+                        }, 0)
+
+                      // For regular hours up to required hours limit, then overtime
+                      const regularHoursWorked = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
+                      const overtimeHours = Math.max(0, totalHoursWorked - DAILY_REQUIRED_HOURS)
+
                       return (
-                        <TableRow key={`${log.internId}-${(log.date || log.timeIn || "").slice(0, 10)}`}>
+                        <TableRow key={key}>
                           {/* Intern Name */}
                           <TableCell>
-                            <div className="font-medium">{log.internName}</div>
+                            <div className="space-y-1">
+                              <div className="font-medium">{firstLog.internName}</div>
+                              <Badge variant="outline" className="text-xs">
+                                {firstLog.department}
+                              </Badge>
+                            </div>
                           </TableCell>
+                          
                           {/* Date */}
                           <TableCell className="font-medium">
-                            {formatLogDate(
-                              (log.date as string) ||
-                              (log.timeIn as string) ||
-                              ""
-                            )}
+                            <div className="flex flex-col items-start">
+                              <span className="text-xs text-gray-500">
+                                {new Date(dateKey).toLocaleDateString("en-US", { weekday: "short" })}
+                              </span>
+                              <span>{formatLogDate(dateKey)}</span>
+                            </div>
                           </TableCell>
+                          
                           {/* Time In */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sortedLogs.map((l, idx) =>
-                                l.timeIn ? (
-                                  <Badge
-                                    key={idx}
-                                    variant="outline"
+                              {logs.map((log, idx) =>
+                                log.timeIn ? (
+                                  <Badge 
+                                    key={idx} 
+                                    variant="outline" 
                                     className="bg-green-50 text-green-700"
                                   >
-                                    {new Date(l.timeIn).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
+                                    {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </Badge>
                                 ) : (
                                   <span key={idx} className="text-gray-400">--</span>
@@ -688,99 +726,73 @@ export function HRAdminDashboard() {
                               )}
                             </div>
                           </TableCell>
+                          
                           {/* Time Out */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sortedLogs.map((l, idx) =>
-                                l.timeOut ? (
-                                  <Badge
-                                    key={idx}
-                                    variant="outline"
-                                    className="bg-red-50 text-red-700"
+                              {logs.map((log, idx) =>
+                                log.timeOut ? (
+                                  <Badge 
+                                    key={idx} 
+                                    variant="outline" 
+                                    className="bg-blue-50 text-blue-700"
                                   >
-                                    {new Date(l.timeOut).toLocaleTimeString([], {
-                                      hour: "2-digit",
-                                      minute: "2-digit",
-                                    })}
+                                    {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </Badge>
-                                ) : l.timeIn ? (
-                                  <div key={idx} className="flex justify-start">
-                                    <Badge
-                                      variant="outline"
-                                      className="bg-yellow-50 text-yellow-700"
-                                    >
-                                      In Progress
-                                    </Badge>
-                                  </div>
+                                ) : log.timeIn ? (
+                                  <Badge 
+                                    key={idx} 
+                                    variant="outline" 
+                                    className="bg-yellow-50 text-yellow-700"
+                                  >
+                                    In Progress
+                                  </Badge>
                                 ) : (
                                   <span key={idx} className="text-gray-400">--</span>
                                 )
                               )}
                             </div>
                           </TableCell>
-                          {/* Duration */}
-                          <TableCell className="font-mono">
-                            <div className="flex flex-col gap-1">
-                              {sortedLogs.map((l, idx) =>
-                                l.timeIn && l.timeOut ? (
-                                  <span key={idx} className="font-semibold">
-                                    {(() => {
-                                      const inDate = new Date(l.timeIn)
-                                      const outDate = new Date(l.timeOut)
-                                      const diffMs = outDate.getTime() - inDate.getTime()
-                                      const hours = Math.floor(diffMs / (1000 * 60 * 60))
-                                      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-                                      return `${hours}h ${minutes.toString().padStart(2, "0")}m`
-                                    })()}
-                                  </span>
-                                ) : l.timeIn && !l.timeOut ? (
-                                  <span key={idx} className="font-semibold">
-                                    {(() => {
-                                      const inDate = new Date(l.timeIn)
-                                      const now = new Date()
-                                      const diffMs = now.getTime() - inDate.getTime()
-                                      const hours = Math.floor(diffMs / (1000 * 60 * 60))
-                                      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-                                      return `${hours}h ${minutes.toString().padStart(2, "0")}m`
-                                    })()}
-                                  </span>
-                                ) : (
-                                  <span key={idx} className="text-gray-400">--</span>
-                                )
-                              )}
-                            </div>
+                          
+                          {/* Hours Worked */}
+                          <TableCell>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                              {truncateTo2Decimals(regularHoursWorked)}h
+                            </Badge>
                           </TableCell>
-                          {/* Decimal Hours */}
-                          <TableCell className="text-right font-mono">
-                            <div className="flex flex-col gap-1">
-                              {sortedLogs.map((l, idx) =>
-                                l.timeIn && l.timeOut ? (
-                                  <span key={idx} className="font-semibold text-blue-600">
-                                    {(() => {
-                                      const inDate = new Date(l.timeIn)
-                                      const outDate = new Date(l.timeOut)
-                                      const diffMs = outDate.getTime() - inDate.getTime()
-                                      const hours = Math.floor(diffMs / (1000 * 60 * 60))
-                                      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
-                                      const decimal = hours + minutes / 60
-                                      return `${decimal.toFixed(2)}h`
-                                    })()}
-                                  </span>
-                                ) : l.timeIn && !l.timeOut ? (
-                                  <div key={idx} className="flex justify-end">
-                                    <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                                      Active
-                                    </Badge>
-                                  </div>
-                                ) : (
-                                  <span key={idx} className="text-gray-400">--</span>
-                                )
-                              )}
-                            </div>
+                          
+                          {/* Overtime */}
+                          <TableCell>
+                            {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
+                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
+                                {truncateTo2Decimals(overtimeHours)}h
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+                                0.00h
+                              </Badge>
+                            )}
                           </TableCell>
-                          {/* Department */}
+                          
+                          {/* Actions */}
                           <TableCell className="text-right">
-                            <Badge variant="outline">{log.department}</Badge>
+                            <div className="flex flex-col gap-1 items-end">
+                              {logs.map((log) => (
+                                <EditTimeLogDialog
+                                  key={log.id}
+                                  log={{
+                                    id: log.id,
+                                    time_in: log.timeIn,
+                                    time_out: log.timeOut,
+                                    status: "completed" as const,
+                                    log_type: "regular" as const,
+                                    user_id: log.internId,
+                                  }}
+                                  onSave={handleTimeLogUpdate}
+                                  isLoading={isUpdatingTimeLog}
+                                />
+                              ))}
+                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -789,7 +801,7 @@ export function HRAdminDashboard() {
                 </Table>
               </div>
               {/* No logs found */}
-              {groupedLogsArray.length === 0 && (
+              {groupedLogsForDTR.length === 0 && (
                 <div className="text-center py-8">
                   <p className="text-gray-500">No logs found matching your criteria.</p>
                 </div>

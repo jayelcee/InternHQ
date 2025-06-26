@@ -1,7 +1,21 @@
 /**
  * Centralized time calculation utilities
  * This module provides consistent time calculation functions used across the application
+ * 
+ * Key utilities:
+ * - calculateTimeWorked: Main function for time duration calculations
+ * - calculateInternshipProgress: Calculates total completed hours for an intern
+ * - DAILY_REQUIRED_HOURS: Centralized constant for required daily hours
+ * - Date/time formatting functions for consistent display
+ * 
+ * Usage: Import these functions instead of creating local time calculation logic
+ * to ensure consistency across all components.
  */
+
+/**
+ * Constants
+ */
+export const DAILY_REQUIRED_HOURS = 9
 
 /**
  * Truncates a decimal number to 2 decimal places (no rounding)
@@ -160,6 +174,12 @@ export function getWeekRange(date = new Date()) {
  */
 export function extractDateString(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date
+  
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    return ""  // Return empty string for invalid dates
+  }
+  
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
