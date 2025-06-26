@@ -798,3 +798,25 @@ export async function updateTimeLog(timeLogId: number, updates: {
     return { success: false, error: "Failed to update time log" }
   }
 }
+
+/**
+ * Deletes a time log entry (admin only)
+ */
+export async function deleteTimeLog(timeLogId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await sql`
+      DELETE FROM time_logs 
+      WHERE id = ${timeLogId}
+      RETURNING id
+    `
+
+    if (res.length === 0) {
+      return { success: false, error: "Time log not found" }
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error deleting time log:", error)
+    return { success: false, error: "Failed to delete time log" }
+  }
+}

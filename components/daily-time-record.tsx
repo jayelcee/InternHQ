@@ -62,6 +62,32 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       setIsUpdating(false)
     }
   }
+
+  const handleTimeLogDelete = async (logId: number) => {
+    if (!isAdmin) return
+
+    setIsUpdating(true)
+    try {
+      const response = await fetch(`/api/admin/time-logs/${logId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete time log")
+      }
+
+      // Call the callback to refresh data
+      if (onTimeLogUpdate) {
+        onTimeLogUpdate()
+      }
+    } catch (error) {
+      console.error("Error deleting time log:", error)
+      // You could add a toast notification here
+    } finally {
+      setIsUpdating(false)
+    }
+  }
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
   }
@@ -194,6 +220,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                           key={log.id}
                           log={log}
                           onSave={handleTimeLogUpdate}
+                          onDelete={handleTimeLogDelete}
                           isLoading={isUpdating}
                         />
                       ))}

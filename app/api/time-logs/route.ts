@@ -18,11 +18,18 @@ export async function GET(request: NextRequest) {
 
     const logTypeParam = request.nextUrl.searchParams.get("logType")
     const logType = logTypeParam === "overtime" ? "overtime" : logTypeParam === "regular" ? "regular" : null
+    const userIdParam = request.nextUrl.searchParams.get("userId")
 
     if (role === "admin") {
-      // Admin can see all logs
-      const logs = await getAllTimeLogsWithDetails()
-      return NextResponse.json({ logs })
+      if (userIdParam) {
+        // Admin requesting logs for a specific user
+        const logs = await getTimeLogsForUser(userIdParam, logType)
+        return NextResponse.json({ logs })
+      } else {
+        // Admin can see all logs
+        const logs = await getAllTimeLogsWithDetails()
+        return NextResponse.json({ logs })
+      }
     } else {
       // Intern can only see their own logs
       const logs = await getTimeLogsForUser(String(userId), logType)

@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
-import { updateTimeLog } from "@/lib/data-access"
+import { updateTimeLog, deleteTimeLog } from "@/lib/data-access"
 
 /**
  * Admin endpoint for updating time log entries
@@ -48,6 +48,40 @@ export async function PUT(
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error updating time log:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
+/**
+ * Admin endpoint for deleting time log entries
+ */
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params
+    const token = request.cookies.get("auth-token")?.value
+
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { valid, userId, role } = await verifyToken(token)
+
+    if (!valid || !userId || role !== "admin") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const result = await deleteTimeLog(Number(id))
+
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Error deleting time log:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
