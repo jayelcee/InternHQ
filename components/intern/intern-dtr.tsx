@@ -5,7 +5,7 @@
 
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -36,42 +36,43 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
   const [profile, setProfile] = useState<UserProfile | null>(null)
 
   // Fetch time logs
-  useEffect(() => {
-    const fetchLogs = async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const url = `/api/time-logs${internId ? `?userId=${internId}` : ""}`
-        const res = await fetch(url)
-        if (!res.ok) throw new Error("Failed to fetch logs")
-        
-        const data = await res.json()
-        const logsArray = Array.isArray(data) ? data : data.logs || []
-        
-        const normalizedLogs: TimeLogDisplay[] = logsArray.map((log: Record<string, unknown>) => {
-          const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
-          const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
+  const fetchLogs = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const url = `/api/time-logs${internId ? `?userId=${internId}` : ""}`
+      const res = await fetch(url)
+      if (!res.ok) throw new Error("Failed to fetch logs")
+      
+      const data = await res.json()
+      const logsArray = Array.isArray(data) ? data : data.logs || []
+      
+      const normalizedLogs: TimeLogDisplay[] = logsArray.map((log: Record<string, unknown>) => {
+        const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
+        const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
 
-          return {
-            id: log.id as number,
-            time_in: timeIn,
-            time_out: timeOut,
-            log_type: (log.log_type as "regular" | "overtime") ?? "regular",
-            status: (log.status as "pending" | "completed") ?? "completed",
-            user_id: log.user_id as number | undefined,
-            internId: log.internId as number | undefined,
-          }
-        })
-        
-        setLogs(normalizedLogs)
-      } catch {
-        setError("Failed to load logs")
-      } finally {
-        setLoading(false)
-      }
+        return {
+          id: log.id as number,
+          time_in: timeIn,
+          time_out: timeOut,
+          log_type: (log.log_type as "regular" | "overtime") ?? "regular",
+          status: (log.status as "pending" | "completed") ?? "completed",
+          user_id: log.user_id as number | undefined,
+          internId: log.internId as number | undefined,
+        }
+      })
+      
+      setLogs(normalizedLogs)
+    } catch {
+      setError("Failed to load logs")
+    } finally {
+      setLoading(false)
     }
-    fetchLogs()
   }, [internId])
+
+  useEffect(() => {
+    fetchLogs()
+  }, [fetchLogs])
 
   // Fetch profile data
   useEffect(() => {
@@ -215,6 +216,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         internId={internId}
         loading={loading}
         error={error}
+        onTimeLogUpdate={fetchLogs}
       />
     </div>
   )
