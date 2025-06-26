@@ -1,23 +1,23 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { verifyToken } from "@/lib/auth"
+import { withAuth, handleApiError } from "@/lib/api-middleware"
 import { clockIn } from "@/lib/data-access"
 
+/**
+ * Clock-in endpoint for intern time tracking
+ */
 export async function POST(request: NextRequest) {
-  try {
-    const token = request.cookies.get("auth-token")?.value
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-    const { valid, userId, role } = await verifyToken(token)
-    if (!valid || !userId || role !== "intern") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+  const authResult = await withAuth(request, "intern")
+  
+  if (!authResult.success) {
+    return authResult.response
+  }
 
+  try {
     const body = await request.json().catch(() => ({}))
     const customTime = body?.time
     const logType = body?.logType === "overtime" ? "overtime" : "regular"
 
-    const result = await clockIn(String(userId), customTime, logType)
+    const result = await clockIn(authResult.auth.userId, customTime, logType)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })
@@ -25,7 +25,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Clock in error:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return handleApiError(error, "Clock in")
   }
 }

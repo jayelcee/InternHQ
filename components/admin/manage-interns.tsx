@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
-import { getTruncatedDecimalHours } from "@/lib/time-utils"
+import { calculateInternshipProgress } from "@/lib/time-utils"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
@@ -114,15 +114,8 @@ export function ManageInternsDashboard() {
             (log.user_id === internId || log.internId === internId) &&
             log.status === "completed"
         )
-        // Sum using getTruncatedDecimalHours
-        const completedHours = internLogs
-          .filter((log) => (log.timeIn || log.time_in) && (log.timeOut || log.time_out))
-          .reduce((sum, log) => {
-            const timeIn = log.timeIn || log.time_in
-            const timeOut = log.timeOut || log.time_out
-            if (!timeIn || !timeOut) return sum
-            return sum + getTruncatedDecimalHours(timeIn, timeOut)
-          }, 0)
+        // Use centralized calculation for consistent progress tracking
+        const completedHours = calculateInternshipProgress(internLogs)
 
         return {
           id: intern.id?.toString() ?? "",
@@ -141,7 +134,7 @@ export function ManageInternsDashboard() {
               (intern.internshipDetails as InternshipDetailsShape)?.requiredHours ||
               (intern.internship as InternshipShape)?.required_hours ||
               0,
-            completedHours: Number(completedHours.toFixed(2)),
+            completedHours,
             startDate:
               (intern.internshipDetails as InternshipDetailsShape)?.startDate ||
               (intern.internship as InternshipShape)?.start_date ||

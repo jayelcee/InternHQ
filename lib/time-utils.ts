@@ -66,6 +66,60 @@ export function getTruncatedDecimalHours(timeIn: string, timeOut: string): numbe
 }
 
 /**
+ * Centralized internship progress calculation function
+ * Calculates total completed hours from time logs using consistent truncation logic
+ * @param logs - Array of time logs with time_in and time_out fields
+ * @param internId - Optional intern ID to filter logs (can be string or number)
+ * @returns Total completed hours as a number, truncated to 2 decimal places
+ */
+export function calculateInternshipProgress(
+  logs: Array<{
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    user_id?: number | string
+    internId?: number | string
+  }>,
+  internId?: string | number
+): number {
+  // Filter logs for specific intern if provided
+  const filteredLogs = internId 
+    ? logs.filter(log => 
+        (log.user_id?.toString() === internId.toString()) ||
+        (log.internId?.toString() === internId.toString())
+      )
+    : logs
+
+  // Sum all durations using truncation, then convert sum to hours
+  let totalDurationMs = 0
+
+  filteredLogs.forEach(log => {
+    // Handle both naming conventions: time_in/time_out and timeIn/timeOut
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+
+    // Only count completed logs with both times
+    if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
+      const inDate = new Date(timeIn)
+      const outDate = new Date(timeOut)
+      const diffMs = outDate.getTime() - inDate.getTime()
+      
+      if (diffMs > 0) {
+        // Truncate seconds from individual durations before adding
+        const truncatedMs = Math.floor(diffMs / (1000 * 60)) * (1000 * 60)
+        totalDurationMs += truncatedMs
+      }
+    }
+  })
+
+  // Convert total duration to hours and truncate to 2 decimals
+  const totalHours = totalDurationMs / (1000 * 60 * 60)
+  return Number(truncateTo2Decimals(totalHours))
+}
+
+/**
  * Converts UTC date string to local date string (YYYY-MM-DD)
  */
 export function getLocalDateString(dateStr: string): string {
@@ -100,3 +154,38 @@ export function getWeekRange(date = new Date()) {
   sunday.setHours(23, 59, 59, 999)
   return { monday, sunday }
 }
+
+/**
+ * Extracts date string in YYYY-MM-DD format from a Date object or timestamp
+ */
+export function extractDateString(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/**
+ * Filters logs by intern ID (matches either user_id or internId)
+ */
+export function filterLogsByInternId<T extends { user_id?: number | string; internId?: number | string }>(
+  logs: T[], 
+  internId: string | number | undefined
+): T[] {
+  if (!internId) return logs
+  return logs.filter(log =>
+    log.user_id?.toString() === internId.toString() ||
+    log.internId?.toString() === internId.toString()
+  )
+}
+
+/**
+ * Default internship details for fallback values
+ */
+export const DEFAULT_INTERNSHIP_DETAILS = {
+  school: { name: "N/A" },
+  department: { name: "N/A" },
+  supervisor: "N/A",
+  required_hours: 0,
+  start_date: "",
+  end_date: "",
+  status: "",
+} as const
