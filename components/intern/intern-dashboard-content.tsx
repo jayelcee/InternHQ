@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { Clock, Calendar, GraduationCap, Building, TrendingUp } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/contexts/auth-context"
 import { RegularTimeTracking } from "@/components/regular-time-tracking"
 import { OvertimeTracking } from "@/components/overtime-tracking"
+import { ThisWeekLogs } from "@/components/this-week-logs"
 import { 
   calculateTimeWorked, 
   truncateTo2Decimals, 
@@ -17,15 +17,6 @@ import {
   getWeekRange,
   formatDuration
 } from "@/lib/time-utils"
-
-/**
- * InternDashboardContent component provides the main dashboard interface for interns.
- * Features include:
- * - Time tracking (manual and automatic modes)
- * - Work hours visualization
- * - Recent time log history
- * - Progress tracking
- */
 
 /**
  * TimeLog interface for individual time entries
@@ -42,23 +33,6 @@ interface TimeLog {
 }
 
 const REQUIRED_HOURS_PER_DAY = 9
-
-/**
- * Groups time logs by date and sorts them
- */
-function groupLogsByDate(logs: TimeLog[]) {
-  const map = new Map<string, TimeLog[]>()
-  logs.forEach(log => {
-    const dateKey = log.time_in ? getLocalDateString(log.time_in) : undefined
-    if (!dateKey) return
-    if (!map.has(dateKey)) map.set(dateKey, [])
-    map.get(dateKey)!.push(log)
-  })
-  map.forEach(arr => arr.sort((a, b) =>
-    new Date(a.time_in!).getTime() - new Date(b.time_in!).getTime()
-  ))
-  return Array.from(map.entries()).sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
-}
 
 /**
  * Calculates duration and hours for a time log entry using centralized calculation
@@ -125,7 +99,36 @@ export function InternDashboardContent() {
   const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
   const prevTodayHours = useRef(0)
 
-  // --- Button Handlers ---
+  // Fetch logs function - moved before handlers that use it
+  const fetchLogs = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/time-logs")
+      if (!res.ok) throw new Error("Failed to fetch logs")
+      const data = await res.json()
+      const logsArr = (Array.isArray(data) ? data : data.logs || [])
+        .map((log: Record<string, unknown>) => {
+          if (log.time_in && log.time_out) {
+            const result = calculateTimeWorked(log.time_in as string, log.time_out as string)
+            return { ...log, hoursWorked: result.hoursWorked, duration: result.duration }
+          }
+          return { ...log, hoursWorked: 0, duration: null }
+        })
+        .sort((a: TimeLog, b: TimeLog) => {
+          const aTime = a.time_in ? new Date(a.time_in).getTime() : 0
+          const bTime = b.time_in ? new Date(b.time_in).getTime() : 0
+          return bTime - aTime
+        })
+      setAllLogs(logsArr)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load logs")
+    } finally {
+      if (showLoading) setLoading(false)
+    }
+  }, [])
+
+  // Button handlers
   const handleTimeIn = useCallback(async () => {
     if (actionLoading) return
     setActionLoading(true)
@@ -133,7 +136,8 @@ export function InternDashboardContent() {
     const now = new Date()
     setIsTimedIn(true)
     setTimeInTimestamp(now)
-    setAutoTimeoutTriggered(false) // <-- Reset here ONLY
+    setAutoTimeoutTriggered(false)
+    
     try {
       const res = await fetch("/api/time-logs/clock-in", {
         method: "POST",
@@ -146,21 +150,20 @@ export function InternDashboardContent() {
     } catch {
       setIsTimedIn(false)
       setTimeInTimestamp(null)
+      alert("Failed to clock in. Please try again.")
+    } finally {
       setActionLoading(false)
       setLoadingAction(null)
-      alert("Failed to clock in. Please try again.")
-      return
     }
-    setActionLoading(false)
-    setLoadingAction(null)
-  }, [])
+  }, [actionLoading, fetchLogs])
 
-  // Accepts an optional auto flag and freezeAt to skip confirm dialog and use exact time
+  // Fix handleTimeOut missing dependency
   const handleTimeOut = useCallback(async (auto = false, freezeAt?: Date) => {
     if (actionLoading) return
     setActionLoading(true)
     setLoadingAction("timeout")
     const today = getCurrentDateString()
+    
     // Calculate total hours worked today (including current session)
     let totalMs = 0
     allLogs.forEach((log) => {
@@ -175,6 +178,7 @@ export function InternDashboardContent() {
         totalMs += outDate.getTime() - inDate.getTime()
       }
     })
+    
     // Add current session if active
     if (isTimedIn && timeInTimestamp) {
       const end = freezeAt ? freezeAt : new Date()
@@ -216,18 +220,18 @@ export function InternDashboardContent() {
     }
     setActionLoading(false)
     setLoadingAction(null)
-  }, [])
+  }, [actionLoading, allLogs, isTimedIn, timeInTimestamp, fetchLogs])
 
   // Internship details from user context
   const internshipDetails = user?.internship
 
-  // --- Duration Calculation ---
-  function parseDurationToHours(duration: string) {
+  /**
+   * Parse duration string to hours for calculations
+   */
+  const parseDurationToHours = (duration: string) => {
     const match = duration.match(/(\d+)h\s+(\d+)m/)
     if (!match) return 0
-    const hours = parseInt(match[1], 10)
-    const minutes = parseInt(match[2], 10)
-    return hours + minutes / 60
+    return parseInt(match[1], 10) + parseInt(match[2], 10) / 60
   }
 
   // Calculate today's duration, freeze at auto timeout if needed
@@ -303,56 +307,16 @@ export function InternDashboardContent() {
     if (user && stateReady) {
       fetchLogs(true)
     }
-  }, [user, stateReady])
+  }, [user, stateReady, fetchLogs])
 
-  // Real-time tick for durations (only if not frozen)
+  // Update current time every second
   useEffect(() => {
-    if (freezeSessionAt) return
-    const interval = setInterval(() => {}, 1000)
-    return () => clearInterval(interval)
-  }, [freezeSessionAt])
-
-  // Fetch logs after clock-in/out
-  const fetchLogs = async (showLoading = true) => {
-    if (showLoading) setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/time-logs")
-      if (!res.ok) throw new Error("Failed to fetch logs")
-      const data = await res.json()
-      const logsArr = (Array.isArray(data) ? data : data.logs || [])
-        .map((log: Record<string, unknown>) => {
-          if (log.time_in && log.time_out) {
-            const result = calculateTimeWorked(log.time_in as string, log.time_out as string)
-            return { ...log, hoursWorked: result.hoursWorked, duration: result.duration }
-          }
-          return { ...log, hoursWorked: 0, duration: null }
-        })
-        .sort((a: TimeLog, b: TimeLog) => {
-          const aTime = a.time_in ? new Date(a.time_in).getTime() : 0
-          const bTime = b.time_in ? new Date(b.time_in).getTime() : 0
-          return bTime - aTime
-        })
-      setAllLogs(logsArr)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load logs")
-    } finally {
-      if (showLoading) setLoading(false)
-    }
-  }
-
-  // Update current time every second with immediate start
-  useEffect(() => {
-    // Set initial time immediately
     setCurrentTime(new Date())
-    
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(timer)
   }, [])
 
-  // --- AUTO TIME OUT REGULAR WHEN REACHING REQUIRED HOURS (only at the exact moment) ---
+  // Auto timeout effect - triggers when reaching required hours
   useEffect(() => {
     const justReachedRequired =
       prevTodayHours.current < REQUIRED_HOURS_PER_DAY &&
@@ -362,7 +326,6 @@ export function InternDashboardContent() {
       !freezeSessionAt
 
     if (justReachedRequired) {
-      // Freeze session at this exact moment
       const now = new Date()
       setFreezeSessionAt(now)
       setIsTimedIn(false)
@@ -374,47 +337,36 @@ export function InternDashboardContent() {
       })
     }
 
-    // Reset autoTimeoutTriggered if user clocks in again (new day, etc.)
     if (!isTimedIn && !freezeSessionAt && todayHours < REQUIRED_HOURS_PER_DAY) {
       setAutoTimeoutTriggered(false)
     }
 
     prevTodayHours.current = todayHours
-  }, [todayHours, isTimedIn, actionLoading, freezeSessionAt])
+  }, [todayHours, isTimedIn, actionLoading, freezeSessionAt, handleTimeOut])
 
-  // 1. Persist autoTimeoutTriggered to localStorage
+  // Persist auto timeout state to localStorage
   useEffect(() => {
     localStorage.setItem("autoTimeoutTriggered", JSON.stringify(autoTimeoutTriggered))
   }, [autoTimeoutTriggered])
 
-  // 2. Restore autoTimeoutTriggered from localStorage on mount (and after logs are loaded)
+  // Restore auto timeout state on mount
   useEffect(() => {
     if (!stateReady) return
     const stored = localStorage.getItem("autoTimeoutTriggered")
-    // Only restore if logs show todayHours >= REQUIRED_HOURS_PER_DAY
     const todayDuration = getTodayTotalDuration(allLogs, false, null)
-    const match = todayDuration.match(/(\d+)h\s+(\d+)m/)
-    let todayHours = 0
-    if (match) {
-      todayHours = parseInt(match[1], 10) + parseInt(match[2], 10) / 60
-    }
+    const todayHours = parseDurationToHours(todayDuration)
+    
     if (stored === "true" && todayHours >= REQUIRED_HOURS_PER_DAY) {
       setAutoTimeoutTriggered(true)
     }
   }, [stateReady, allLogs])
 
-  // 3. In your restoreClockState (after fetching logs), check if todayHours >= REQUIRED_HOURS_PER_DAY
+  // Set auto timeout if already reached required hours
   useEffect(() => {
     if (!stateReady) return
-    // Only run after logs are loaded
     const todayDuration = getTodayTotalDuration(allLogs, false, null)
-    const todayHours = (() => {
-      const match = todayDuration.match(/(\d+)h\s+(\d+)m/)
-      if (!match) return 0
-      const hours = parseInt(match[1], 10)
-      const minutes = parseInt(match[2], 10)
-      return hours + minutes / 60
-    })()
+    const todayHours = parseDurationToHours(todayDuration)
+    
     if (todayHours >= REQUIRED_HOURS_PER_DAY) {
       setAutoTimeoutTriggered(true)
     }
@@ -422,13 +374,14 @@ export function InternDashboardContent() {
 
   // --- Button Handlers ---
 
-  const handleOvertimeIn = async () => {
+  const handleOvertimeIn = useCallback(async () => {
     if (actionLoading) return
     setActionLoading(true)
     setLoadingAction("overtimein")
     const now = new Date()
     setIsOvertimeIn(true)
     setOvertimeInTimestamp(now)
+    
     try {
       const res = await fetch("/api/time-logs/clock-in", {
         method: "POST",
@@ -441,19 +394,22 @@ export function InternDashboardContent() {
     } catch {
       setIsOvertimeIn(false)
       setOvertimeInTimestamp(null)
+      alert("Failed to clock in for overtime. Please try again.")
+    } finally {
       setActionLoading(false)
       setLoadingAction(null)
-      alert("Failed to clock in for overtime. Please try again.")
-      return
     }
-    setActionLoading(false)
-    setLoadingAction(null)
-  }
+  }, [actionLoading, fetchLogs])
 
-  const handleOvertimeOut = async () => {
+  const handleOvertimeOut = useCallback(async () => {
     if (actionLoading) return
     setActionLoading(true)
     setLoadingAction("overtimeout")
+    
+    // Update state immediately for responsive UI
+    setIsOvertimeIn(false)
+    setOvertimeInTimestamp(null)
+    
     try {
       const res = await fetch("/api/time-logs/clock-out", {
         method: "POST",
@@ -464,43 +420,33 @@ export function InternDashboardContent() {
       if (!res.ok) throw new Error("Failed to clock out for overtime")
       await fetchLogs(false)
     } catch {
+      // Revert state if failed
       setIsOvertimeIn(true)
       setOvertimeInTimestamp(overtimeInTimestamp)
+      alert("Failed to clock out for overtime. Please try again.")
+    } finally {
       setActionLoading(false)
       setLoadingAction(null)
-      alert("Failed to clock out for overtime. Please try again.")
-      return
     }
-    setIsOvertimeIn(false)
-    setOvertimeInTimestamp(null)
-    setActionLoading(false)
-    setLoadingAction(null)
-  }
+  }, [actionLoading, fetchLogs, overtimeInTimestamp])
 
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString("en-US", {
+  // Utility formatting functions
+  const formatters = useMemo(() => ({
+    date: (date: Date) => date.toLocaleDateString("en-US", {
       weekday: "long",
-      year: "numeric",
+      year: "numeric", 
       month: "long",
       day: "numeric",
-    })
-  }
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString("en-US", {
+    }),
+    time: (date: Date) => date.toLocaleTimeString("en-US", {
       hour: "2-digit",
-      minute: "2-digit",
+      minute: "2-digit", 
       second: "2-digit",
-    })
-  }
+    }),
+  }), [])
 
-  const formatLogDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}-${date.getFullYear()}`
-  }
-
-  // Calculate completed hours (sum of all completed logs)
-  const completedHours = (() => {
+  // Statistics calculations
+  const completedHours = useMemo(() => {
     const total = allLogs
       .filter((log) => log.status === "completed" && log.time_in && log.time_out)
       .reduce((sum, log) => {
@@ -508,19 +454,21 @@ export function InternDashboardContent() {
         return sum + (dur ? Number(dur.decimal) : 0)
       }, 0)
     return Number(truncateTo2Decimals(total))
-  })()
+  }, [allLogs])
 
-  const progressPercentage =
-    internshipDetails && typeof internshipDetails.required_hours === "number" && internshipDetails.required_hours > 0
+  const progressPercentage = useMemo(() => 
+    internshipDetails?.required_hours && internshipDetails.required_hours > 0
       ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
       : 0
+  , [completedHours, internshipDetails])
 
-  const remainingHours =
+  const remainingHours = useMemo(() =>
     internshipDetails?.required_hours && completedHours >= internshipDetails.required_hours
       ? 0
       : Number(truncateTo2Decimals((internshipDetails?.required_hours || 0) - completedHours))
+  , [completedHours, internshipDetails])
 
-  const totalDaysWorked = (() => {
+  const totalDaysWorked = useMemo(() => {
     const dates = new Set(
       allLogs
         .filter((log) => log.status === "completed" && log.time_in && log.time_out)
@@ -528,35 +476,39 @@ export function InternDashboardContent() {
         .filter(Boolean)
     )
     return dates.size
-  })()
+  }, [allLogs])
 
-  // Get current week range (Monday to Sunday)
-  const { monday: weekStart, sunday: weekEnd } = getWeekRange()
+  // Weekly calculations
+  const { weeklyLogs, weeklyHours, weeklyDaysWorked } = useMemo(() => {
+    const { monday: weekStart, sunday: weekEnd } = getWeekRange()
+    
+    // Filter logs for current week
+    const weeklyLogs = allLogs.filter((log) => {
+      if (!log.time_in) return false
+      const logDate = new Date(log.time_in)
+      return logDate >= weekStart && logDate <= weekEnd
+    })
 
-  // Filter logs for current week
-  const weeklyLogs = allLogs.filter((log) => {
-    if (!log.time_in) return false
-    const logDate = new Date(log.time_in)
-    return logDate >= weekStart && logDate <= weekEnd
-  })
+    // Calculate weekly hours and days worked
+    const weeklyHours = weeklyLogs
+      .filter((log) => log.status === "completed" && log.time_in && log.time_out)
+      .reduce((sum, log) => {
+        const dur = getLogDuration(log)
+        return sum + (dur ? Number(dur.decimal) : 0)
+      }, 0)
 
-  // Calculate weekly hours and days worked
-  const weeklyHours = weeklyLogs
-    .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-    .reduce((sum, log) => {
-      const dur = getLogDuration(log)
-      return sum + (dur ? Number(dur.decimal) : 0)
-    }, 0)
+    const weeklyDaysWorked = (() => {
+      const dates = new Set(
+        weeklyLogs
+          .filter((log) => log.status === "completed" && log.time_in && log.time_out)
+          .map((log) => log.time_in ? getLocalDateString(log.time_in) : undefined)
+          .filter(Boolean)
+      )
+      return dates.size
+    })()
 
-  const weeklyDaysWorked = (() => {
-    const dates = new Set(
-      weeklyLogs
-        .filter((log) => log.status === "completed" && log.time_in && log.time_out)
-        .map((log) => log.time_in ? getLocalDateString(log.time_in) : undefined)
-        .filter(Boolean)
-    )
-    return dates.size
-  })()
+    return { weeklyLogs, weeklyHours, weeklyDaysWorked }
+  }, [allLogs])
 
   // --- Render ---
   if (!user || !internshipDetails) {
@@ -661,11 +613,11 @@ export function InternDashboardContent() {
           <div className="flex flex-col items-center space-y-2 text-center">
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Calendar className="h-4 w-4" />
-              {formatDate(currentTime)}
+              {formatters.date(currentTime)}
             </div>
             <div className="flex items-center gap-2">
               <Clock className="h-5 w-5 text-gray-600" />
-              <span className="text-3xl font-mono font-bold text-gray-900">{formatTime(currentTime)}</span>
+              <span className="text-3xl font-mono font-bold text-gray-900">{formatters.time(currentTime)}</span>
             </div>
           </div>
         </CardContent>
@@ -706,174 +658,12 @@ export function InternDashboardContent() {
       </div>
 
       {/* Weekly Logs Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-xl">This Week&apos;s Logs</CardTitle>
-          <p className="text-sm text-gray-600">Your daily time records for the current week</p>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="text-center text-gray-500 py-8">Loading logs...</div>
-          ) : error ? (
-            <div className="text-center text-red-500 py-8">{error}</div>
-          ) : weeklyLogs.length === 0 ? (
-            <div className="text-center text-gray-500 py-8">No logs found yet.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Time In</TableHead>
-                    <TableHead>Time Out</TableHead>
-                    <TableHead className="text-right">Duration</TableHead>
-                    <TableHead className="text-right">Hours</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {groupLogsByDate(weeklyLogs).map(([date, logs]) => (
-                    <TableRow key={date}>
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col items-start">
-                          <span className="text-xs text-gray-500">
-                            {new Date(date).toLocaleDateString("en-US", { weekday: "short" })}
-                          </span>
-                          <span>{formatLogDate(date)}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) =>
-                            log.time_in ? (
-                              <Badge
-                                key={idx}
-                                variant="outline"
-                                className={
-                                  log.log_type === "overtime"
-                                    ? "bg-purple-50 text-purple-700"
-                                    : "bg-green-50 text-green-700"
-                                }
-                              >
-                                {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              </Badge>
-                            ) : (
-                              <span key={idx} className="text-gray-400">--</span>
-                            )
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) =>
-                            log.time_out ? (
-                              <Badge
-                                key={idx}
-                                variant="outline"
-                                className={
-                                  log.log_type === "overtime"
-                                    ? "bg-purple-50 text-purple-700"
-                                    : "bg-red-50 text-red-700"
-                                }
-                              >
-                                {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              </Badge>
-                            ) : log.time_in && log.status === "pending" ? (
-                              <Badge
-                                key={idx}
-                                variant="outline"
-                                className={
-                                  log.log_type === "overtime"
-                                    ? "bg-purple-50 text-purple-700"
-                                    : "bg-yellow-50 text-yellow-700"
-                                }
-                              >
-                                In Progress
-                              </Badge>
-                            ) : (
-                              <span key={idx} className="text-gray-400">--</span>
-                            )
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) => {
-                            const dur = getLogDuration(log)
-                            if (dur) {
-                              return (
-                                <span key={idx} className="font-semibold">
-                                  {dur.duration}
-                                </span>
-                              )
-                            } else if (log.time_in && !log.time_out) {
-                              // Show real-time duration for active logs using centralized calculation
-                              const result = calculateTimeWorked(log.time_in, currentTime)
-                              return (
-                                <span key={idx} className="font-semibold text-yellow-700">
-                                  {result.duration}
-                                </span>
-                              )
-                            } else if (log.status === "pending") {
-                              return (
-                                <Badge
-                                  key={idx}
-                                  variant="outline"
-                                  className={
-                                    log.log_type === "overtime"
-                                      ? "bg-purple-50 text-purple-700"
-                                      : "bg-yellow-50 text-yellow-700"
-                                  }
-                                >
-                                  In Progress
-                                </Badge>
-                              )
-                            } else {
-                              return <span key={idx} className="text-gray-400">--</span>
-                            }
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        <div className="flex flex-col gap-1">
-                          {logs.map((log, idx) => {
-                            const dur = getLogDuration(log)
-                            return dur ? (
-                              <span
-                                key={idx}
-                                className={
-                                  "font-semibold " +
-                                  (log.log_type === "overtime" ? "text-purple-700" : "text-blue-600")
-                                }
-                              >
-                                {dur.decimal}h
-                              </span>
-                            ) : log.time_in && !log.time_out ? (
-                              <span key={idx} className="font-semibold text-right block">
-                                <Badge
-                                  variant="outline"
-                                  className={
-                                    log.log_type === "overtime"
-                                      ? "bg-purple-50 text-purple-700"
-                                      : "bg-blue-50 text-blue-700"
-                                  }
-                                >
-                                  Active
-                                </Badge>
-                              </span>
-                            ) : (
-                              <span key={idx} className="text-gray-400">--</span>
-                            )
-                          })}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ThisWeekLogs
+        weeklyLogs={weeklyLogs}
+        loading={loading}
+        error={error}
+        currentTime={currentTime}
+      />
     </div>
   )
 }

@@ -100,3 +100,38 @@ export function getWeekRange(date = new Date()) {
   sunday.setHours(23, 59, 59, 999)
   return { monday, sunday }
 }
+
+/**
+ * Extracts date string in YYYY-MM-DD format from a Date object or timestamp
+ */
+export function extractDateString(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
+/**
+ * Filters logs by intern ID (matches either user_id or internId)
+ */
+export function filterLogsByInternId<T extends { user_id?: number | string; internId?: number | string }>(
+  logs: T[], 
+  internId: string | number | undefined
+): T[] {
+  if (!internId) return logs
+  return logs.filter(log =>
+    log.user_id?.toString() === internId.toString() ||
+    log.internId?.toString() === internId.toString()
+  )
+}
+
+/**
+ * Default internship details for fallback values
+ */
+export const DEFAULT_INTERNSHIP_DETAILS = {
+  school: { name: "N/A" },
+  department: { name: "N/A" },
+  supervisor: "N/A",
+  required_hours: 0,
+  start_date: "",
+  end_date: "",
+  status: "",
+} as const

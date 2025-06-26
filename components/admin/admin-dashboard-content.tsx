@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
-import { DailyTimeRecord } from "@/components/intern/daily-time-record"
+import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { getTruncatedDecimalHours } from "@/lib/time-utils"
 
 /**

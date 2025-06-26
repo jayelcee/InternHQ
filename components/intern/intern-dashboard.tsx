@@ -6,7 +6,7 @@ import { InternDashboardContent } from "./intern-dashboard-content"
 import { InternProfile } from "./intern-profile"
 import { DashboardHeader } from "./intern-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
-import { DailyTimeRecord } from "./daily-time-record"
+import { DailyTimeRecord } from "./intern-dtr"
 
 export function InternDashboard() {
   const { user } = useAuth()
