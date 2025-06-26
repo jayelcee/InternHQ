@@ -28,7 +28,7 @@ interface UserProfile {
   internship?: InternshipDetails
 }
 
-export function DailyTimeRecord({ internId }: { internId?: string }) {
+export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; onRefresh?: () => Promise<void> }) {
   const { user } = useAuth()
   const [logs, setLogs] = useState<TimeLogDisplay[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,8 +41,16 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
     setError(null)
     try {
       const url = `/api/time-logs${internId ? `?userId=${internId}` : ""}`
-      const res = await fetch(url)
-      if (!res.ok) throw new Error("Failed to fetch logs")
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`HTTP ${res.status}: ${errorText}`)
+      }
       
       const data = await res.json()
       const logsArray = Array.isArray(data) ? data : data.logs || []
@@ -50,6 +58,8 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
       const normalizedLogs: TimeLogDisplay[] = logsArray.map((log: Record<string, unknown>) => {
         const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
         const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
+        const userId = log.user_id as number | undefined
+        const internIdFromLog = log.internId as number | undefined
 
         return {
           id: log.id as number,
@@ -57,18 +67,31 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
           time_out: timeOut,
           log_type: (log.log_type as "regular" | "overtime") ?? "regular",
           status: (log.status as "pending" | "completed") ?? "completed",
-          user_id: log.user_id as number | undefined,
-          internId: log.internId as number | undefined,
+          user_id: userId,
+          internId: internIdFromLog ?? userId, // fallback to user_id if internId is not available
         }
       })
       
       setLogs(normalizedLogs)
-    } catch {
-      setError("Failed to load logs")
+      
+      // Note: onRefresh is only called from edit/delete operations, not from normal fetch
+    } catch (error) {
+      console.error("Error fetching logs:", error)
+      setError(`Failed to load logs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setLoading(false)
     }
   }, [internId])
+
+  // Function to handle refresh after edit/delete operations
+  const handleDataRefresh = useCallback(async () => {
+    // First refresh local data
+    await fetchLogs()
+    // Then call external refresh if provided
+    if (onRefresh) {
+      await onRefresh()
+    }
+  }, [fetchLogs, onRefresh])
 
   useEffect(() => {
     fetchLogs()
@@ -216,7 +239,7 @@ export function DailyTimeRecord({ internId }: { internId?: string }) {
         internId={internId}
         loading={loading}
         error={error}
-        onTimeLogUpdate={fetchLogs}
+        onTimeLogUpdate={handleDataRefresh}
       />
     </div>
   )

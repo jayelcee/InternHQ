@@ -5,19 +5,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Pencil } from "lucide-react"
+import { Pencil, Trash2 } from "lucide-react"
 import { TimeLogDisplay } from "@/lib/ui-utils"
 
 interface EditTimeLogDialogProps {
   log: TimeLogDisplay
   onSave: (logId: number, updates: { time_in?: string; time_out?: string }) => Promise<void>
+  onDelete: (logId: number) => Promise<void>
   isLoading: boolean
 }
 
-export function EditTimeLogDialog({ log, onSave, isLoading }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ log, onSave, onDelete, isLoading }: EditTimeLogDialogProps) {
   const [open, setOpen] = useState(false)
   const [timeIn, setTimeIn] = useState("")
   const [timeOut, setTimeOut] = useState("")
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Reset form when dialog opens
   const handleOpenChange = (isOpen: boolean) => {
@@ -88,6 +90,16 @@ export function EditTimeLogDialog({ log, onSave, isLoading }: EditTimeLogDialogP
     }
   }
 
+  const handleDelete = async () => {
+    try {
+      await onDelete(log.id)
+      setOpen(false)
+      setShowDeleteConfirm(false)
+    } catch (error) {
+      console.error("Error deleting time log:", error)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
@@ -99,39 +111,78 @@ export function EditTimeLogDialog({ log, onSave, isLoading }: EditTimeLogDialogP
         <DialogHeader>
           <DialogTitle>Edit Time Entry</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <Label htmlFor="time-in">Time In</Label>
-              <Input
-                id="time-in"
-                type="datetime-local"
-                value={timeIn}
-                onChange={(e) => setTimeIn(e.target.value)}
-                className="mt-1"
-              />
+        {showDeleteConfirm ? (
+          <div className="space-y-4">
+            <div className="text-center py-4">
+              <Trash2 className="mx-auto h-12 w-12 text-red-500 mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Time Entry</h3>
+              <p className="text-sm text-gray-600">
+                Are you sure you want to delete this time entry? This action cannot be undone.
+              </p>
             </div>
-            <div className="flex-1">
-              <Label htmlFor="time-out">Time Out</Label>
-              <Input
-                id="time-out"
-                type="datetime-local"
-                value={timeOut}
-                onChange={(e) => setTimeOut(e.target.value)}
-                className="mt-1"
-              />
+            <div className="flex justify-center gap-3">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={handleDelete}
+                disabled={isLoading}
+              >
+                {isLoading ? "Deleting..." : "Delete"}
+              </Button>
             </div>
           </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <Label htmlFor="time-in">Time In</Label>
+                <Input
+                  id="time-in"
+                  type="datetime-local"
+                  value={timeIn}
+                  onChange={(e) => setTimeIn(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex-1">
+                <Label htmlFor="time-out">Time Out</Label>
+                <Input
+                  id="time-out"
+                  type="datetime-local"
+                  value={timeOut}
+                  onChange={(e) => setTimeOut(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
 
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={isLoading}>
-              {isLoading ? "Saving..." : "Save Changes"}
-            </Button>
+            <div className="flex justify-between">
+              <Button 
+                variant="destructive" 
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isLoading}
+                className="flex items-center gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSave} disabled={isLoading}>
+                  {isLoading ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </DialogContent>
     </Dialog>
   )

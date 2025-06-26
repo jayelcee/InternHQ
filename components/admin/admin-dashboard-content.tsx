@@ -182,6 +182,54 @@ export function HRAdminDashboard() {
     }
   }
 
+  // --- Time log delete handler ---
+  const handleTimeLogDelete = async (logId: number) => {
+    setIsUpdatingTimeLog(true)
+    try {
+      const response = await fetch(`/api/admin/time-logs/${logId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to delete time log")
+      }
+
+      // Refresh the data
+      const logsRes = await fetch("/api/time-logs")
+      if (logsRes.ok) {
+        const logsData = await logsRes.json()
+        const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
+        setLogs(logsArray)
+
+        // Also refresh interns data to update completed hours
+        const internsRes = await fetch("/api/interns")
+        if (internsRes.ok) {
+          const internsData: InternRecord[] = await internsRes.json()
+          const internsWithLogHours = internsData.map((intern) => {
+            const internLogs = logsArray.filter(
+              (log: TimeLog) => log.internId === intern.id
+            )
+            const completedHours = calculateInternshipProgress(internLogs)
+            return {
+              ...intern,
+              internshipDetails: {
+                ...intern.internshipDetails,
+                completedHours,
+              },
+            }
+          })
+          setInterns(internsWithLogHours)
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting time log:", error)
+      // You could add a toast notification here
+    } finally {
+      setIsUpdatingTimeLog(false)
+    }
+  }
+
   // --- Dashboard summary statistics ---
   const stats = useMemo(() => {
     if (!interns.length) return { totalInterns: 0, activeInterns: 0, totalRequiredHours: 0, totalCompletedHours: 0, avgProgress: "0.0" }
@@ -318,12 +366,42 @@ export function HRAdminDashboard() {
 
   // --- Daily Time Record Modal ---
   if (selectedDTRInternId) {
+    const refreshData = async () => {
+      // Refresh logs data after deletion/update
+      const logsRes = await fetch("/api/time-logs")
+      if (logsRes.ok) {
+        const logsData = await logsRes.json()
+        const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
+        setLogs(logsArray)
+
+        // Also refresh interns data to update completed hours
+        const internsRes = await fetch("/api/interns")
+        if (internsRes.ok) {
+          const internsData: InternRecord[] = await internsRes.json()
+          const internsWithLogHours = internsData.map((intern) => {
+            const internLogs = logsArray.filter(
+              (log: TimeLog) => log.internId === intern.id
+            )
+            const completedHours = calculateInternshipProgress(internLogs)
+            return {
+              ...intern,
+              internshipDetails: {
+                ...intern.internshipDetails,
+                completedHours,
+              },
+            }
+          })
+          setInterns(internsWithLogHours)
+        }
+      }
+    }
+
     return (
       <div>
         <Button variant="outline" onClick={() => setSelectedDTRInternId(null)} className="mb-4">
           ← Back to Dashboard
         </Button>
-        <DailyTimeRecord internId={String(selectedDTRInternId)} />
+        <DailyTimeRecord internId={String(selectedDTRInternId)} onRefresh={refreshData} />
       </div>
     )
   }
@@ -789,6 +867,7 @@ export function HRAdminDashboard() {
                                     user_id: log.internId,
                                   }}
                                   onSave={handleTimeLogUpdate}
+                                  onDelete={handleTimeLogDelete}
                                   isLoading={isUpdatingTimeLog}
                                 />
                               ))}
