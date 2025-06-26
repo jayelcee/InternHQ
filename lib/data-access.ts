@@ -441,6 +441,7 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
       tl.time_in,
       tl.time_out,
       tl.status,
+      tl.log_type,
       tl.created_at,
       tl.updated_at,
       u.first_name,
@@ -478,6 +479,7 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     timeIn: row.time_in,
     timeOut: row.time_out,
     status: row.status,
+    log_type: row.log_type,
     created_at: row.created_at,
     updated_at: row.updated_at,
     duration: row.time_in && row.time_out
