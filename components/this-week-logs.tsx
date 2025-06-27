@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { calculateTimeWorked, truncateTo2Decimals, DAILY_REQUIRED_HOURS, formatDuration } from "@/lib/time-utils"
+import { calculateTimeWorked, truncateTo2Decimals, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 
 interface ThisWeekLogsProps {

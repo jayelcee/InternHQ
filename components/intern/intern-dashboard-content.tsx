@@ -406,37 +406,6 @@ function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTi
   return totalMs / (1000 * 60 * 60) // Convert to hours
 }
 
-/**
- * Helper function to get ONLY the overtime hours from actual overtime sessions
- * This excludes regular session time that exceeds 9h - only counts overtime sessions
- */
-function getTodayOvertimeHoursOnly(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
-  const today = getTodayDateString()
-  let overtimeMs = 0
-
-  // Sum up completed overtime logs for today only
-  logs.forEach((log) => {
-    if (
-      log.time_in &&
-      safeGetDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
-      log.time_out
-    ) {
-      const result = calculateTimeWorked(log.time_in, log.time_out)
-      overtimeMs += result.hoursWorked * 60 * 60 * 1000
-    }
-  })
-
-  // Add current active overtime session if any
-  if (isOvertimeIn && overtimeInTimestamp) {
-    const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(overtimeInTimestamp, end)
-    overtimeMs += activeResult.hoursWorked * 60 * 60 * 1000
-  }
-
-  return overtimeMs / (1000 * 60 * 60) // Convert to hours
-}
-
 export function InternDashboardContent() {
   const { user } = useAuth()
   const [currentTime, setCurrentTime] = useState(new Date())
@@ -592,10 +561,7 @@ export function InternDashboardContent() {
   // Calculate today's duration, freeze at auto timeout if needed
   const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined, currentTime)
   const todayRequiredProgress = getTodayRequiredHoursProgress(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, freezeSessionAt || undefined, currentTime)
-  const todayDurationWithApprovedOvertime = getTodayTotalWithApprovedOvertime(allLogs, isTimedIn, timeInTimestamp, freezeSessionAt || undefined, currentTime)
-  const todayTotalDurationIncludingOvertime = getTodayTotalDurationIncludingOvertime(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, freezeSessionAt || undefined, currentTime)
   const todayHours = parseDurationToHours(todayDuration)
-  const todayOvertimeHours = getTodayOvertimeHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, currentTime)
   const overtimeByStatus = getTodayOvertimeByStatus(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, currentTime)
 
   // --- Effects ---
@@ -796,7 +762,7 @@ export function InternDashboardContent() {
     }, 100) // Small delay to ensure session state is restored
     
     return () => clearTimeout(timeoutId)
-  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp])
+  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, autoTimeoutTriggered, overtimeInTimestamp])
 
   // Only set auto timeout if user is actively timed in/overtime and reaches max hours (including total daily work)
   useEffect(() => {
@@ -1043,7 +1009,7 @@ export function InternDashboardContent() {
           <CardHeader className="pb-0">
             <CardTitle className="text-lg flex items-center gap-2">
               <Clock className="h-5 w-5" />
-              Today's Progress
+              Today&apos;s Progress
             </CardTitle>
           </CardHeader>
           <CardContent>
