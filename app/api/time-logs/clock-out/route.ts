@@ -15,9 +15,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const customTime = body?.time
-    const logType = body?.logType === "overtime" ? "overtime" : "regular"
-
-    const result = await clockOut(authResult.auth.userId, customTime, logType)
+    // logType is ignored - system automatically splits based on total hours worked
+    
+    const result = await clockOut(authResult.auth.userId, customTime)
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 })

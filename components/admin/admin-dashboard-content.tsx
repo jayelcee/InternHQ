@@ -15,7 +15,7 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
-import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
+import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime } from "@/lib/time-utils"
 import { formatLogDate } from "@/lib/ui-utils"
 
 /**
@@ -60,6 +60,8 @@ type TimeLog = {
   hoursWorked: number
   department: string
   school: string
+  log_type?: "regular" | "overtime"
+  overtime_status?: "pending" | "approved" | "rejected"
 }
 
 /**
@@ -281,24 +283,24 @@ export function HRAdminDashboard() {
       const todayLocal = getLocalDateString(new Date().toISOString())
       result = result.filter(
         log => {
-          const logDate =
-            log.date
+          // Use timeIn as the primary source for date
+          const logDate = log.timeIn 
+            ? getLocalDateString(log.timeIn)
+            : log.date
               ? getLocalDateString(log.date)
-              : log.timeIn
-                ? getLocalDateString(log.timeIn)
-                : ""
+              : ""
           return logDate === todayLocal
         }
       )
     } else if (viewMode === "logs" && selectedDate) {
       const selectedLocal = getLocalDateString(selectedDate.toISOString())
       result = result.filter(log => {
-        const logDate =
-          log.date
+        // Use timeIn as the primary source for date
+        const logDate = log.timeIn
+          ? getLocalDateString(log.timeIn)
+          : log.date
             ? getLocalDateString(log.date)
-            : log.timeIn
-              ? getLocalDateString(log.timeIn)
-              : ""
+            : ""
         return logDate === selectedLocal
       })
     }
@@ -322,7 +324,9 @@ export function HRAdminDashboard() {
     const grouped: Record<string, TimeLog[]> = {}
     
     filteredLogs.forEach((log) => {
-      const dateKey = (log.date || log.timeIn || "").slice(0, 10)
+      // Use timeIn as the primary source for date, fallback to date field
+      const dateSource = log.timeIn || log.date || ""
+      const dateKey = dateSource.slice(0, 10)
       const key = `${log.internId}-${dateKey}`
       if (!grouped[key]) grouped[key] = []
       grouped[key].push(log)
@@ -743,29 +747,24 @@ export function HRAdminDashboard() {
                       <TableHead>Time In</TableHead>
                       <TableHead>Time Out</TableHead>
                       <TableHead>Hours Worked</TableHead>
-                      <TableHead>Overtime</TableHead>
+                      <TableHead>Overtime Hours</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {groupedLogsForDTR.map(({ key, logs, dateKey }) => {
                       const firstLog = logs[0]
-                      
-                      // Calculate total hours for this date (all logs combined)
-                      const totalHoursWorked = logs
-                        .filter(log => log.timeIn && log.timeOut)
-                        .reduce((sum, log) => {
-                          if (!log.timeIn || !log.timeOut) return sum
-                          const result = calculateTimeWorked(log.timeIn, log.timeOut)
-                          return sum + result.hoursWorked
-                        }, 0)
 
-                      // For regular hours up to required hours limit, then overtime
-                      const regularHoursWorked = Math.min(totalHoursWorked, DAILY_REQUIRED_HOURS)
-                      const overtimeHours = Math.max(0, totalHoursWorked - DAILY_REQUIRED_HOURS)
+                      // Get continuous time (earliest in, latest out)
+                      const continuousTime = getContinuousTime(logs)
+                      
+                      // Determine if there's any pending overtime to fade the row
+                      const hasPendingOvertime = logs.some(log => 
+                        log.log_type === "overtime" && (!log.overtime_status || log.overtime_status === "pending")
+                      )
 
                       return (
-                        <TableRow key={key}>
+                        <TableRow key={key} className={hasPendingOvertime ? "opacity-60" : ""}>
                           {/* Intern Name */}
                           <TableCell>
                             <div className="space-y-1">
@@ -786,64 +785,66 @@ export function HRAdminDashboard() {
                             </div>
                           </TableCell>
                           
-                          {/* Time In */}
+                          {/* Time In - Show earliest time in */}
                           <TableCell>
-                            <div className="flex flex-col gap-1">
-                              {logs.map((log, idx) =>
-                                log.timeIn ? (
-                                  <Badge 
-                                    key={idx} 
-                                    variant="outline" 
-                                    className="bg-green-50 text-green-700"
-                                  >
-                                    {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </Badge>
-                                ) : (
-                                  <span key={idx} className="text-gray-400">--</span>
-                                )
-                              )}
-                            </div>
+                            {continuousTime.earliestTimeIn ? (
+                              <Badge 
+                                variant="outline" 
+                                className="bg-green-100 text-green-700 border-green-300"
+                              >
+                                {new Date(continuousTime.earliestTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-400">--</span>
+                            )}
                           </TableCell>
                           
-                          {/* Time Out */}
+                          {/* Time Out - Show latest time out or "In Progress" */}
                           <TableCell>
-                            <div className="flex flex-col gap-1">
-                              {logs.map((log, idx) =>
-                                log.timeOut ? (
-                                  <Badge 
-                                    key={idx} 
-                                    variant="outline" 
-                                    className="bg-blue-50 text-blue-700"
-                                  >
-                                    {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </Badge>
-                                ) : log.timeIn ? (
-                                  <Badge 
-                                    key={idx} 
-                                    variant="outline" 
-                                    className="bg-yellow-50 text-yellow-700"
-                                  >
-                                    In Progress
-                                  </Badge>
-                                ) : (
-                                  <span key={idx} className="text-gray-400">--</span>
-                                )
-                              )}
-                            </div>
+                            {continuousTime.latestTimeOut ? (
+                              <Badge 
+                                variant="outline" 
+                                className="bg-red-100 text-red-700 border-red-300"
+                              >
+                                {new Date(continuousTime.latestTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </Badge>
+                            ) : continuousTime.earliestTimeIn ? (
+                              <Badge 
+                                variant="outline" 
+                                className="bg-yellow-100 text-yellow-700 border-yellow-300"
+                              >
+                                In Progress
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-400">--</span>
+                            )}
                           </TableCell>
                           
-                          {/* Hours Worked */}
+                          {/* Hours Worked - Use from continuous time calculation */}
                           <TableCell>
-                            <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                              {truncateTo2Decimals(regularHoursWorked)}h
+                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                              {truncateTo2Decimals(continuousTime.regularHours)}h
                             </Badge>
                           </TableCell>
                           
-                          {/* Overtime */}
+                          {/* Overtime Hours - Use from continuous time calculation */}
                           <TableCell>
-                            {Number(truncateTo2Decimals(overtimeHours)) > 0 ? (
-                              <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                {truncateTo2Decimals(overtimeHours)}h
+                            {continuousTime.overtimeHours > 0 ? (
+                              <Badge 
+                                variant="outline" 
+                                className={
+                                  continuousTime.overtimeStatus === "approved" 
+                                    ? "bg-purple-100 text-purple-700 border-purple-300"
+                                    : continuousTime.overtimeStatus === "pending"
+                                      ? "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                      : "bg-gray-100 text-gray-400 border-gray-200"
+                                }
+                              >
+                                {truncateTo2Decimals(continuousTime.overtimeHours)}h
+                              </Badge>
+                            ) : continuousTime.overtimeLogs.length > 0 ? (
+                              <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
+                                0.00h
                               </Badge>
                             ) : (
                               <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
@@ -863,7 +864,8 @@ export function HRAdminDashboard() {
                                     time_in: log.timeIn,
                                     time_out: log.timeOut,
                                     status: "completed" as const,
-                                    log_type: "regular" as const,
+                                    log_type: log.log_type || "regular",
+                                    overtime_status: log.overtime_status,
                                     user_id: log.internId,
                                   }}
                                   onSave={handleTimeLogUpdate}

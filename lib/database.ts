@@ -107,6 +107,7 @@ export interface TimeLog {
   approved_by?: number
   approved_at?: string
   log_type?: "regular" | "overtime"
+  overtime_status?: "pending" | "approved" | "rejected"
   created_at: string
   updated_at: string
 }
@@ -165,6 +166,13 @@ export interface TimeLogWithDetails extends TimeLog {
   user_profile?: UserProfile
   department?: Department
   school?: School
+  internId?: number
+  internName?: string
+  timeIn?: string | null
+  timeOut?: string | null
+  duration?: string | null
+  hoursWorked?: number
+  approver_name?: string | null
 }
 
 export interface ProjectWithDetails extends Project {

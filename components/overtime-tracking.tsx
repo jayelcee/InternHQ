@@ -30,7 +30,7 @@ export function OvertimeTracking({
         <p className="text-sm text-gray-600">
           {isOvertimeIn
             ? "You're currently in an overtime session."
-            : "Log extra hours beyond your regular shift."}
+            : "Overtime requires admin approval to count towards your internship progress."}
         </p>
       </div>
       <div className="flex flex-col gap-3">
@@ -42,8 +42,8 @@ export function OvertimeTracking({
                 ? overtimeInTimestamp
                   ? `Overtime started at ${overtimeInTimestamp.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
                   : "Overtime started"
-                : "Render Overtime"
-              : "Render Regular Hours First"}
+                : "Submit Overtime for Approval"
+              : "Complete Regular Hours First"}
           </Badge>
         </div>
         {!isOvertimeIn ? (
