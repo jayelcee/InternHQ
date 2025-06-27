@@ -131,53 +131,7 @@ function getTodayRequiredHoursProgress(logs: TimeLogDisplay[], isTimedIn: boolea
   return formatDuration(hours, minutes)
 }
 
-/**
- * Calculates today's total duration including regular logs and only approved overtime
- */
-function getTodayTotalWithApprovedOvertime(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
-  const today = getTodayDateString()
-  let totalMs = 0
 
-  // Sum up completed regular logs for today
-  logs.forEach((log) => {
-    if (
-      log.time_in &&
-      safeGetDateString(log.time_in) === today &&
-      (log.log_type === "regular" || !log.log_type) &&
-      log.time_out
-    ) {
-      const result = calculateTimeWorked(log.time_in, log.time_out)
-      totalMs += result.hoursWorked * 60 * 60 * 1000
-    }
-  })
-
-  // Sum up approved overtime logs for today (assuming overtime_status field exists)
-  logs.forEach((log) => {
-    if (
-      log.time_in &&
-      getLocalDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
-      log.time_out &&
-      log.overtime_status === "approved"
-    ) {
-      const result = calculateTimeWorked(log.time_in, log.time_out)
-      totalMs += result.hoursWorked * 60 * 60 * 1000
-    }
-  })
-
-  // Add current active regular session if any
-  if (isTimedIn && timeInTimestamp) {
-    const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(timeInTimestamp, end)
-    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
-  }
-
-  // Convert total back to duration format
-  const totalMinutes = Math.floor(totalMs / (1000 * 60))
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return formatDuration(hours, minutes)
-}
 
 /**
  * Calculates today's overtime hours by status
@@ -294,67 +248,9 @@ function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, ti
   }
 }
 
-/**
- * Calculates today's overtime hours only (all statuses)
- */
-function getTodayOvertimeHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, currentTime?: Date) {
-  const overtimeByStatus = getTodayOvertimeByStatus(logs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, currentTime)
-  return overtimeByStatus.total
-}
 
-/**
- * Calculates today's total duration including both regular and overtime hours (all statuses)
- */
-function getTodayTotalDurationIncludingOvertime(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
-  const today = getTodayDateString()
-  let totalMs = 0
 
-  // Sum up completed regular logs for today
-  logs.forEach((log) => {
-    if (
-      log.time_in &&
-      safeGetDateString(log.time_in) === today &&
-      (log.log_type === "regular" || !log.log_type) &&
-      log.time_out
-    ) {
-      const result = calculateTimeWorked(log.time_in, log.time_out)
-      totalMs += result.hoursWorked * 60 * 60 * 1000
-    }
-  })
 
-  // Sum up completed overtime logs for today (all statuses)
-  logs.forEach((log) => {
-    if (
-      log.time_in &&
-      safeGetDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
-      log.time_out
-    ) {
-      const result = calculateTimeWorked(log.time_in, log.time_out)
-      totalMs += result.hoursWorked * 60 * 60 * 1000
-    }
-  })
-
-  // Add current active regular session if any
-  if (isTimedIn && timeInTimestamp) {
-    const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(timeInTimestamp, end)
-    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
-  }
-
-  // Add current active overtime session if any
-  if (isOvertimeIn && overtimeInTimestamp) {
-    const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(overtimeInTimestamp, end)
-    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
-  }
-
-  // Convert total back to duration format
-  const totalMinutes = Math.floor(totalMs / (1000 * 60))
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  return formatDuration(hours, minutes)
-}
 
 /**
  * Helper function to get total hours worked today as a number (regular + overtime)
@@ -794,7 +690,7 @@ export function InternDashboardContent() {
       const clearedState = { triggered: false, date: today }
       localStorage.setItem("autoTimeoutTriggered", JSON.stringify(clearedState))
     }
-  }, [stateReady, isTimedIn, isOvertimeIn, actionLoading, autoTimeoutTriggered])
+  }, [stateReady, isTimedIn, isOvertimeIn, actionLoading, autoTimeoutTriggered, overtimeInTimestamp])
 
   // --- Button Handlers ---
 
