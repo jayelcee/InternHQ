@@ -11,9 +11,22 @@ interface ThisWeekLogsProps {
   loading: boolean
   error: string | null
   currentTime: Date
+  isTimedIn?: boolean
+  isOvertimeIn?: boolean
+  timeInTimestamp?: Date | null
+  overtimeInTimestamp?: Date | null
 }
 
-export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWeekLogsProps) {
+export function ThisWeekLogs({ 
+  weeklyLogs, 
+  loading, 
+  error, 
+  currentTime,
+  isTimedIn = false,
+  isOvertimeIn = false,
+  timeInTimestamp = null,
+  overtimeInTimestamp = null
+}: ThisWeekLogsProps) {
   return (
     <Card>
       <CardHeader>
@@ -84,13 +97,37 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                     }
                   }
                   
-                  // Check for active sessions (pending logs)
+                  // Check for active sessions (pending logs OR current dashboard state)
                   const activeLogs = [...regularLogs, ...overtimeLogs].filter(log => log.time_in && !log.time_out && log.status === "pending")
-                  if (activeLogs.length > 0) {
+                  
+                  // Also check if user is currently active according to dashboard state (for today)
+                  const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD format
+                  const isToday = datePart === today
+                  const isDashboardActive = isToday && (isTimedIn || isOvertimeIn)
+                  
+                  if (activeLogs.length > 0 || isDashboardActive) {
                     isCurrentlyActive = true
-                    if (!earliestTimeIn) {
-                      earliestTimeIn = activeLogs[0].time_in
+                    
+                    // For dashboard active state, use the session timestamps
+                    if (isDashboardActive && activeLogs.length === 0) {
+                      // Use dashboard state for active session
+                      if (isTimedIn && timeInTimestamp) {
+                        if (!earliestTimeIn) {
+                          earliestTimeIn = timeInTimestamp.toISOString()
+                        }
+                      }
+                      if (isOvertimeIn && overtimeInTimestamp) {
+                        if (!earliestTimeIn) {
+                          earliestTimeIn = overtimeInTimestamp.toISOString()
+                        }
+                      }
+                    } else if (activeLogs.length > 0) {
+                      // Use log data for active session
+                      if (!earliestTimeIn) {
+                        earliestTimeIn = activeLogs[0].time_in
+                      }
                     }
+                    
                     // For active sessions, use current time as latest time out for calculations
                     if (!latestTimeOut) {
                       latestTimeOut = currentTime.toISOString()
@@ -109,13 +146,14 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                   let overtimeHours = 0
                   let overtimeStatus = "none"
                   
-                  if (overtimeLogs.length > 0) {
-                    const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
-                    const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
-                    const hasPendingOvertime = overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending")
+                  // Calculate overtime hours if total exceeds required hours
+                  if (totalHoursWorked > DAILY_REQUIRED_HOURS) {
+                    overtimeHours = totalHoursWorked - DAILY_REQUIRED_HOURS
                     
-                    if (totalHoursWorked > DAILY_REQUIRED_HOURS) {
-                      overtimeHours = totalHoursWorked - DAILY_REQUIRED_HOURS
+                    if (overtimeLogs.length > 0) {
+                      const hasApprovedOvertime = overtimeLogs.some(log => log.overtime_status === "approved")
+                      const hasRejectedOvertime = overtimeLogs.some(log => log.overtime_status === "rejected")
+                      const hasPendingOvertime = overtimeLogs.some(log => !log.overtime_status || log.overtime_status === "pending")
                       
                       if (hasApprovedOvertime) {
                         overtimeStatus = "approved"
@@ -126,6 +164,9 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                         // For rejected overtime, we already cut the time_out above, so overtime should be 0
                         overtimeHours = 0
                       }
+                    } else {
+                      // If no overtime logs but hours exceed required, treat as pending
+                      overtimeStatus = "pending"
                     }
                   }
 
@@ -182,10 +223,6 @@ export function ThisWeekLogs({ weeklyLogs, loading, error, currentTime }: ThisWe
                             }
                           >
                             {truncateTo2Decimals(overtimeHours)}h
-                          </Badge>
-                        ) : overtimeLogs.length > 0 ? (
-                          <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
-                            0.00h
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">

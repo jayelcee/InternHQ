@@ -207,7 +207,7 @@ export async function clockOut(userId: string, time?: string): Promise<{ success
     if (totalHours > DAILY_REQUIRED_HOURS) {
       // Calculate split points
       const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-      const overtimeStart = new Date(regularCutoff.getTime() + (1 * 60 * 1000)) // 1 min gap
+      const overtimeStart = regularCutoff // No gap - overtime starts immediately after regular ends
       
       // Begin transaction for atomic operation
       await sql.begin(async (tx) => {
