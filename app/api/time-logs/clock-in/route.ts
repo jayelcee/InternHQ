@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const customTime = body?.time
-    // Always clock in as regular - overtime will be determined during clock-out based on total hours
+    // Clock in as regular or overtime based on hours already worked today
 
     const result = await clockIn(authResult.auth.userId, customTime)
 
