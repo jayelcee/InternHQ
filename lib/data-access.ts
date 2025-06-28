@@ -152,7 +152,7 @@ export async function getUserWithDetails(userId: string): Promise<UserWithDetail
 // --- Time Log Operations ---
 
 /**
- * Clock in a user (always as regular - overtime is determined during clock-out)
+ * Clock in a user (automatically determines if should be regular or overtime based on hours already worked today)
  */
 export async function clockIn(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
   try {
@@ -167,10 +167,49 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
       return { success: false, error: "You are already clocked in. Please clock out before clocking in again." }
     }
     
-    // Always clock in as regular - overtime will be determined during clock-out
+    // Check how many hours user has already worked today to determine if this should be overtime
+    const today = new Date()
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+    
+    const todayLogs = await sql`
+      SELECT * FROM time_logs
+      WHERE user_id = ${userIdNum} 
+        AND time_in >= ${todayStart.toISOString()}
+        AND time_in < ${todayEnd.toISOString()}
+        AND status = 'completed'
+        AND time_out IS NOT NULL
+    `
+    
+    // Calculate total hours worked today
+    let totalHoursToday = 0
+    todayLogs.forEach((log) => {
+      if (log.time_in && log.time_out) {
+        const timeIn = new Date(log.time_in)
+        const timeOut = new Date(log.time_out)
+        const diffMs = timeOut.getTime() - timeIn.getTime()
+        totalHoursToday += diffMs / (1000 * 60 * 60)
+      }
+    })
+    
+    // Determine log type: if user has already worked required hours, this is overtime
+    const logType = totalHoursToday >= DAILY_REQUIRED_HOURS ? 'overtime' : 'regular'
+    const overtimeStatus = logType === 'overtime' ? 'pending' : null
+    
+    // Clock in with appropriate log type
     await sql`
-      INSERT INTO time_logs (user_id, time_in, status, log_type, created_at, updated_at)
-      VALUES (${userIdNum}, ${time ?? sql`NOW()`}, 'pending', 'regular', NOW(), NOW())
+      INSERT INTO time_logs (
+        user_id, time_in, status, log_type, overtime_status, created_at, updated_at
+      )
+      VALUES (
+        ${userIdNum}, 
+        ${time ?? sql`NOW()`}, 
+        'pending', 
+        ${logType},
+        ${overtimeStatus},
+        NOW(), 
+        NOW()
+      )
     `
     return { success: true }
   } catch (error) {
@@ -180,9 +219,9 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
 }
 
 /**
- * Clock out a user (automatically splits into regular + overtime if >9 hours)
+ * Clock out a user (handles both regular and overtime logs)
  */
-export async function clockOut(userId: string, time?: string): Promise<{ success: boolean; error?: string }> {
+export async function clockOut(userId: string, time?: string, discardOvertime?: boolean, overtimeNote?: string): Promise<{ success: boolean; error?: string }> {
   try {
     const userIdNum = Number(userId)
     
@@ -203,52 +242,102 @@ export async function clockOut(userId: string, time?: string): Promise<{ success
     const timeOut = time ? new Date(time) : new Date()
     const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
     
-    // Always split logs that exceed DAILY_REQUIRED_HOURS, regardless of the chosen logType
-    if (totalHours > DAILY_REQUIRED_HOURS) {
-      // Calculate split points
-      const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-      const overtimeStart = regularCutoff // No gap - overtime starts immediately after regular ends
-      
-      // Begin transaction for atomic operation
-      await sql.begin(async (tx) => {
-        // Update the original log to be regular time (first 9 hours)
-        await tx`
+    // Handle based on the log type
+    if (log.log_type === 'overtime') {
+      // For overtime logs, just complete them as overtime
+      await sql`
+        UPDATE time_logs
+        SET time_out = ${timeOut.toISOString()}, 
+            status = 'completed',
+            updated_at = NOW()
+        WHERE id = ${log.id}
+      `
+    } else {
+      // For regular logs
+      if (discardOvertime) {
+        // User wants to discard overtime - cut at 9 hours and delete any existing overtime logs for today
+        console.log('Discarding overtime - cutting regular log at 9 hours and deleting overtime logs')
+        
+        // Calculate cutoff time (9 hours from start)
+        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        
+        // Use the timeIn date to determine "today" for deleting any existing overtime logs
+        const today = timeIn.toISOString().split('T')[0] // Get YYYY-MM-DD format
+        const todayStart = `${today}T00:00:00.000Z`
+        const todayEnd = `${today}T23:59:59.999Z`
+        
+        console.log(`Cutting regular log at ${regularCutoff.toISOString()} and deleting overtime logs for user ${userId} on ${today}`)
+        
+        await sql.begin(async (tx) => {
+          // Update the regular log to end at exactly 9 hours
+          await tx`
+            UPDATE time_logs
+            SET time_out = ${regularCutoff.toISOString()}, 
+                status = 'completed', 
+                log_type = 'regular',
+                updated_at = NOW()
+            WHERE id = ${log.id}
+          `
+          
+          // Delete any existing overtime logs for today
+          const deleteResult = await tx`
+            DELETE FROM time_logs
+            WHERE user_id = ${Number(userId)} 
+              AND log_type = 'overtime'
+              AND time_in >= ${todayStart}
+              AND time_in <= ${todayEnd}
+            RETURNING id
+          `
+          
+          console.log(`Regular log cut to 9 hours. Deleted ${deleteResult.length} overtime logs with IDs:`, deleteResult.map(r => r.id))
+        })
+      } else if (totalHours > DAILY_REQUIRED_HOURS) {
+        // Normal overtime scenario - split the log
+        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        const overtimeStart = regularCutoff // No gap - overtime starts immediately after regular ends
+        
+        // Begin transaction for atomic operation
+        await sql.begin(async (tx) => {
+          // Update the original log to be regular time (first 9 hours)
+          await tx`
+            UPDATE time_logs
+            SET time_out = ${regularCutoff.toISOString()}, 
+                status = 'completed', 
+                log_type = 'regular',
+                updated_at = NOW()
+            WHERE id = ${log.id}
+          `
+          
+          // Create overtime log for remaining time
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, 
+              log_type, overtime_status, notes, created_at, updated_at
+            )
+            VALUES (
+              ${Number(userId)}, 
+              ${overtimeStart.toISOString()}, 
+              ${timeOut.toISOString()}, 
+              'completed', 
+              'overtime', 
+              'pending',
+              ${overtimeNote || null}, 
+              ${log.created_at}, 
+              NOW()
+            )
+          `
+        })
+      } else {
+        // For logs <= 9 hours, just complete them normally as regular
+        await sql`
           UPDATE time_logs
-          SET time_out = ${regularCutoff.toISOString()}, 
+          SET time_out = ${timeOut.toISOString()}, 
               status = 'completed', 
               log_type = 'regular',
               updated_at = NOW()
           WHERE id = ${log.id}
         `
-        
-        // Create overtime log for remaining time
-        await tx`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, 
-            log_type, overtime_status, created_at, updated_at
-          )
-          VALUES (
-            ${userIdNum}, 
-            ${overtimeStart.toISOString()}, 
-            ${timeOut.toISOString()}, 
-            'completed', 
-            'overtime', 
-            'pending', 
-            ${log.created_at}, 
-            NOW()
-          )
-        `
-      })
-    } else {
-      // For logs <= 9 hours, just complete them normally
-      await sql`
-        UPDATE time_logs
-        SET time_out = ${timeOut.toISOString()}, 
-            status = 'completed', 
-            log_type = 'regular',
-            updated_at = NOW()
-        WHERE id = ${log.id}
-      `
+      }
     }
     
     return { success: true }
