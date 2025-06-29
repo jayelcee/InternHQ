@@ -106,7 +106,7 @@ export interface TimeLog {
   status: "pending" | "completed"
   approved_by?: number
   approved_at?: string
-  log_type?: "regular" | "overtime"
+  log_type?: "regular" | "overtime" | "extended_overtime"
   overtime_status?: "pending" | "approved" | "rejected"
   created_at: string
   updated_at: string

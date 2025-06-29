@@ -16,6 +16,7 @@
  * Constants
  */
 export const DAILY_REQUIRED_HOURS = 9
+export const MAX_OVERTIME_HOURS = 3 // Maximum normal overtime before extended overtime begins
 
 /**
  * Truncates a decimal number to 2 decimal places (no rounding)
@@ -236,9 +237,9 @@ export function getContinuousTime(logs: Array<{
   overtime_status?: string
   status?: string
 }>) {
-  // Separate regular and overtime logs
-  const regularLogs = logs.filter(log => log.log_type !== "overtime")
-  const overtimeLogs = logs.filter(log => log.log_type === "overtime")
+  // Separate regular and overtime logs (including extended overtime)
+  const regularLogs = logs.filter(log => log.log_type !== "overtime" && log.log_type !== "extended_overtime")
+  const overtimeLogs = logs.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
   
   // Get the earliest time_in and latest time_out for continuous display
   // Handle both naming conventions: time_in/time_out and timeIn/timeOut
