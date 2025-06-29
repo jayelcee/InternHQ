@@ -687,7 +687,7 @@ export function InternDashboardContent() {
     }
 
     prevTodayHours.current = totalHoursWithOvertime
-  }, [allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, actionLoading, freezeSessionAt, handleTimeOut, currentTime])
+  }, [allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, actionLoading, freezeSessionAt, handleTimeOut, currentTime])
 
   // Persist auto timeout state to localStorage with date
   useEffect(() => {
@@ -788,7 +788,7 @@ export function InternDashboardContent() {
         setAutoTimeoutTriggered(true)
       }
     }
-  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, currentTime, autoTimeoutTriggered])
+  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, currentTime, autoTimeoutTriggered])
 
   // Clear auto-timeout state if user is not actively working 
   useEffect(() => {

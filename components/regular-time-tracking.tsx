@@ -111,7 +111,6 @@ export function RegularTimeTracking({
       // Check if this single session would put them over required hours for the day
       if (previousHoursToday + sessionDurationHours > DAILY_REQUIRED_HOURS) {
         const totalOvertimeHours = Math.max(0, (previousHoursToday + sessionDurationHours) - DAILY_REQUIRED_HOURS)
-        const maxStandardOvertimeLimit = DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS
         
         // Calculate standard overtime and extended overtime
         const standardOvertimeHours = Math.min(totalOvertimeHours, MAX_OVERTIME_HOURS)
