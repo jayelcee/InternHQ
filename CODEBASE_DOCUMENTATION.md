@@ -22,7 +22,7 @@ components/            # Reusable UI components
 ├── admin/            # Admin-specific components
 ├── intern/           # Intern-specific components
 ├── daily-time-record.tsx
-├── regular-time-tracking.tsx
+├── time-tracking.tsx
 ├── overtime-tracking.tsx
 └── this-week-logs.tsx
 
@@ -108,7 +108,7 @@ contexts/            # React contexts
 
 ### Reusable Components
 - `DailyTimeRecord` - Time log table with filtering
-- `RegularTimeTracking` - Regular hours tracking
+- `TimeTracking` - Regular hours tracking
 - `OvertimeTracking` - Overtime hours tracking
 - `ThisWeekLogs` - Weekly summary display
 

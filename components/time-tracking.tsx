@@ -8,9 +8,9 @@ import { useState } from "react"
 import { DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS } from "@/lib/time-utils"
 
 /**
- * Props for the RegularTimeTracking component
+ * Props for the TimeTracking component
  */
-interface RegularTimeTrackingProps {
+interface TimeTrackingProps {
   isTimedIn: boolean
   timeInTimestamp: Date | null
   actionLoading: boolean
@@ -32,9 +32,9 @@ interface RegularTimeTrackingProps {
 }
 
 /**
- * RegularTimeTracking component handles manual time tracking functionality for interns.
+ * TimeTracking component handles manual time tracking functionality for interns.
  */
-export function RegularTimeTracking({
+export function TimeTracking({
   isTimedIn,
   timeInTimestamp,
   actionLoading,
@@ -53,7 +53,7 @@ export function RegularTimeTracking({
   todayTotalHours = 0,
   hasReachedDailyRequirement = false,
   hasReachedOvertimeLimit = false,
-}: RegularTimeTrackingProps) {
+}: TimeTrackingProps) {
   const [showOvertimeDialog, setShowOvertimeDialog] = useState(false)
   const [overtimeDialogData, setOvertimeDialogData] = useState<{
     sessionDuration: string
@@ -292,20 +292,22 @@ export function RegularTimeTracking({
             className={`w-full ${
               nextWillBeExtendedOvertime
                 ? "bg-red-600 hover:bg-red-700"
-                : nextWillBeOvertime || isOvertimeSession
+                : nextWillBeOvertime
                   ? "bg-purple-600 hover:bg-purple-700" 
                   : "bg-green-600 hover:bg-green-700"
             }`}
             disabled={actionLoading || freezeSessionAt !== null}
           >
             <Timer className="mr-2 h-5 w-5" />
-            {loadingAction === "timein" 
-              ? "Processing..." 
-              : nextWillBeExtendedOvertime
+            {loadingAction === "timein"
+              ? "Processing..."
+              : hasPastMaxStandardOvertime || nextWillBeExtendedOvertime || isExtendedOvertimeIn || isInExtendedOvertimePortion
                 ? "Extended Overtime In"
-                : nextWillBeOvertime || isOvertimeSession 
-                  ? "Overtime In" 
-                  : "Time In"}
+                : nextWillBeOvertime
+                  ? "Overtime In"
+                  : isInOvertimePortion
+                    ? "Overtime In"
+                    : "Time In"}
           </Button>
         ) : (
           <Button
@@ -320,12 +322,12 @@ export function RegularTimeTracking({
             disabled={actionLoading}
           >
             <Timer className="mr-2 h-5 w-5" />
-            {loadingAction === "timeout" 
-              ? "Processing..." 
-              : isExtendedOvertimeIn || isInExtendedOvertimePortion 
-                ? "Extended Overtime Out" 
-                : isOvertimeIn || isInOvertimePortion 
-                  ? "Overtime Out" 
+            {loadingAction === "timeout"
+              ? "Processing..."
+              : hasPastMaxStandardOvertime || isExtendedOvertimeIn || isInExtendedOvertimePortion
+                ? "Extended Overtime Out"
+                : isOvertimeIn || isInOvertimePortion
+                  ? "Overtime Out"
                   : "Time Out"}
           </Button>
         )}

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { useAuth } from "@/contexts/auth-context"
-import { RegularTimeTracking } from "@/components/regular-time-tracking"
+import { TimeTracking } from "@/components/time-tracking"
 import { ThisWeekLogs } from "@/components/this-week-logs"
 import { 
   calculateTimeWorked, 
@@ -1005,7 +1005,7 @@ export function InternDashboardContent() {
         {/* Time Tracking Card */}
         <Card>
           <CardContent className="p-6">
-            <RegularTimeTracking
+            <TimeTracking
               isTimedIn={isTimedIn}
               timeInTimestamp={timeInTimestamp}
               actionLoading={actionLoading}
