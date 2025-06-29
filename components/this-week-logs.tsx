@@ -21,7 +21,7 @@ interface ThisWeekLogsProps {
 // Helper function to calculate regular hours for a session
 function calculateSessionRegularHours(session: TimeLogDisplay[], endTime: Date | string): number {
   // If this is a pure overtime session (all logs are marked as overtime), return 0 immediately
-  const isPureOvertimeSession = session.every(log => log.log_type === "overtime");
+  const isPureOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime");
   if (isPureOvertimeSession) {
     return 0;
   }
@@ -73,8 +73,8 @@ export function ThisWeekLogs({
                   <TableHead>Date</TableHead>
                   <TableHead>Time In</TableHead>
                   <TableHead>Time Out</TableHead>
-                  <TableHead>Hours Worked</TableHead>
-                  <TableHead>Overtime Hours</TableHead>
+                  <TableHead>Regular Shift</TableHead>
+                  <TableHead>Overtime</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -85,7 +85,7 @@ export function ThisWeekLogs({
                   // Separate regular and overtime logs
                   // Treat logs without log_type or with log_type="regular" as regular logs
                   const regularLogs = logsForDate.filter(log => !log.log_type || log.log_type === "regular")
-                  const overtimeLogs = logsForDate.filter(log => log.log_type === "overtime")
+                  const overtimeLogs = logsForDate.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
                   
                   // Sort all logs by time_in for chronological order
                   const allLogs = [...regularLogs, ...overtimeLogs].sort((a, b) => {
@@ -129,7 +129,7 @@ export function ThisWeekLogs({
                       types: s.map(log => log.log_type),
                       timeIns: s.map(log => log.time_in ? new Date(log.time_in).toLocaleTimeString() : null),
                       timeOuts: s.map(log => log.time_out ? new Date(log.time_out).toLocaleTimeString() : null),
-                      isOvertime: s.every(log => log.log_type === "overtime"),
+                      isOvertime: s.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime"),
                       hasRegular: s.some(log => log.log_type === "regular" || !log.log_type)
                     })));
                   }
@@ -176,7 +176,7 @@ export function ThisWeekLogs({
                   // Calculate totals by processing individual logs
                   for (const session of sessions) {
                     // Skip pure overtime sessions for regular hours calculation
-                    const isPureOvertimeSession = session.every(log => log.log_type === "overtime");
+                    const isPureOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime");
                     
                     for (const log of session) {
                       if (log.time_in && log.time_out) {
@@ -190,12 +190,12 @@ export function ThisWeekLogs({
                             time_in: log.time_in,
                             time_out: log.time_out,
                             logHours,
-                            isOvertime: log.log_type === "overtime",
+                            isOvertime: log.log_type === "overtime" || log.log_type === "extended_overtime",
                             isPureOvertimeSession
                           })
                         }
                         
-                        if (log.log_type === "overtime") {
+                        if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
                           // Overtime log - add hours to overtime total
                           totalOvertimeHours += logHours
                           
@@ -223,11 +223,11 @@ export function ThisWeekLogs({
                             log_type: log.log_type,
                             time_in: log.time_in,
                             logHours,
-                            isOvertime: log.log_type === "overtime"
+                            isOvertime: log.log_type === "overtime" || log.log_type === "extended_overtime"
                           })
                         }
                         
-                        if (log.log_type === "overtime") {
+                        if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
                           totalOvertimeHours += logHours
                           if (overallOvertimeStatus === "none") {
                             overallOvertimeStatus = "pending"
@@ -255,7 +255,7 @@ export function ThisWeekLogs({
                       totalOvertimeHours,
                       sessions: sessions.map(s => ({
                         types: s.map(log => log.log_type),
-                        isOvertimeOnly: s.every(log => log.log_type === "overtime")
+                        isOvertimeOnly: s.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
                       }))
                     });
                   }
@@ -291,7 +291,7 @@ export function ThisWeekLogs({
                         <div className="flex flex-col gap-1">
                           {sessions.map((session, sessionIndex) => {
                             const sessionTimeIn = session[0]?.time_in
-                            const isOvertimeSession = session.every(log => log.log_type === "overtime")
+                            const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
                             const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
                             
                             return sessionTimeIn ? (
@@ -318,7 +318,7 @@ export function ThisWeekLogs({
                         <div className="flex flex-col gap-1">
                           {sessions.map((session, sessionIndex) => {
                             // Get the session's time out and overtime status
-                            const isOvertimeSession = session.every(log => log.log_type === "overtime")
+                            const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
                             const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
                             const isActiveSession = session.some(log => log.time_in && !log.time_out)
                             
@@ -378,49 +378,51 @@ export function ThisWeekLogs({
                            */}
                           {sessions.map((session, sessionIndex) => {
                             // Check if this is a pure overtime session (all logs are overtime type)
-                            const isOvertimeOnlySession = session.every(log => log.log_type === "overtime");
-                            
+                            const isOvertimeOnlySession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime");
                             if (isOvertimeOnlySession) {
                               // Overtime-only session: show 0.00h in gray
                               return (
                                 <Badge key={sessionIndex} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
-                                  0.00h
+                                  0h 00m
                                 </Badge>
                               );
                             } else {
                               // Regular session: calculate hours worked
                               let sessionRegularHours = 0;
-                              
-                              // Only count hours from regular logs
+                              let sessionRegularMinutes = 0;
                               for (const log of session) {
                                 if (log.log_type === "regular" || !log.log_type) {
                                   if (log.time_in && log.time_out) {
                                     const result = calculateTimeWorked(log.time_in, log.time_out);
-                                    sessionRegularHours += result.hoursWorked;
+                                    sessionRegularHours += Math.floor(result.hoursWorked);
+                                    sessionRegularMinutes += Math.round((result.hoursWorked % 1) * 60);
                                   } else if (log.time_in && !log.time_out) {
                                     const endTime = freezeAt || currentTime;
                                     const result = calculateTimeWorked(
                                       log.time_in, 
                                       typeof endTime === 'string' ? endTime : endTime.toISOString()
                                     );
-                                    sessionRegularHours += result.hoursWorked;
+                                    sessionRegularHours += Math.floor(result.hoursWorked);
+                                    sessionRegularMinutes += Math.round((result.hoursWorked % 1) * 60);
                                   }
                                 }
                               }
-                              
+                              // Normalize minutes to hours
+                              sessionRegularHours += Math.floor(sessionRegularMinutes / 60);
+                              sessionRegularMinutes = sessionRegularMinutes % 60;
                               // Cap at daily required hours
-                              sessionRegularHours = Math.min(sessionRegularHours, DAILY_REQUIRED_HOURS);
-                              
-                              // Show badge with hours
+                              const cappedHours = Math.min(sessionRegularHours + sessionRegularMinutes / 60, DAILY_REQUIRED_HOURS);
+                              const displayHours = Math.floor(cappedHours);
+                              const displayMinutes = Math.round((cappedHours % 1) * 60);
                               return (
                                 <Badge 
                                   key={sessionIndex} 
                                   variant="outline" 
-                                  className={sessionRegularHours > 0 
+                                  className={cappedHours > 0 
                                     ? "bg-blue-100 text-blue-700 border-blue-300"
                                     : "bg-gray-100 text-gray-700 border-gray-300"
                                   }>
-                                  {truncateTo2Decimals(sessionRegularHours)}h
+                                  {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
                                 </Badge>
                               );
                             }
@@ -433,8 +435,8 @@ export function ThisWeekLogs({
                             3. There's at least one session that isn't being displayed with 0.00h due to being pure overtime
                           */}
                           {sessions.length > 1 && 
-                           sessions.some(session => !session.every(log => log.log_type === "overtime")) &&
-                           sessions.filter(session => session.some(log => log.log_type !== "overtime")).length > 1 && (
+                           sessions.some(session => !session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")) &&
+                           sessions.filter(session => session.some(log => log.log_type !== "overtime" && log.log_type !== "extended_overtime")).length > 1 && (
                             <Badge 
                               variant="outline" 
                               className={
@@ -458,6 +460,7 @@ export function ThisWeekLogs({
                             
                             // Calculate overtime hours for this session
                             let sessionOvertimeHours = 0
+                            let sessionOvertimeMinutes = 0
                             let sessionOvertimeStatus = "none"
                             let sessionRegularHoursForOvertime = 0
                             
@@ -483,7 +486,10 @@ export function ThisWeekLogs({
                             
                             if (sessionRegularHoursForOvertime > remainingRegularCapacity) {
                               const overflowOvertime = sessionRegularHoursForOvertime - remainingRegularCapacity
-                              sessionOvertimeHours += overflowOvertime
+                              // Truncate to minutes (no rounding)
+                              const overflowMinutes = Math.floor((overflowOvertime % 1) * 60)
+                              sessionOvertimeHours += Math.floor(overflowOvertime)
+                              sessionOvertimeMinutes += overflowMinutes
                               if (sessionOvertimeStatus === "none") {
                                 sessionOvertimeStatus = "pending"
                               }
@@ -491,14 +497,16 @@ export function ThisWeekLogs({
                             
                             // Add explicit overtime logs
                             for (const log of session) {
-                              if (log.log_type === "overtime") {
+                              if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
                                 if (log.time_in && log.time_out) {
                                   const result = calculateTimeWorked(log.time_in, log.time_out)
-                                  sessionOvertimeHours += result.hoursWorked
+                                  sessionOvertimeHours += Math.floor(result.hoursWorked)
+                                  sessionOvertimeMinutes += Math.floor((result.hoursWorked % 1) * 60)
                                 } else if (log.time_in && !log.time_out) {
                                   const endTime = freezeAt || currentTime
                                   const result = calculateTimeWorked(log.time_in, endTime.toISOString())
-                                  sessionOvertimeHours += result.hoursWorked
+                                  sessionOvertimeHours += Math.floor(result.hoursWorked)
+                                  sessionOvertimeMinutes += Math.floor((result.hoursWorked % 1) * 60)
                                 }
                                 
                                 // Determine session overtime status
@@ -512,13 +520,18 @@ export function ThisWeekLogs({
                               }
                             }
                             
-                            // Always show a badge for overtime hours, even if it's 0.00h
+                            // Normalize minutes to hours
+                            sessionOvertimeHours += Math.floor(sessionOvertimeMinutes / 60);
+                            sessionOvertimeMinutes = sessionOvertimeMinutes % 60;
+                            // Show a badge for overtime duration
+                            const displayHours = sessionOvertimeHours;
+                            const displayMinutes = sessionOvertimeMinutes;
                             return (
                               <Badge 
                                 key={sessionIndex}
                                 variant="outline" 
                                 className={
-                                  sessionOvertimeHours === 0
+                                  displayHours === 0 && displayMinutes === 0
                                     ? "bg-gray-100 text-gray-700 border-gray-300"
                                     : sessionOvertimeStatus === "approved" 
                                       ? "bg-purple-100 text-purple-700 border-purple-300"
@@ -527,7 +540,7 @@ export function ThisWeekLogs({
                                         : "bg-yellow-100 text-yellow-700 border-yellow-300" // pending or no status
                                 }
                               >
-                                {truncateTo2Decimals(sessionOvertimeHours)}h
+                                {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
                               </Badge>
                             )
                           }).filter(Boolean)}

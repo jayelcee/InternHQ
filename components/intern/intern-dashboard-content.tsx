@@ -16,14 +16,13 @@ import {
   getWeekRange,
   formatDuration,
   calculateInternshipProgress,
-  DAILY_REQUIRED_HOURS
+  DAILY_REQUIRED_HOURS,
+  MAX_OVERTIME_HOURS
 } from "@/lib/time-utils"
 import { 
   TimeLogDisplay
 } from "@/lib/ui-utils"
 
-// Maximum overtime hours allowed per day
-const MAX_OVERTIME_HOURS = 3
 
 // Helper function to get today's date in the same format as the database entries
 function getTodayDateString(): string {
@@ -100,7 +99,7 @@ function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, ti
     if (
       log.time_in &&
       safeGetDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
+      (log.log_type === "overtime" || log.log_type === "extended_overtime") &&
       log.time_out
     ) {
       const result = calculateTimeWorked(log.time_in, log.time_out)
@@ -208,7 +207,7 @@ function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, ti
 /**
  * Helper function to get total hours worked today as a number (regular + overtime)
  */
-function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
+function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, isExtendedOvertimeIn?: boolean, extendedOvertimeInTimestamp?: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getTodayDateString()
   let totalMs = 0
 
@@ -225,12 +224,12 @@ function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTi
     }
   })
 
-  // Sum up completed overtime logs for today
+  // Sum up completed overtime and extended overtime logs for today
   logs.forEach((log) => {
     if (
       log.time_in &&
       safeGetDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
+      (log.log_type === "overtime" || log.log_type === "extended_overtime") &&
       log.time_out
     ) {
       const result = calculateTimeWorked(log.time_in, log.time_out)
@@ -252,13 +251,20 @@ function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTi
     totalMs += activeResult.hoursWorked * 60 * 60 * 1000
   }
 
+  // Add current active extended overtime session if any
+  if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+    const end = freezeAt ? freezeAt : (currentTime || new Date())
+    const activeResult = calculateTimeWorked(extendedOvertimeInTimestamp, end)
+    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
+  }
+
   return totalMs / (1000 * 60 * 60) // Convert to hours
 }
 
 /**
  * Calculates today's displayed total duration for main dashboard (regular hours + approved overtime only)
  */
-function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
+function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, isExtendedOvertimeIn?: boolean, extendedOvertimeInTimestamp?: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getTodayDateString()
   let totalMs = 0
 
@@ -277,7 +283,9 @@ function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean
 
   // Add current active regular session if any
   if (isTimedIn && timeInTimestamp) {
-    const end = isOvertimeIn && overtimeInTimestamp ? overtimeInTimestamp : (freezeAt ? freezeAt : (currentTime || new Date()))
+    const end = (isOvertimeIn && overtimeInTimestamp) || (isExtendedOvertimeIn && extendedOvertimeInTimestamp) ? 
+      (isExtendedOvertimeIn && extendedOvertimeInTimestamp ? extendedOvertimeInTimestamp : overtimeInTimestamp!) : 
+      (freezeAt ? freezeAt : (currentTime || new Date()))
     
     // Safeguard: Prevent unrealistic session durations (more than 24 hours)
     const sessionDurationHours = (end.getTime() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
@@ -296,13 +304,13 @@ function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean
   const maxRegularMs = DAILY_REQUIRED_HOURS * 60 * 60 * 1000
   const regularMs = Math.min(totalMs, maxRegularMs)
 
-  // Add only APPROVED overtime logs for today
+  // Add only APPROVED overtime and extended overtime logs for today
   let approvedOvertimeMs = 0
   logs.forEach((log) => {
     if (
       log.time_in &&
       safeGetDateString(log.time_in) === today &&
-      log.log_type === "overtime" &&
+      (log.log_type === "overtime" || log.log_type === "extended_overtime") &&
       log.time_out &&
       log.overtime_status === "approved"
     ) {
@@ -332,6 +340,8 @@ export function InternDashboardContent() {
   const [loadingAction, setLoadingAction] = useState<null | "timein" | "timeout">(null)
   const [isOvertimeIn, setIsOvertimeIn] = useState(false)
   const [overtimeInTimestamp, setOvertimeInTimestamp] = useState<Date | null>(null)
+  const [isExtendedOvertimeIn, setIsExtendedOvertimeIn] = useState(false)
+  const [extendedOvertimeInTimestamp, setExtendedOvertimeInTimestamp] = useState<Date | null>(null)
   const [freezeSessionAt, setFreezeSessionAt] = useState<Date | null>(null)
   const [overtimeConfirmationFreezeAt, setOvertimeConfirmationFreezeAt] = useState<Date | null>(null)
   const [autoTimeoutTriggered, setAutoTimeoutTriggered] = useState(false)
@@ -438,17 +448,20 @@ export function InternDashboardContent() {
       }
     })
     
-    // Add current session if active (regular or overtime)
+    // Add current session if active (regular, overtime, or extended overtime)
     if (isTimedIn && timeInTimestamp) {
       const end = timeoutTime ? timeoutTime : new Date()
       totalMs += end.getTime() - timeInTimestamp.getTime()
     } else if (isOvertimeIn && overtimeInTimestamp) {
       const end = timeoutTime ? timeoutTime : new Date()
       totalMs += end.getTime() - overtimeInTimestamp.getTime()
+    } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      const end = timeoutTime ? timeoutTime : new Date()
+      totalMs += end.getTime() - extendedOvertimeInTimestamp.getTime()
     }
     const totalHoursToday = totalMs / (1000 * 60 * 60)
 
-    if (!auto && totalHoursToday < DAILY_REQUIRED_HOURS && !isOvertimeIn) {
+    if (!auto && totalHoursToday < DAILY_REQUIRED_HOURS && !isOvertimeIn && !isExtendedOvertimeIn) {
       const confirm = window.confirm(
         `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${DAILY_REQUIRED_HOURS} hours. Are you sure you want to time out?`
       )
@@ -467,6 +480,10 @@ export function InternDashboardContent() {
     if (isOvertimeIn) {
       setIsOvertimeIn(false)
       setOvertimeInTimestamp(null)
+    }
+    if (isExtendedOvertimeIn) {
+      setIsExtendedOvertimeIn(false)
+      setExtendedOvertimeInTimestamp(null)
     }
 
     try {
@@ -500,7 +517,7 @@ export function InternDashboardContent() {
     }
     setActionLoading(false)
     setLoadingAction(null)
-  }, [actionLoading, allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, fetchLogs])
+  }, [actionLoading, allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, fetchLogs])
 
   // Overtime confirmation freeze handlers
   const handleOvertimeConfirmationShow = useCallback((freezeAt: Date) => {
@@ -525,7 +542,7 @@ export function InternDashboardContent() {
 
   // Calculate today's duration, freeze at auto timeout if needed
   const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
-  const todayDisplayTotal = getTodayDisplayTotalDuration(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
+  const todayDisplayTotal = getTodayDisplayTotalDuration(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
   const todayHours = parseDurationToHours(todayDuration)
   const overtimeByStatus = getTodayOvertimeByStatus(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || currentTime)
 
@@ -594,6 +611,23 @@ export function InternDashboardContent() {
             setIsOvertimeIn(false)
             setOvertimeInTimestamp(null)
           }
+
+          // Find the latest active extended overtime log (no time_out) FOR TODAY ONLY
+          const activeExtendedOvertimeLog = logsArr
+            .filter((log: Record<string, unknown>) =>
+              log.time_out === null &&
+              log.time_in &&
+              safeGetDateString(log.time_in as string) === todayStr &&
+              log.log_type === "extended_overtime"
+            )
+            .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
+          if (activeExtendedOvertimeLog) {
+            setIsExtendedOvertimeIn(true)
+            setExtendedOvertimeInTimestamp(new Date(activeExtendedOvertimeLog.time_in as string))
+          } else {
+            setIsExtendedOvertimeIn(false)
+            setExtendedOvertimeInTimestamp(null)
+          }
         }
       } catch {
         // fallback: do nothing
@@ -618,11 +652,15 @@ export function InternDashboardContent() {
     return () => clearInterval(timer)
   }, [])
 
-  // Auto timeout effect - triggers when reaching maximum allowed hours (required + overtime)
+  // Auto timeout effect - DISABLED to allow unlimited extended overtime
   useEffect(() => {
+    // Auto-timeout is now disabled to support extended overtime without limits
+    // Users must manually confirm overtime to end sessions
+    return
+    
     const maxAllowedHours = DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS
     // Use the same calculation method as the restoration logic
-    const totalHoursWithOvertime = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, undefined, currentTime)
+    const totalHoursWithOvertime = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, undefined, currentTime)
     const justReachedMaximum =
       prevTodayHours.current < maxAllowedHours &&
       totalHoursWithOvertime >= maxAllowedHours &&
@@ -649,7 +687,7 @@ export function InternDashboardContent() {
     }
 
     prevTodayHours.current = totalHoursWithOvertime
-  }, [allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, actionLoading, freezeSessionAt, handleTimeOut, currentTime])
+  }, [allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, actionLoading, freezeSessionAt, handleTimeOut, currentTime])
 
   // Persist auto timeout state to localStorage with date
   useEffect(() => {
@@ -658,8 +696,12 @@ export function InternDashboardContent() {
     localStorage.setItem("autoTimeoutTriggered", JSON.stringify(stateWithDate))
   }, [autoTimeoutTriggered])
 
-  // Restore auto timeout state on mount - only if previously auto-timed out AND still actively working at max hours AND same date
+  // Restore auto timeout state on mount - DISABLED for extended overtime support  
   useEffect(() => {
+    // Auto-timeout restoration is disabled to support extended overtime without limits
+    // The system no longer enforces maximum working hours per day
+    return
+    
     // Wait for both state and logs to be ready, and for session state to be restored
     if (!stateReady || !allLogs.length) return
     
@@ -729,24 +771,24 @@ export function InternDashboardContent() {
     return () => clearTimeout(timeoutId)
   }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, autoTimeoutTriggered, overtimeInTimestamp])
 
-  // Only set auto timeout if user is actively timed in/overtime and reaches max hours (including total daily work)
+  // Legacy auto-timeout check effect - DISABLED for extended overtime support
   useEffect(() => {
-    // Disable this effect - auto-timeout should only be triggered by the main effect above
-    // This effect was causing premature auto-timeouts on state restoration
+    // This effect is disabled to support extended overtime without automatic timeouts
+    // Users must manually confirm overtime completion
     return
     
     if (!stateReady || autoTimeoutTriggered) return
     
     // Only check for auto-timeout if user is actively working (timed in or overtime in)
     if (isTimedIn || isOvertimeIn) {
-      const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, undefined, currentTime)
+      const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, undefined, currentTime)
       const maxAllowedHours = DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS
       
       if (totalHours >= maxAllowedHours) {
         setAutoTimeoutTriggered(true)
       }
     }
-  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, currentTime, autoTimeoutTriggered])
+  }, [stateReady, allLogs, isTimedIn, isOvertimeIn, timeInTimestamp, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, currentTime, autoTimeoutTriggered])
 
   // Clear auto-timeout state if user is not actively working 
   useEffect(() => {
@@ -824,7 +866,7 @@ export function InternDashboardContent() {
         if (!log.time_in || !log.time_out) return sum
         
         // For overtime logs, only include if approved by admin
-        if (log.log_type === "overtime" && log.overtime_status !== "approved") {
+        if ((log.log_type === "overtime" || log.log_type === "extended_overtime") && log.overtime_status !== "approved") {
           return sum // Skip unapproved overtime
         }
         
@@ -977,8 +1019,11 @@ export function InternDashboardContent() {
               isOvertimeSession={isOvertimeIn}
               isOvertimeIn={isOvertimeIn}
               overtimeInTimestamp={overtimeInTimestamp}
-              todayTotalHours={getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)}
+              isExtendedOvertimeIn={isExtendedOvertimeIn}
+              extendedOvertimeInTimestamp={extendedOvertimeInTimestamp}
+              todayTotalHours={getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)}
               hasReachedDailyRequirement={todayHours >= DAILY_REQUIRED_HOURS}
+              hasReachedOvertimeLimit={todayHours >= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS}
             />
           </CardContent>
         </Card>
@@ -996,7 +1041,7 @@ export function InternDashboardContent() {
               <p className="text-sm text-gray-600 mt-1">
                 {overtimeByStatus.approved > 0 ? 
                   "Regular Hours + Approved Overtime" : 
-                  "Total Hours Worked Today"
+                  "Total Time Worked Today"
                 }
               </p>
               
@@ -1011,7 +1056,7 @@ export function InternDashboardContent() {
                       ✅ {formatDuration(
                         Math.floor(overtimeByStatus.approved), 
                         Math.floor((overtimeByStatus.approved % 1) * 60)
-                      )} Approved
+                      )} Approved Overtime
                     </Badge>
                   )
                 }
@@ -1023,7 +1068,7 @@ export function InternDashboardContent() {
                       🔄 {formatDuration(
                         Math.floor(overtimeByStatus.pending), 
                         Math.floor((overtimeByStatus.pending % 1) * 60)
-                      )} Pending
+                      )} Pending Overtime
                     </Badge>
                   )
                 }
@@ -1035,14 +1080,14 @@ export function InternDashboardContent() {
                       ❌ {formatDuration(
                         Math.floor(overtimeByStatus.rejected), 
                         Math.floor((overtimeByStatus.rejected % 1) * 60)
-                      )} Rejected
+                      )} Rejected Overtime
                     </Badge>
                   )
                 }
                 
                 // Show calculated overtime for active sessions (when no database overtime logs exist yet)
                 if (badges.length === 0) {
-                  const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)
+                  const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)
                   const overtimeHours = Math.max(0, totalHours - DAILY_REQUIRED_HOURS)
                   
                   if (overtimeHours > 0) {
@@ -1084,7 +1129,7 @@ export function InternDashboardContent() {
               
               {/* Starting Overtime Session */}
               {(() => {
-                const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)
+                const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)
                 const overtimeHours = Math.max(0, totalHours - DAILY_REQUIRED_HOURS)
                 return isOvertimeIn && overtimeHours === 0 ? (
                   <div className="mt-3">

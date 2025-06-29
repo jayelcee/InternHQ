@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS time_logs (
     time_out TIMESTAMP WITH TIME ZONE,
     
     -- Log classification and status
-    log_type VARCHAR(20) DEFAULT 'regular' CHECK (log_type IN ('regular', 'overtime')),
+    log_type VARCHAR(20) DEFAULT 'regular' CHECK (log_type IN ('regular', 'overtime', 'extended_overtime')),
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed')),
     
     -- Overtime approval workflow

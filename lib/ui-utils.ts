@@ -21,7 +21,7 @@ export interface TimeLogDisplay {
   time_in: string | null
   time_out: string | null
   status: "pending" | "completed"
-  log_type?: "regular" | "overtime"
+  log_type?: "regular" | "overtime" | "extended_overtime"
   overtime_status?: "pending" | "approved" | "rejected"
   user_id?: number | string
   internId?: number | string
@@ -289,12 +289,26 @@ export function getOvertimeBadgeConfig(status?: "pending" | "approved" | "reject
  * Get time badge styling with overtime status consideration
  */
 export function getTimeEntryBadgeConfig(
-  logType: "regular" | "overtime" = "regular",
+  logType: "regular" | "overtime" | "extended_overtime" = "regular",
   variant: "in" | "out" | "active" = "in",
   overtimeStatus?: "pending" | "approved" | "rejected"
 ) {
+  if (logType === "extended_overtime" && overtimeStatus) {
+    return getOvertimeBadgeConfig(overtimeStatus).className
+  }
+  
   if (logType === "overtime" && overtimeStatus) {
     return getOvertimeBadgeConfig(overtimeStatus).className
+  }
+  
+  // Extended overtime without status - use red styling
+  if (logType === "extended_overtime") {
+    const extendedClasses = {
+      in: "bg-red-50 text-red-700 border-red-300",
+      out: "bg-red-50 text-red-700 border-red-300",
+      active: "bg-red-50 text-red-700 border-red-300"
+    }
+    return extendedClasses[variant]
   }
   
   // Regular time badge styling
@@ -311,7 +325,7 @@ export function getTimeEntryBadgeConfig(
  * Calculate overtime statistics from a list of logs
  */
 export function calculateOvertimeStats(logs: TimeLogDisplay[]) {
-  const overtimeLogs = logs.filter(log => log.log_type === "overtime")
+  const overtimeLogs = logs.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
   
   return {
     hasApproved: overtimeLogs.some(log => log.overtime_status === "approved"),

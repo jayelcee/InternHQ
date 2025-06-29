@@ -120,8 +120,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
 
             // Separate regular and overtime logs
-            const regularLogs = logsForDate.filter(log => log.log_type !== "overtime")
-            const overtimeLogs = logsForDate.filter(log => log.log_type === "overtime")
+            const regularLogs = logsForDate.filter(log => log.log_type !== "overtime" && log.log_type !== "extended_overtime")
+            const overtimeLogs = logsForDate.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
             
             // Get the earliest time_in and latest time_out for continuous display
             const allCompletedLogs = [...regularLogs, ...overtimeLogs].filter(log => log.time_in && log.time_out)

@@ -11,7 +11,7 @@ import type {
   InternshipProgram,
 } from "./database"
 import { sql } from "./database"
-import { calculateInternshipProgress, calculateTimeWorked, DAILY_REQUIRED_HOURS } from "./time-utils"
+import { calculateInternshipProgress, calculateTimeWorked, DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS } from "./time-utils"
 
 /**
  * Data access layer for InternHQ application.
@@ -192,9 +192,19 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
       }
     })
     
-    // Determine log type: if user has already worked required hours, this is overtime
-    const logType = totalHoursToday >= DAILY_REQUIRED_HOURS ? 'overtime' : 'regular'
-    const overtimeStatus = logType === 'overtime' ? 'pending' : null
+    // Determine log type: regular, overtime, or extended overtime based on hours worked
+    let logType: string
+    let overtimeStatus: string | null = null
+    
+    if (totalHoursToday < DAILY_REQUIRED_HOURS) {
+      logType = 'regular'
+    } else if (totalHoursToday < DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+      logType = 'overtime'
+      overtimeStatus = 'pending'
+    } else {
+      logType = 'extended_overtime'
+      overtimeStatus = 'pending'
+    }
     
     // Clock in with appropriate log type
     await sql`
@@ -243,8 +253,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
     const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
     
     // Handle based on the log type
-    if (log.log_type === 'overtime') {
-      // For overtime logs, just complete them as overtime
+    if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+      // For overtime and extended overtime logs, just complete them as-is
       await sql`
         UPDATE time_logs
         SET time_out = ${timeOut.toISOString()}, 
@@ -279,11 +289,11 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
             WHERE id = ${log.id}
           `
           
-          // Delete any existing overtime logs for today
+          // Delete any existing overtime and extended overtime logs for today
           const deleteResult = await tx`
             DELETE FROM time_logs
             WHERE user_id = ${Number(userId)} 
-              AND log_type = 'overtime'
+              AND (log_type = 'overtime' OR log_type = 'extended_overtime')
               AND time_in >= ${todayStart}
               AND time_in <= ${todayEnd}
             RETURNING id
@@ -292,9 +302,11 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
           console.log(`Regular log cut to 9 hours. Deleted ${deleteResult.length} overtime logs with IDs:`, deleteResult.map(r => r.id))
         })
       } else if (totalHours > DAILY_REQUIRED_HOURS) {
-        // Normal overtime scenario - split the log
+        // Overtime scenario - split the log into regular, overtime, and potentially extended overtime
         const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-        const overtimeStart = regularCutoff // No gap - overtime starts immediately after regular ends
+        const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+        
+        const hasExtendedOvertime = totalHours > (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS)
         
         // Begin transaction for atomic operation
         await sql.begin(async (tx) => {
@@ -308,24 +320,64 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
             WHERE id = ${log.id}
           `
           
-          // Create overtime log for remaining time
-          await tx`
-            INSERT INTO time_logs (
-              user_id, time_in, time_out, status, 
-              log_type, overtime_status, notes, created_at, updated_at
-            )
-            VALUES (
-              ${Number(userId)}, 
-              ${overtimeStart.toISOString()}, 
-              ${timeOut.toISOString()}, 
-              'completed', 
-              'overtime', 
-              'pending',
-              ${overtimeNote || null}, 
-              ${log.created_at}, 
-              NOW()
-            )
-          `
+          if (hasExtendedOvertime) {
+            // Create overtime log (9-12 hours)
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, notes, created_at, updated_at
+              )
+              VALUES (
+                ${Number(userId)}, 
+                ${regularCutoff.toISOString()}, 
+                ${overtimeCutoff.toISOString()}, 
+                'completed', 
+                'overtime', 
+                'pending',
+                ${overtimeNote || null}, 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+            
+            // Create extended overtime log (12+ hours)
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, notes, created_at, updated_at
+              )
+              VALUES (
+                ${Number(userId)}, 
+                ${overtimeCutoff.toISOString()}, 
+                ${timeOut.toISOString()}, 
+                'completed', 
+                'extended_overtime', 
+                'pending',
+                ${overtimeNote || null}, 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+          } else {
+            // Create only overtime log (9-12 hours)
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, notes, created_at, updated_at
+              )
+              VALUES (
+                ${Number(userId)}, 
+                ${regularCutoff.toISOString()}, 
+                ${timeOut.toISOString()}, 
+                'completed', 
+                'overtime', 
+                'pending',
+                ${overtimeNote || null}, 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+          }
         })
       } else {
         // For logs <= 9 hours, just complete them normally as regular
@@ -1027,7 +1079,7 @@ export async function getOvertimeLogsForApproval(): Promise<TimeLogWithDetails[]
     LEFT JOIN internship_programs ip ON ip.user_id = u.id
     LEFT JOIN departments d ON ip.department_id = d.id
     LEFT JOIN schools s ON ip.school_id = s.id
-    WHERE tl.log_type = 'overtime' AND tl.status = 'completed'
+    WHERE (tl.log_type = 'overtime' OR tl.log_type = 'extended_overtime') AND tl.status = 'completed'
     ORDER BY tl.created_at DESC
   `
 
