@@ -128,6 +128,14 @@ export function OvertimeLogsDashboard() {
     checkLongLogs()
   }, [fetchOvertimeLogs, checkLongLogs])
 
+  // Automatically trigger migration if long logs are detected
+  useEffect(() => {
+    if (migrationStatus.hasLongLogs && !migrationLoading) {
+      handleMigration()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [migrationStatus.hasLongLogs])
+
   /**
    * Handle overtime status updates (approve/reject/revert to pending)
    */
@@ -176,7 +184,7 @@ export function OvertimeLogsDashboard() {
       
       if (response.ok) {
         const result = await response.json()
-        alert(`Migration completed! Processed ${result.processed} logs.${result.errors.length > 0 ? `\n\nErrors: ${result.errors.join('\n')}` : ''}`)
+        // Removed: alert(`Migration completed! Processed ${result.processed} logs.${result.errors.length > 0 ? `\n\nErrors: ${result.errors.join('\n')}` : ''}`)
         // Refresh data after migration
         await Promise.all([fetchOvertimeLogs(), checkLongLogs()])
       } else {

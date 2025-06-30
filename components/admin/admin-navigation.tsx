@@ -14,7 +14,7 @@ interface NavigationProps {
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: Home },
   { id: "manage-interns", label: "Manage Interns", icon: Users },
-  { id: "overtime-logs", label: "Overtime Logs", icon: Clock },
+  { id: "overtime-logs", label: "Overtime Requests", icon: Clock },
   { id: "edit-log-requests", label: "Edit Log Requests", icon: Pencil },
 ]
 

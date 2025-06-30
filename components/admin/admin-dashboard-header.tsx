@@ -28,7 +28,7 @@ const tabTitles: Record<string, { title: string; description: string }> = {
     description: "Add, remove, and assign projects to interns",
   },
   "overtime-logs": {
-    title: "Overtime Logs",
+    title: "Overtime Requests",
     description: "Review and approve overtime hours submitted by interns",
   },
   "edit-log-requests": {

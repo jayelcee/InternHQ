@@ -259,16 +259,17 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                     }
                   }
                   if (totalRegularHours > DAILY_REQUIRED_HOURS) {
+                    // Cap regular hours at DAILY_REQUIRED_HOURS, move excess to overtime
                     const excess = totalRegularHours - DAILY_REQUIRED_HOURS
-                    totalOvertimeHours += excess
                     totalRegularHours = DAILY_REQUIRED_HOURS
-                    if (overallOvertimeStatus === "none") overallOvertimeStatus = "pending"
+                    totalOvertimeHours += excess
                   }
+                  // If any overtime log is rejected, set overtime to 0 and cap regular at DAILY_REQUIRED_HOURS
                   if (overallOvertimeStatus === "rejected") {
                     totalRegularHours = Math.min(totalRegularHours, DAILY_REQUIRED_HOURS)
                     totalOvertimeHours = 0
                   }
-                  // Render row
+                  // --- Render row ---
                   return (
                     <TableRow key={key}>
                       <TableCell className="font-medium">

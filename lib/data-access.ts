@@ -1362,3 +1362,113 @@ export async function revertTimeLogToOriginal(editRequestId: number): Promise<{ 
     return { success: false, error: "Failed to revert time log" }
   }
 }
+
+/**
+ * Approve or reject a time log edit request (admin only)
+ * If approved, update the time log and recalculate regular/overtime split.
+ * Also ensures DTR duration is recalculated by removing old logs and inserting new ones.
+ */
+export async function updateTimeLogEditRequest(
+  editRequestId: number,
+  action: "approve" | "reject"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get the edit request and its associated log
+    const req = await sql`
+      SELECT * FROM time_log_edit_requests WHERE id = ${editRequestId}
+    `
+    if (req.length === 0) {
+      return { success: false, error: "Edit request not found" }
+    }
+    const editReq = req[0]
+    const logId = editReq.log_id
+    const requestedTimeIn = editReq.requested_time_in
+    const requestedTimeOut = editReq.requested_time_out
+
+    if (action === "approve") {
+      // Fetch the log to get user_id and created_at
+      const logRes = await sql`SELECT * FROM time_logs WHERE id = ${logId}`
+      if (logRes.length === 0) {
+        return { success: false, error: "Time log not found" }
+      }
+      const log = logRes[0]
+      const userId = log.user_id
+      const createdAt = log.created_at
+
+      // Remove all logs for this user on this date (to avoid duplicate durations)
+      const dateKey = new Date(requestedTimeIn).toISOString().slice(0, 10)
+      await sql`
+        DELETE FROM time_logs
+        WHERE user_id = ${userId}
+          AND time_in::date = ${dateKey}
+      `
+
+      // Calculate new duration
+      const timeIn = new Date(requestedTimeIn)
+      const timeOut = new Date(requestedTimeOut)
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+
+      // If duration > DAILY_REQUIRED_HOURS, split into regular and overtime
+      if (totalHours > DAILY_REQUIRED_HOURS) {
+        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        // Insert regular log
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${requestedTimeIn},
+            ${regularCutoff.toISOString()},
+            'completed',
+            'regular',
+            ${createdAt},
+            NOW()
+          )
+        `
+        // Insert overtime log
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${regularCutoff.toISOString()},
+            ${requestedTimeOut},
+            'completed',
+            'overtime',
+            'pending',
+            ${createdAt},
+            NOW()
+          )
+        `
+      } else {
+        // Just insert a regular log with the new times
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${requestedTimeIn},
+            ${requestedTimeOut},
+            'completed',
+            'regular',
+            ${createdAt},
+            NOW()
+          )
+        `
+      }
+    } else if (action === "reject") {
+      // If rejected, do nothing to the time log
+    }
+
+    // Update the edit request status
+    await sql`
+      UPDATE time_log_edit_requests
+      SET status = ${action}, reviewed_at = NOW()
+      WHERE id = ${editRequestId}
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating time log edit request:", error)
+    return { success: false, error: "Failed to update edit request" }
+  }
+}
