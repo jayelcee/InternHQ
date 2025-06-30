@@ -121,24 +121,21 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
   // --- Automatic migration of long logs on DTR load ---
   useEffect(() => {
     let cancelled = false
+    // Use the new unified endpoint for both check and migrate
     async function maybeMigrateLongLogs() {
       try {
-        // Check if there are long logs to migrate
-        const checkRes = await fetch("/api/admin/check-long-logs", { credentials: "include" })
+        const checkRes = await fetch("/api/time-logs/long-logs", { credentials: "include" })
         if (!checkRes.ok) return
         const checkData = await checkRes.json()
         if (checkData.hasLongLogs && !cancelled) {
-          // Run migration if needed
-          await fetch("/api/admin/migrate-long-logs", {
+          await fetch("/api/time-logs/long-logs", {
             method: "POST",
             credentials: "include"
           })
-          // Optionally, you can call onTimeLogUpdate to refresh logs after migration
           if (onTimeLogUpdate) onTimeLogUpdate()
         }
       } catch (err) {
         // Ignore errors, don't block DTR
-        // console.error("Error checking/migrating long logs:", err)
       }
     }
     maybeMigrateLongLogs()
