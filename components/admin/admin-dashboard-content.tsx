@@ -14,7 +14,7 @@ import { Progress } from "@/components/ui/progress"
 import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
-import { EditTimeLogDialog } from "@/components/admin/edit-time-log-dialog"
+import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
 import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime } from "@/lib/time-utils"
 import { formatLogDate } from "@/lib/ui-utils"
 

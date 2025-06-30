@@ -1286,3 +1286,79 @@ export async function migrateExistingLongLogs(): Promise<{
     }
   }
 }
+
+/**
+ * Creates a time log edit request
+ */
+export async function createTimeLogEditRequest(params: {
+  logId: number
+  requestedBy: number | string
+  requestedTimeIn?: string
+  requestedTimeOut?: string
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Always fetch the original time_in and time_out from the time_logs table
+    const logRes = await sql`
+      SELECT time_in, time_out FROM time_logs WHERE id = ${params.logId}
+    `
+    if (logRes.length === 0) {
+      return { success: false, error: "Time log not found" }
+    }
+    const originalTimeIn = logRes[0].time_in
+    const originalTimeOut = logRes[0].time_out
+
+    await sql`
+      INSERT INTO time_log_edit_requests (
+        log_id, 
+        original_time_in, 
+        original_time_out, 
+        requested_time_in, 
+        requested_time_out, 
+        status, 
+        requested_by
+      )
+      VALUES (
+        ${params.logId},
+        ${originalTimeIn},
+        ${originalTimeOut},
+        ${params.requestedTimeIn || null},
+        ${params.requestedTimeOut || null},
+        'pending',
+        ${params.requestedBy}
+      )
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error creating time log edit request:", error)
+    return { success: false, error: "Failed to create edit request" }
+  }
+}
+
+/**
+ * Revert a time log to its original time_in and time_out using the edit request.
+ * This should be called when an edit request is reverted to 'pending'.
+ */
+export async function revertTimeLogToOriginal(editRequestId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get the edit request and its associated log
+    const req = await sql`
+      SELECT log_id, original_time_in, original_time_out
+      FROM time_log_edit_requests
+      WHERE id = ${editRequestId}
+    `
+    if (req.length === 0) {
+      return { success: false, error: "Edit request not found" }
+    }
+    const { log_id, original_time_in, original_time_out } = req[0]
+    // Update the time log with the original values
+    await sql`
+      UPDATE time_logs
+      SET time_in = ${original_time_in}, time_out = ${original_time_out}, updated_at = NOW()
+      WHERE id = ${log_id}
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error reverting time log to original:", error)
+    return { success: false, error: "Failed to revert time log" }
+  }
+}

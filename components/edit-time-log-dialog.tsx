@@ -13,9 +13,11 @@ interface EditTimeLogDialogProps {
   onSave: (logId: number, updates: { time_in?: string; time_out?: string }) => Promise<void>
   onDelete: (logId: number) => Promise<void>
   isLoading: boolean
+  isAdmin?: boolean
+  isIntern?: boolean
 }
 
-export function EditTimeLogDialog({ log, onSave, onDelete, isLoading }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ log, onSave, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
   const [open, setOpen] = useState(false)
   const [timeIn, setTimeIn] = useState("")
   const [timeOut, setTimeOut] = useState("")
@@ -111,7 +113,7 @@ export function EditTimeLogDialog({ log, onSave, onDelete, isLoading }: EditTime
         <DialogHeader>
           <DialogTitle>Edit Time Entry</DialogTitle>
         </DialogHeader>
-        {showDeleteConfirm ? (
+        {showDeleteConfirm && isAdmin ? (
           <div className="space-y-4">
             <div className="text-center py-4">
               <Trash2 className="mx-auto h-12 w-12 text-red-500 mb-4" />
@@ -163,15 +165,19 @@ export function EditTimeLogDialog({ log, onSave, onDelete, isLoading }: EditTime
             </div>
 
             <div className="flex justify-between">
-              <Button 
-                variant="destructive" 
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={isLoading}
-                className="flex items-center gap-2"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
+              {isAdmin ? (
+                <Button 
+                  variant="destructive" 
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isLoading}
+                  className="flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </Button>
+              ) : (
+                <div /> // Empty div to keep spacing
+              )}
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>
                   Cancel

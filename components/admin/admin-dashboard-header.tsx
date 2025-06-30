@@ -31,6 +31,10 @@ const tabTitles: Record<string, { title: string; description: string }> = {
     title: "Overtime Logs",
     description: "Review and approve overtime hours submitted by interns",
   },
+  "edit-log-requests": {
+    title: "Edit Log Requests",
+    description: "Review edit requests for time logs submitted by interns",
+  },
 }
 
 export function AdminDashboardHeader({ activeTab = "dashboard" }: AdminDashboardHeaderProps) {

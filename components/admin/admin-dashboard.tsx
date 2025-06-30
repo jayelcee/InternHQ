@@ -7,6 +7,7 @@ import { OvertimeLogsDashboard } from "./manage-overtime-logs"
 import { AdminNavigation } from "./admin-navigation"
 import { AdminDashboardHeader } from "./admin-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
+import { EditLogRequestsAdmin } from "./edit-log-requests"
 
 export function AdminDashboard() {
   const { user } = useAuth()
@@ -22,6 +23,8 @@ export function AdminDashboard() {
         return <ManageInternsDashboard />
       case "overtime-logs":
         return <OvertimeLogsDashboard />
+      case "edit-log-requests":
+        return <EditLogRequestsAdmin />
       default:
         return <HRAdminDashboard />
     }
