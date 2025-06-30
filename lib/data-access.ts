@@ -1209,7 +1209,8 @@ export async function migrateExistingLongLogs(): Promise<{
 
         // Calculate split points
         const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-        const overtimeStartTime = new Date(regularEndTime.getTime() + (60 * 1000)) // 1 min gap
+        // Overtime should start exactly at the end of regular time (no 1-minute gap)
+        const overtimeStartTime = new Date(regularEndTime.getTime())
 
         // Begin transaction for atomic operation
         await sql.begin(async (tx) => {
@@ -1250,14 +1251,14 @@ export async function migrateExistingLongLogs(): Promise<{
                 ${log.user_id}, 
                 ${log.time_in}, 
                 ${regularEndTime.toISOString()}, 
-                'completed', 
-                'regular', 
-                ${log.created_at}, 
+                'completed',
+                'regular',
+                ${log.created_at},
                 NOW()
               )
             `
             
-            // Update the overtime log to start after regular hours
+            // Update the overtime log to start exactly after regular hours
             await tx`
               UPDATE time_logs
               SET time_in = ${overtimeStartTime.toISOString()}, 

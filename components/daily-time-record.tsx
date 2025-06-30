@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { 
@@ -117,6 +117,35 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       setIsUpdating(false)
     }
   }
+
+  // --- Automatic migration of long logs on DTR load ---
+  useEffect(() => {
+    let cancelled = false
+    async function maybeMigrateLongLogs() {
+      try {
+        // Check if there are long logs to migrate
+        const checkRes = await fetch("/api/admin/check-long-logs", { credentials: "include" })
+        if (!checkRes.ok) return
+        const checkData = await checkRes.json()
+        if (checkData.hasLongLogs && !cancelled) {
+          // Run migration if needed
+          await fetch("/api/admin/migrate-long-logs", {
+            method: "POST",
+            credentials: "include"
+          })
+          // Optionally, you can call onTimeLogUpdate to refresh logs after migration
+          if (onTimeLogUpdate) onTimeLogUpdate()
+        }
+      } catch (err) {
+        // Ignore errors, don't block DTR
+        // console.error("Error checking/migrating long logs:", err)
+      }
+    }
+    maybeMigrateLongLogs()
+    return () => { cancelled = true }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
@@ -436,33 +465,31 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       {isAdmin && (
                         <TableCell className="text-right">
                           <div className="flex flex-col gap-1 items-end">
-                            {logsForDate.map((log) => (
-                              <EditTimeLogDialog
-                                key={log.id}
-                                log={log}
-                                onSave={handleTimeLogUpdate}
-                                onDelete={handleTimeLogDelete}
-                                isLoading={isUpdating}
-                                isAdmin={true}
-                                isIntern={false}
-                              />
-                            ))}
+                            {/* Only one pencil per date, pass all logs for the date */}
+                            <EditTimeLogDialog
+                              key={key}
+                              logs={logsForDate}
+                              onSave={handleTimeLogUpdate}
+                              onDelete={handleTimeLogDelete}
+                              isLoading={isUpdating}
+                              isAdmin={true}
+                              isIntern={false}
+                            />
                           </div>
                         </TableCell>
                       )}
                       {isIntern && showActions && (
                         <TableCell className="text-right">
-                          {logsForDate.length > 0 && (
-                            <EditTimeLogDialog
-                              key={logsForDate[0].id}
-                              log={logsForDate[0]}
-                              onSave={handleEditRequest}
-                              onDelete={async () => {}}
-                              isLoading={isUpdating}
-                              isAdmin={false}
-                              isIntern={true}
-                            />
-                          )}
+                          {/* Only one pencil per date, pass all logs for the date */}
+                          <EditTimeLogDialog
+                            key={key}
+                            logs={logsForDate}
+                            onSave={handleEditRequest}
+                            onDelete={async () => {}}
+                            isLoading={isUpdating}
+                            isAdmin={false}
+                            isIntern={true}
+                          />
                         </TableCell>
                       )}
                     </TableRow>
