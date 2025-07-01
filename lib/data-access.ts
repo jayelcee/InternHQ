@@ -721,29 +721,14 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     created_at: row.created_at,
     updated_at: row.updated_at,
     duration: row.time_in && row.time_out
-      ? calculateDuration(row.time_in, row.time_out)
+      ? calculateTimeWorked(row.time_in, row.time_out).duration
       : null,
     hoursWorked: row.time_in && row.time_out
-      ? calculateHours(row.time_in, row.time_out)
+      ? calculateTimeWorked(row.time_in, row.time_out).hoursWorked
       : 0,
     department: row.department || "",
     school: row.school || "",
   })) as TimeLogWithDetails[]
-}
-
-// --- Helper Functions ---
-
-// These functions are now deprecated - use calculateTimeWorked from time-utils.ts instead
-// Kept for backward compatibility but should be replaced with centralized functions
-
-function calculateDuration(timeIn: string, timeOut: string) {
-  const result = calculateTimeWorked(timeIn, timeOut)
-  return result.duration
-}
-
-function calculateHours(timeIn: string, timeOut: string) {
-  const result = calculateTimeWorked(timeIn, timeOut)
-  return result.hoursWorked
 }
 
 // --- Intern List ---

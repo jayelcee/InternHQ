@@ -15,8 +15,8 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime } from "@/lib/time-utils"
-import { formatLogDate } from "@/lib/ui-utils"
+import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime, filterLogsByInternId, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
+import { formatLogDate, groupLogsByDate, TimeLogDisplay } from "@/lib/ui-utils"
 
 /**
  * Types for intern logs and intern records
@@ -319,38 +319,50 @@ export function HRAdminDashboard() {
 
   /**
    * Optimized grouping by intern and date for DTR-style display
+   * Using the same groupLogsByDate function as DTR for consistency
    */
   const groupedLogsForDTR = useMemo(() => {
-    const grouped: Record<string, TimeLog[]> = {}
-    
-    filteredLogs.forEach((log) => {
-      // Use timeIn as the primary source for date, fallback to date field
-      const dateSource = log.timeIn || log.date || ""
-      const dateKey = dateSource.slice(0, 10)
-      const key = `${log.internId}-${dateKey}`
-      if (!grouped[key]) grouped[key] = []
-      grouped[key].push(log)
-    })
+    // Convert TimeLog[] to TimeLogDisplay[] first
+    const dtrStyleLogs: TimeLogDisplay[] = filteredLogs.map(log => ({
+      id: log.id,
+      time_in: log.timeIn,
+      time_out: log.timeOut,
+      status: "completed" as const,
+      log_type: log.log_type,
+      overtime_status: log.overtime_status,
+      user_id: log.internId,
+      internId: log.internId,
+      hoursWorked: log.hoursWorked,
+      duration: log.duration,
+    }))
 
-    // Convert to array and sort by date
-    const entries = Object.entries(grouped).map(([key, logs]) => {
-      const dateKey = key.split('-').slice(-3).join('-')
-      logs.sort((a, b) => {
-        const aTime = a.timeIn || a.timeOut || ""
-        const bTime = b.timeIn || b.timeOut || ""
-        return new Date(aTime).getTime() - new Date(bTime).getTime()
-      })
-      return { key, logs, dateKey }
+    // Use the same grouping logic as DTR
+    const grouped = groupLogsByDate(dtrStyleLogs)
+    
+    // Add intern info to each group and sort by date
+    const groupsWithInternInfo = grouped.map(([key, logs]) => {
+      const datePart = key.split("-").slice(-3).join("-")
+      const firstOriginalLog = filteredLogs.find(originalLog => 
+        originalLog.internId === logs[0]?.user_id && 
+        (originalLog.timeIn?.slice(0, 10) === datePart || originalLog.date?.slice(0, 10) === datePart)
+      )
+      return {
+        key,
+        logs,
+        datePart,
+        internName: firstOriginalLog?.internName || "Unknown",
+        department: firstOriginalLog?.department || "Unknown"
+      }
     })
 
     // Sort by date based on sortDirection
-    entries.sort((a, b) => {
-      const aTime = new Date(a.dateKey).getTime()
-      const bTime = new Date(b.dateKey).getTime()
+    groupsWithInternInfo.sort((a, b) => {
+      const aTime = new Date(a.datePart).getTime()
+      const bTime = new Date(b.datePart).getTime()
       return sortDirection === "desc" ? bTime - aTime : aTime - bTime
     })
 
-    return entries
+    return groupsWithInternInfo
   }, [filteredLogs, sortDirection])
 
   // --- Intern Profile Modal ---
@@ -746,133 +758,276 @@ export function HRAdminDashboard() {
                       <TableHead>Date</TableHead>
                       <TableHead>Time In</TableHead>
                       <TableHead>Time Out</TableHead>
-                      <TableHead>Hours Worked</TableHead>
-                      <TableHead>Overtime Hours</TableHead>
+                      <TableHead>Regular Shift</TableHead>
+                      <TableHead>Overtime</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {groupedLogsForDTR.map(({ key, logs, dateKey }) => {
-                      const firstLog = logs[0]
-
-                      // Get continuous time (earliest in, latest out)
-                      const continuousTime = getContinuousTime(logs)
+                    {groupedLogsForDTR.map((group) => {
+                      const { key, logs: logsForDate, datePart, internName, department } = group
                       
-                      // Determine if there's any pending overtime to fade the row
-                      const hasPendingOvertime = logs.some(log => 
-                        log.log_type === "overtime" && (!log.overtime_status || log.overtime_status === "pending")
-                      )
+                      // Convert TimeLog[] to TimeLogDisplay[] for DTR processing
+                      const dtrLogs: TimeLogDisplay[] = logsForDate
+
+                      // Process logs exactly like DTR
+                      const regularLogs = dtrLogs.filter(log => !log.log_type || log.log_type === "regular")
+                      const overtimeLogs = dtrLogs.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+                      const allLogs = [...regularLogs, ...overtimeLogs].sort((a, b) => {
+                        const aTime = a.time_in || a.time_out || ""
+                        const bTime = b.time_in || b.time_out || ""
+                        return new Date(aTime).getTime() - new Date(bTime).getTime()
+                      })
+
+                      // Group logs into continuous sessions (DTR logic)
+                      const isContinuous = (log1: TimeLogDisplay, log2: TimeLogDisplay): boolean => {
+                        if (!log1.time_out || !log2.time_in) return false
+                        const gap = new Date(log2.time_in).getTime() - new Date(log1.time_out).getTime()
+                        return gap <= 60 * 1000
+                      }
+                      const sessions: TimeLogDisplay[][] = []
+                      let currentSession: TimeLogDisplay[] = []
+                      for (const log of allLogs) {
+                        if (currentSession.length === 0) {
+                          currentSession = [log]
+                        } else {
+                          const lastLog = currentSession[currentSession.length - 1]
+                          if (isContinuous(lastLog, log)) {
+                            currentSession.push(log)
+                          } else {
+                            sessions.push(currentSession)
+                            currentSession = [log]
+                          }
+                        }
+                      }
+                      if (currentSession.length > 0) sessions.push(currentSession)
+
+                      // Calculate totals (DTR logic)
+                      let totalRegularHours = 0
+                      let totalOvertimeHours = 0
+                      let overallOvertimeStatus = "none"
+                      for (const session of sessions) {
+                        for (const log of session) {
+                          if (log.time_in && log.time_out) {
+                            const result = calculateTimeWorked(log.time_in, log.time_out)
+                            const logHours = result.hoursWorked
+                            if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
+                              totalOvertimeHours += logHours
+                              if (log.overtime_status === "approved" && overallOvertimeStatus !== "rejected") {
+                                overallOvertimeStatus = "approved"
+                              } else if ((!log.overtime_status || log.overtime_status === "pending") && overallOvertimeStatus === "none") {
+                                overallOvertimeStatus = "pending"
+                              } else if (log.overtime_status === "rejected") {
+                                overallOvertimeStatus = "rejected"
+                              }
+                            } else {
+                              totalRegularHours += logHours
+                            }
+                          }
+                        }
+                      }
+                      if (totalRegularHours > DAILY_REQUIRED_HOURS) {
+                        // Cap regular hours at DAILY_REQUIRED_HOURS, move excess to overtime
+                        const excess = totalRegularHours - DAILY_REQUIRED_HOURS
+                        totalRegularHours = DAILY_REQUIRED_HOURS
+                        totalOvertimeHours += excess
+                      }
+                      // If any overtime log is rejected, set overtime to 0 and cap regular at DAILY_REQUIRED_HOURS
+                      if (overallOvertimeStatus === "rejected") {
+                        totalRegularHours = Math.min(totalRegularHours, DAILY_REQUIRED_HOURS)
+                        totalOvertimeHours = 0
+                      }
 
                       return (
-                        <TableRow key={key} className={hasPendingOvertime ? "opacity-60" : ""}>
+                        <TableRow key={key}>
                           {/* Intern Name */}
                           <TableCell>
                             <div className="space-y-1">
-                              <div className="font-medium">{firstLog.internName}</div>
+                              <div className="font-medium">{internName}</div>
                               <Badge variant="outline" className="text-xs">
-                                {firstLog.department}
+                                {department}
                               </Badge>
                             </div>
                           </TableCell>
-                          
                           {/* Date */}
                           <TableCell className="font-medium">
                             <div className="flex flex-col items-start">
                               <span className="text-xs text-gray-500">
-                                {new Date(dateKey).toLocaleDateString("en-US", { weekday: "short" })}
+                                {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
                               </span>
-                              <span>{formatLogDate(dateKey)}</span>
+                              <span>{formatLogDate(datePart)}</span>
                             </div>
                           </TableCell>
-                          
-                          {/* Time In - Show earliest time in */}
+                          {/* Time In - Show all session time ins like DTR */}
                           <TableCell>
-                            {continuousTime.earliestTimeIn ? (
-                              <Badge 
-                                variant="outline" 
-                                className="bg-green-100 text-green-700 border-green-300"
-                              >
-                                {new Date(continuousTime.earliestTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              </Badge>
-                            ) : (
-                              <span className="text-gray-400">--</span>
-                            )}
+                            <div className="flex flex-col gap-1">
+                              {sessions.map((session, i) => {
+                                const sessionTimeIn = session[0]?.time_in
+                                const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+                                const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
+                                return sessionTimeIn ? (
+                                  <Badge
+                                    key={i}
+                                    variant="outline"
+                                    className={
+                                      isOvertimeSession
+                                        ? overtimeStatus === "approved"
+                                          ? "bg-purple-100 text-purple-700 border-purple-300"
+                                          : overtimeStatus === "rejected"
+                                            ? "bg-gray-100 text-gray-700 border-gray-300"
+                                            : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                        : "bg-green-100 text-green-700 border-green-300"
+                                    }
+                                  >
+                                    {new Date(sessionTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </Badge>
+                                ) : null
+                              })}
+                            </div>
                           </TableCell>
-                          
-                          {/* Time Out - Show latest time out or "In Progress" */}
+                          {/* Time Out - Show all session time outs like DTR */}
                           <TableCell>
-                            {continuousTime.latestTimeOut ? (
-                              <Badge 
-                                variant="outline" 
-                                className="bg-red-100 text-red-700 border-red-300"
-                              >
-                                {new Date(continuousTime.latestTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              </Badge>
-                            ) : continuousTime.earliestTimeIn ? (
-                              <Badge 
-                                variant="outline" 
-                                className="bg-yellow-100 text-yellow-700 border-yellow-300"
-                              >
-                                In Progress
-                              </Badge>
-                            ) : (
-                              <span className="text-gray-400">--</span>
-                            )}
-                          </TableCell>
-                          
-                          {/* Hours Worked - Use from continuous time calculation */}
-                          <TableCell>
-                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-                              {truncateTo2Decimals(continuousTime.regularHours)}h
-                            </Badge>
-                          </TableCell>
-                          
-                          {/* Overtime Hours - Use from continuous time calculation */}
-                          <TableCell>
-                            {continuousTime.overtimeHours > 0 ? (
-                              <Badge 
-                                variant="outline" 
-                                className={
-                                  continuousTime.overtimeStatus === "approved" 
-                                    ? "bg-purple-100 text-purple-700 border-purple-300"
-                                    : continuousTime.overtimeStatus === "pending"
-                                      ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                      : "bg-gray-100 text-gray-400 border-gray-200"
+                            <div className="flex flex-col gap-1">
+                              {sessions.map((session, i) => {
+                                const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+                                const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
+                                const lastLog = session[session.length - 1]
+                                const sessionTimeOut = lastLog?.time_out || null
+                                if (sessionTimeOut) {
+                                  return (
+                                    <Badge
+                                      key={i}
+                                      variant="outline"
+                                      className={
+                                        isOvertimeSession
+                                          ? overtimeStatus === "approved"
+                                            ? "bg-purple-100 text-purple-700 border-purple-300"
+                                            : overtimeStatus === "rejected"
+                                              ? "bg-gray-100 text-gray-700 border-gray-300"
+                                              : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                          : "bg-red-100 text-red-700 border-red-300"
+                                      }
+                                    >
+                                      {new Date(sessionTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    </Badge>
+                                  )
+                                } else {
+                                  return (
+                                    <Badge key={i} variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-300">
+                                      In Progress
+                                    </Badge>
+                                  )
                                 }
-                              >
-                                {truncateTo2Decimals(continuousTime.overtimeHours)}h
-                              </Badge>
-                            ) : continuousTime.overtimeLogs.length > 0 ? (
-                              <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
-                                0.00h
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="bg-gray-100 text-gray-400 border-gray-200">
-                                0.00h
-                              </Badge>
-                            )}
+                              })}
+                            </div>
                           </TableCell>
-                          
-                          {/* Actions */}
+                          {/* Regular Shift - Show per session + total like DTR */}
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {sessions.map((session, i) => {
+                                const isOvertimeOnlySession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+                                if (isOvertimeOnlySession) {
+                                  return (
+                                    <Badge key={i} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
+                                      0h 00m
+                                    </Badge>
+                                  )
+                                } else {
+                                  // Calculate regular hours for this session
+                                  let sessionRegularHours = 0
+                                  for (const log of session) {
+                                    if (log.log_type === "regular" || !log.log_type) {
+                                      if (log.time_in && log.time_out) {
+                                        const result = calculateTimeWorked(log.time_in, log.time_out)
+                                        sessionRegularHours += result.hoursWorked
+                                      }
+                                    }
+                                  }
+                                  const cappedHours = Math.min(sessionRegularHours, DAILY_REQUIRED_HOURS)
+                                  const displayHours = Math.floor(cappedHours)
+                                  const displayMinutes = Math.round((cappedHours % 1) * 60)
+                                  return (
+                                    <Badge
+                                      key={i}
+                                      variant="outline"
+                                      className={cappedHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300"}
+                                    >
+                                      {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
+                                    </Badge>
+                                  )
+                                }
+                              })}
+                              {sessions.length > 1 &&
+                                sessions.some(session => !session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")) &&
+                                sessions.filter(session => session.some(log => log.log_type !== "overtime" && log.log_type !== "extended_overtime")).length > 1 && (
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      totalRegularHours > 0
+                                        ? "bg-blue-200 text-blue-800 border-blue-400 font-medium"
+                                        : "bg-gray-100 text-gray-700 border-gray-300"
+                                    }
+                                  >
+                                    {truncateTo2Decimals(totalRegularHours)}h
+                                  </Badge>
+                                )}
+                            </div>
+                          </TableCell>
+                          {/* Overtime - Show per session like DTR */}
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {sessions.map((session, i) => {
+                                let sessionOvertimeHours = 0
+                                let sessionOvertimeStatus = "none"
+                                for (const log of session) {
+                                  if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
+                                    if (log.time_in && log.time_out) {
+                                      const result = calculateTimeWorked(log.time_in, log.time_out)
+                                      sessionOvertimeHours += result.hoursWorked
+                                    }
+                                    if (log.overtime_status === "approved") {
+                                      sessionOvertimeStatus = "approved"
+                                    } else if (log.overtime_status === "rejected") {
+                                      sessionOvertimeStatus = "rejected"
+                                    } else if (sessionOvertimeStatus === "none") {
+                                      sessionOvertimeStatus = "pending"
+                                    }
+                                  }
+                                }
+                                const displayHours = Math.floor(sessionOvertimeHours)
+                                const displayMinutes = Math.round((sessionOvertimeHours % 1) * 60)
+                                return (
+                                  <Badge
+                                    key={i}
+                                    variant="outline"
+                                    className={
+                                      displayHours === 0 && displayMinutes === 0
+                                        ? "bg-gray-100 text-gray-700 border-gray-300"
+                                        : sessionOvertimeStatus === "approved"
+                                          ? "bg-purple-100 text-purple-700 border-purple-300"
+                                          : sessionOvertimeStatus === "rejected"
+                                            ? "bg-gray-100 text-gray-700 border-gray-300"
+                                            : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                    }
+                                  >
+                                    {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
+                                  </Badge>
+                                )
+                              })}
+                            </div>
+                          </TableCell>
+                          {/* Actions: Only one pencil per date, pass all logs for the date */}
                           <TableCell className="text-right">
                             <div className="flex flex-col gap-1 items-end">
-                              {logs.map((log) => (
-                                <EditTimeLogDialog
-                                  key={log.id}
-                                  log={{
-                                    id: log.id,
-                                    time_in: log.timeIn,
-                                    time_out: log.timeOut,
-                                    status: "completed" as const,
-                                    log_type: log.log_type || "regular",
-                                    overtime_status: log.overtime_status,
-                                    user_id: log.internId,
-                                  }}
-                                  onSave={handleTimeLogUpdate}
-                                  onDelete={handleTimeLogDelete}
-                                  isLoading={isUpdatingTimeLog}
-                                />
-                              ))}
+                              <EditTimeLogDialog
+                                key={key}
+                                logs={dtrLogs}
+                                onSave={handleTimeLogUpdate}
+                                onDelete={handleTimeLogDelete}
+                                isLoading={isUpdatingTimeLog}
+                                isAdmin={true}
+                                isIntern={false}
+                              />
                             </div>
                           </TableCell>
                         </TableRow>
