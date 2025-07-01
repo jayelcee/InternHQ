@@ -15,7 +15,7 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { calculateTimeStatistics, getLocalDateString, calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
+import { calculateTimeStatistics, getLocalDateString, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
 import { formatLogDate, groupLogsByDate, TimeLogDisplay, useSortDirection } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
 
@@ -768,19 +768,19 @@ export function HRAdminDashboard() {
                                   updated_at: log.timeOut || new Date().toISOString()
                                 }))
                                 
-                                // Calculate accurate overtime hours
+                                // Calculate raw overtime hours for display (shows actual time worked)
                                 let totalOvertimeHours = 0
                                 let previousRegularHours = 0
                                 
                                 const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
                                 sessions.forEach(session => {
-                                  const accurateCalc = calculateAccurateSessionDuration(
+                                  const rawCalc = calculateRawSessionDuration(
                                     session.logs,
                                     currentTime,
                                     previousRegularHours
                                   )
-                                  totalOvertimeHours += accurateCalc.overtimeHours
-                                  previousRegularHours += accurateCalc.regularHours
+                                  totalOvertimeHours += rawCalc.overtimeHours
+                                  previousRegularHours += rawCalc.regularHours
                                 })
                                 
                                 // Apply styling based on overall overtime status
@@ -1057,25 +1057,26 @@ export function HRAdminDashboard() {
                               {(() => {
                                 let previousRegularHours = 0
                                 return sessions.map((session, i) => {
-                                  // Use accurate calculation for overtime
-                                  const accurateCalc = calculateAccurateSessionDuration(
+                                  // Use raw calculation for overtime display (shows actual time worked)
+                                  const rawCalc = calculateRawSessionDuration(
                                     session.logs,
                                     new Date(),
                                     previousRegularHours
                                   )
                                   
-                                  const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                                  const displayText = formatAccurateHours(rawCalc.overtimeHours)
                                   const badgeProps = {
                                     variant: "outline" as const,
-                                    className: accurateCalc.overtimeHours > 0 ? 
-                                      (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
-                                       accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                    className: rawCalc.overtimeHours > 0 ? 
+                                      (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                       rawCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
                                        "bg-yellow-100 text-yellow-700 border-yellow-300") :
                                       "bg-gray-100 text-gray-700 border-gray-300",
                                     text: displayText
                                   }
                                   
-                                  previousRegularHours += accurateCalc.regularHours
+                                  // Update previousRegularHours for next iteration using RAW hours for display consistency
+                                  previousRegularHours += rawCalc.regularHours
                                   
                                   return (
                                     <Badge
@@ -1092,7 +1093,7 @@ export function HRAdminDashboard() {
                               {/* Show overtime total if multiple sessions with overtime */}
                               {sessions.length > 1 && 
                                sessions.some(s => s.isOvertimeSession || 
-                                 calculateAccurateSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
+                                 calculateRawSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
                                 <Badge 
                                   variant="outline" 
                                   className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
@@ -1100,8 +1101,8 @@ export function HRAdminDashboard() {
                                   Total: {formatAccurateHours(
                                     sessions.reduce((total, session, i) => {
                                       const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                        sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                      return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).overtimeHours
+                                        sum + calculateRawSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                      return total + calculateRawSessionDuration(session.logs, new Date(), prevHours).overtimeHours
                                     }, 0)
                                   )}
                                 </Badge>

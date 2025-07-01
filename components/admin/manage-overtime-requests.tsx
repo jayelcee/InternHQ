@@ -130,14 +130,6 @@ export function OvertimeLogsDashboard() {
     checkLongLogs()
   }, [fetchOvertimeLogs, checkLongLogs])
 
-  // Automatically trigger migration if long logs are detected
-  useEffect(() => {
-    if (migrationStatus.hasLongLogs && !migrationLoading) {
-      handleMigration()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [migrationStatus.hasLongLogs])
-
   /**
    * Handle overtime status updates (approve/reject/revert to pending)
    */

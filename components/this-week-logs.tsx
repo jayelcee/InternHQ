@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
+import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -225,26 +225,26 @@ export function ThisWeekLogs({
                           {(() => {
                             let previousRegularHours = 0
                             return sessionData.sessions.map((session, sessionIndex) => {
-                              // Use accurate calculation for overtime
-                              const accurateCalc = calculateAccurateSessionDuration(
+                              // Use raw calculation for overtime display (shows actual time worked)
+                              const rawCalc = calculateRawSessionDuration(
                                 session.logs,
                                 freezeAt || currentTime,
                                 previousRegularHours
                               )
                               
-                              const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                              const displayText = formatAccurateHours(rawCalc.overtimeHours)
                               const badgeProps = {
                                 variant: "outline" as const,
-                                className: accurateCalc.overtimeHours > 0 ? 
-                                  (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
-                                   accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                className: rawCalc.overtimeHours > 0 ? 
+                                  (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                   rawCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
                                    "bg-yellow-100 text-yellow-700 border-yellow-300") :
                                   "bg-gray-100 text-gray-700 border-gray-300",
                                 text: displayText
                               }
                               
-                              // Update previousRegularHours for next iteration
-                              previousRegularHours += accurateCalc.regularHours
+                              // Update previousRegularHours for next iteration using RAW hours for display consistency
+                              previousRegularHours += rawCalc.regularHours
                               
                               return (
                                 <Badge 
@@ -261,7 +261,7 @@ export function ThisWeekLogs({
                           {/* Show overtime total if multiple sessions with overtime */}
                           {sessionData.sessions.length > 1 && 
                            sessionData.sessions.some(s => s.isOvertimeSession || 
-                             calculateAccurateSessionDuration(s.logs, freezeAt || currentTime, 0).overtimeHours > 0) && (
+                             calculateRawSessionDuration(s.logs, freezeAt || currentTime, 0).overtimeHours > 0) && (
                             <Badge 
                               variant="outline" 
                               className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
@@ -269,8 +269,8 @@ export function ThisWeekLogs({
                               Total: {formatAccurateHours(
                                 sessionData.sessions.reduce((total, session, i) => {
                                   const prevHours = sessionData.sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateAccurateSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
-                                  return total + calculateAccurateSessionDuration(session.logs, freezeAt || currentTime, prevHours).overtimeHours
+                                    sum + calculateRawSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
+                                  return total + calculateRawSessionDuration(session.logs, freezeAt || currentTime, prevHours).overtimeHours
                                 }, 0)
                               )}
                             </Badge>
