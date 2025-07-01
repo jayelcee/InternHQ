@@ -183,17 +183,41 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
 }
 
 /**
- * Calculates total hours across all sessions with overflow handling
+ * Calculates total hours across all sessions with real-time overflow handling
+ * For active sessions, excess regular hours are immediately shown as overtime
  */
 function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
   let totalRegularHours = 0
   let totalOvertimeHours = 0
   let overallOvertimeStatus: "none" | "pending" | "approved" | "rejected" = "none"
 
-  // Sum up all hours
+  // Sum up all hours with real-time overflow for active sessions
   for (const session of sessions) {
-    totalRegularHours += session.regularHours
-    totalOvertimeHours += session.overtimeHours
+    let sessionRegularHours = session.regularHours
+    let sessionOvertimeHours = session.overtimeHours
+
+    // For active sessions or completed sessions, apply real-time overflow
+    if (session.isActive || session.regularHours + session.overtimeHours > 0) {
+      const totalSessionHours = sessionRegularHours + sessionOvertimeHours
+      const currentTotalRegular = totalRegularHours + sessionRegularHours
+      
+      // If adding this session's regular hours exceeds the daily limit
+      if (currentTotalRegular > DAILY_REQUIRED_HOURS) {
+        const availableRegularHours = Math.max(0, DAILY_REQUIRED_HOURS - totalRegularHours)
+        const excessRegularHours = sessionRegularHours - availableRegularHours
+        
+        sessionRegularHours = availableRegularHours
+        sessionOvertimeHours += excessRegularHours
+        
+        // Set overtime status to pending if we have excess and no explicit overtime status
+        if (excessRegularHours > 0 && session.overtimeStatus === "none") {
+          session.overtimeStatus = "pending"
+        }
+      }
+    }
+
+    totalRegularHours += sessionRegularHours
+    totalOvertimeHours += sessionOvertimeHours
 
     // Aggregate overtime status
     if (session.overtimeStatus === "rejected") {
@@ -205,7 +229,7 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
     }
   }
 
-  // Handle overflow from regular to overtime
+  // Final safety cap on regular hours
   const hasExcessRegularHours = totalRegularHours > DAILY_REQUIRED_HOURS
   if (hasExcessRegularHours) {
     const excess = totalRegularHours - DAILY_REQUIRED_HOURS
@@ -386,5 +410,260 @@ export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" =
     className: "bg-blue-200 text-blue-800 border-blue-400 font-medium",
     text,
     variant: "outline"
+  }
+}
+
+/**
+ * Calculates adjusted hours for a session considering real-time overflow
+ * This is used for display purposes to show proper regular/overtime split
+ */
+export function getAdjustedSessionHours(
+  session: ProcessedSession,
+  previousRegularHours: number
+): { adjustedRegularHours: number; adjustedOvertimeHours: number } {
+  const availableRegularHours = Math.max(0, DAILY_REQUIRED_HOURS - previousRegularHours)
+  
+  if (session.regularHours <= availableRegularHours) {
+    // No overflow needed
+    return {
+      adjustedRegularHours: session.regularHours,
+      adjustedOvertimeHours: session.overtimeHours
+    }
+  } else {
+    // Apply overflow
+    const excessRegularHours = session.regularHours - availableRegularHours
+    return {
+      adjustedRegularHours: availableRegularHours,
+      adjustedOvertimeHours: session.overtimeHours + excessRegularHours
+    }
+  }
+}
+
+/**
+ * Processes logs for continuous editing - combines continuous logs into single editable sessions
+ * Used by edit dialogs and admin panels to handle continuous sessions as single units
+ */
+export function processLogsForContinuousEditing(
+  logs: TimeLogDisplay[]
+): Array<{
+  id: string
+  logs: TimeLogDisplay[]
+  earliestTimeIn: string | null
+  latestTimeOut: string | null
+  isContinuousSession: boolean
+  sessionType: "regular" | "overtime" | "extended_overtime" | "mixed"
+}> {
+  if (logs.length === 0) return []
+
+  // Sort logs chronologically
+  const sortedLogs = [...logs].sort((a, b) => {
+    const aTime = a.time_in || ""
+    const bTime = b.time_in || ""
+    return new Date(aTime).getTime() - new Date(bTime).getTime()
+  })
+
+  const sessions: Array<{
+    id: string
+    logs: TimeLogDisplay[]
+    earliestTimeIn: string | null
+    latestTimeOut: string | null
+    isContinuousSession: boolean
+    sessionType: "regular" | "overtime" | "extended_overtime" | "mixed"
+  }> = []
+
+  let currentSessionLogs: TimeLogDisplay[] = []
+
+  // Check if two logs are continuous (same 1-minute tolerance as session processing)
+  const isContinuous = (log1: TimeLogDisplay, log2: TimeLogDisplay): boolean => {
+    if (!log1.time_out || !log2.time_in) return false
+    const gap = new Date(log2.time_in).getTime() - new Date(log1.time_out).getTime()
+    return gap <= 60 * 1000 // 1 minute tolerance
+  }
+
+  for (const log of sortedLogs) {
+    if (currentSessionLogs.length === 0) {
+      currentSessionLogs = [log]
+    } else {
+      const lastLog = currentSessionLogs[currentSessionLogs.length - 1]
+      if (isContinuous(lastLog, log)) {
+        currentSessionLogs.push(log)
+      } else {
+        // Create session from current logs
+        sessions.push(createEditableSession(currentSessionLogs))
+        currentSessionLogs = [log]
+      }
+    }
+  }
+
+  if (currentSessionLogs.length > 0) {
+    sessions.push(createEditableSession(currentSessionLogs))
+  }
+
+  return sessions
+}
+
+/**
+ * Creates an editable session from a group of continuous logs
+ */
+function createEditableSession(logs: TimeLogDisplay[]): {
+  id: string
+  logs: TimeLogDisplay[]
+  earliestTimeIn: string | null
+  latestTimeOut: string | null
+  isContinuousSession: boolean
+  sessionType: "regular" | "overtime" | "extended_overtime" | "mixed"
+} {
+  const earliestTimeIn = logs[0]?.time_in || null
+  const latestTimeOut = logs[logs.length - 1]?.time_out || null
+  const isContinuousSession = logs.length > 1
+
+  // Determine session type
+  const logTypes = new Set(logs.map(log => log.log_type || "regular"))
+  let sessionType: "regular" | "overtime" | "extended_overtime" | "mixed"
+  
+  if (logTypes.size === 1) {
+    const singleType = Array.from(logTypes)[0] as "regular" | "overtime" | "extended_overtime"
+    sessionType = singleType
+  } else {
+    sessionType = "mixed"
+  }
+
+  // Create unique ID for this session
+  const id = logs.map(l => l.id).join("-")
+
+  return {
+    id,
+    logs,
+    earliestTimeIn,
+    latestTimeOut,
+    isContinuousSession,
+    sessionType
+  }
+}
+
+/**
+ * Groups edit requests by continuous sessions for admin processing
+ * Used to handle approve/reject/revert operations on continuous sessions as single units
+ */
+export function groupEditRequestsByContinuousSessions(
+  requests: Array<{
+    id: number
+    logId: number
+    originalTimeIn: string | null
+    originalTimeOut: string | null
+    requestedTimeIn: string | null
+    requestedTimeOut: string | null
+    status: "pending" | "approved" | "rejected"
+    internName: string
+    [key: string]: any
+  }>
+): Array<{
+  sessionId: string
+  requests: typeof requests
+  originalTimeIn: string | null
+  originalTimeOut: string | null
+  requestedTimeIn: string | null
+  requestedTimeOut: string | null
+  status: "pending" | "approved" | "rejected"
+  internName: string
+  allRequestIds: number[]
+}> {
+  if (requests.length === 0) return []
+
+  // Sort by original time in
+  const sortedRequests = [...requests].sort((a, b) => {
+    const aTime = a.originalTimeIn || a.requestedTimeIn || ""
+    const bTime = b.originalTimeIn || b.requestedTimeIn || ""
+    return new Date(aTime).getTime() - new Date(bTime).getTime()
+  })
+
+  const sessions: Array<{
+    sessionId: string
+    requests: typeof requests
+    originalTimeIn: string | null
+    originalTimeOut: string | null
+    requestedTimeIn: string | null
+    requestedTimeOut: string | null
+    status: "pending" | "approved" | "rejected"
+    internName: string
+    allRequestIds: number[]
+  }> = []
+
+  let currentSessionRequests: typeof requests = []
+
+  // Check if two edit requests are for continuous logs
+  const isContinuous = (req1: typeof requests[0], req2: typeof requests[0]): boolean => {
+    if (!req1.originalTimeOut || !req2.originalTimeIn) return false
+    const gap = new Date(req2.originalTimeIn).getTime() - new Date(req1.originalTimeOut).getTime()
+    return gap <= 60 * 1000 // 1 minute tolerance
+  }
+
+  for (const request of sortedRequests) {
+    if (currentSessionRequests.length === 0) {
+      currentSessionRequests = [request]
+    } else {
+      const lastRequest = currentSessionRequests[currentSessionRequests.length - 1]
+      if (isContinuous(lastRequest, request)) {
+        currentSessionRequests.push(request)
+      } else {
+        // Create session from current requests
+        sessions.push(createEditRequestSession(currentSessionRequests))
+        currentSessionRequests = [request]
+      }
+    }
+  }
+
+  if (currentSessionRequests.length > 0) {
+    sessions.push(createEditRequestSession(currentSessionRequests))
+  }
+
+  return sessions
+}
+
+/**
+ * Creates an edit request session from a group of continuous requests
+ */
+function createEditRequestSession(requests: Array<{
+  id: number
+  logId: number
+  originalTimeIn: string | null
+  originalTimeOut: string | null
+  requestedTimeIn: string | null
+  requestedTimeOut: string | null
+  status: "pending" | "approved" | "rejected"
+  internName: string
+  [key: string]: any
+}>): {
+  sessionId: string
+  requests: typeof requests
+  originalTimeIn: string | null
+  originalTimeOut: string | null
+  requestedTimeIn: string | null
+  requestedTimeOut: string | null
+  status: "pending" | "approved" | "rejected"
+  internName: string
+  allRequestIds: number[]
+} {
+  const originalTimeIn = requests[0]?.originalTimeIn || null
+  const originalTimeOut = requests[requests.length - 1]?.originalTimeOut || null
+  const requestedTimeIn = requests[0]?.requestedTimeIn || null
+  const requestedTimeOut = requests[requests.length - 1]?.requestedTimeOut || null
+  
+  // Session status is based on the first request's status (all should be the same for continuous sessions)
+  const status = requests[0]?.status || "pending"
+  const internName = requests[0]?.internName || ""
+  const allRequestIds = requests.map(r => r.id)
+  const sessionId = allRequestIds.join("-")
+
+  return {
+    sessionId,
+    requests,
+    originalTimeIn,
+    originalTimeOut,
+    requestedTimeIn,
+    requestedTimeOut,
+    status,
+    internName,
+    allRequestIds
   }
 }

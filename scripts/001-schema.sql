@@ -247,7 +247,8 @@ CREATE TABLE IF NOT EXISTS time_log_edit_requests (
     requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reviewed_by INTEGER REFERENCES users(id),
     reviewed_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    metadata JSONB DEFAULT NULL
 );
 
 -- ================================================================
@@ -288,6 +289,8 @@ CREATE INDEX IF NOT EXISTS idx_intern_project_assignments_project_id ON intern_p
 CREATE INDEX IF NOT EXISTS idx_projects_department_id ON projects(department_id);
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 
+CREATE INDEX IF NOT EXISTS idx_time_log_edit_requests_metadata 
+ON time_log_edit_requests USING GIN (metadata);
 -- ================================================================
 -- TRIGGERS AND FUNCTIONS
 -- ================================================================

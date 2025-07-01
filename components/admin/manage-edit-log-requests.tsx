@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { format } from "date-fns"
+import { groupEditRequestsByContinuousSessions } from "@/lib/session-utils"
 
 interface EditLogRequest {
   id: number
@@ -63,24 +64,42 @@ export function EditLogRequestsAdmin() {
     fetchRequests()
   }, [])
 
-  const handleAction = async (id: number, action: "approve" | "reject" | "revert") => {
-    setActionLoading(id)
+  const handleAction = async (sessionId: string, action: "approve" | "reject" | "revert") => {
+    const session = groupedRequests.find(s => s.sessionId === sessionId)
+    if (!session) return
+
+    setActionLoading(session.allRequestIds[0]) // Use first request ID for loading state
     try {
-      // For "revert", call only the revert endpoint, not the generic update endpoint
-      if (action === "revert") {
-        const res = await fetch(`/api/admin/time-log-edit-requests/${id}/revert`, {
+      // For continuous sessions with multiple requests, use batch API
+      if (session.allRequestIds.length > 1) {
+        const res = await fetch("/api/admin/time-log-edit-requests/batch", {
           method: "POST",
-          credentials: "include",
-        })
-        if (!res.ok) throw new Error("Failed to revert request")
-      } else {
-        const res = await fetch(`/api/admin/time-log-edit-requests/${id}`, {
-          method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ 
+            requestIds: session.allRequestIds, 
+            action 
+          }),
         })
-        if (!res.ok) throw new Error("Failed to update request")
+        if (!res.ok) throw new Error(`Failed to ${action} continuous session`)
+      } else {
+        // For single requests, use existing individual API
+        const requestId = session.allRequestIds[0]
+        if (action === "revert") {
+          const res = await fetch(`/api/admin/time-log-edit-requests/${requestId}/revert`, {
+            method: "POST",
+            credentials: "include",
+          })
+          if (!res.ok) throw new Error("Failed to revert request")
+        } else {
+          const res = await fetch(`/api/admin/time-log-edit-requests/${requestId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ action }),
+          })
+          if (!res.ok) throw new Error("Failed to update request")
+        }
       }
       await fetchRequests()
     } catch (error) {
@@ -121,6 +140,54 @@ export function EditLogRequestsAdmin() {
       )
     return matchesSearch && matchesStatus && matchesDept && matchesDate
   })
+
+  // Group edit requests by continuous sessions using centralized logic
+  const groupedRequests = (() => {
+    // First group by intern and date
+    const groups: Record<string, EditLogRequest[]> = {}
+    for (const req of filteredRequests) {
+      const dateStr = req.originalTimeIn || req.requestedTimeIn
+      if (!dateStr) continue
+      const dateKey = new Date(dateStr).toISOString().slice(0, 10)
+      const groupKey = `${req.internName}-${dateKey}`
+      if (!groups[groupKey]) groups[groupKey] = []
+      groups[groupKey].push(req)
+    }
+
+    // Then process each group with the centralized session logic
+    const result: Array<{
+      sessionId: string
+      requests: EditLogRequest[]
+      originalTimeIn: string | null
+      originalTimeOut: string | null
+      requestedTimeIn: string | null
+      requestedTimeOut: string | null
+      status: "pending" | "approved" | "rejected"
+      internName: string
+      allRequestIds: number[]
+      date: string
+    }> = []
+
+    for (const [groupKey, reqs] of Object.entries(groups)) {
+      const sessions = groupEditRequestsByContinuousSessions(reqs)
+      for (const session of sessions) {
+        result.push({
+          sessionId: session.sessionId,
+          requests: session.requests as EditLogRequest[], // Type assertion since we know the structure matches
+          originalTimeIn: session.originalTimeIn,
+          originalTimeOut: session.originalTimeOut,
+          requestedTimeIn: session.requestedTimeIn,
+          requestedTimeOut: session.requestedTimeOut,
+          status: session.status,
+          internName: session.internName,
+          allRequestIds: session.allRequestIds,
+          date: groupKey.split("-").slice(-3).join("-") // Extract date from groupKey
+        })
+      }
+    }
+
+    return result
+  })()
 
   return (
     <>
@@ -244,7 +311,7 @@ export function EditLogRequestsAdmin() {
             <div className="py-8 text-center text-gray-500">Loading requests...</div>
           ) : error ? (
             <div className="py-8 text-center text-red-500">{error}</div>
-          ) : filteredRequests.length === 0 ? (
+          ) : groupedRequests.length === 0 ? (
             <div className="py-8 text-center text-gray-500">No edit requests found.</div>
           ) : (
             <Table>
@@ -261,92 +328,89 @@ export function EditLogRequestsAdmin() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRequests.map(req => (
-                  <TableRow key={req.id}>
-                    <TableCell>{req.internName}</TableCell>
+                {groupedRequests.map((session) => (
+                  <TableRow key={session.sessionId}>
+                    <TableCell>{session.internName}</TableCell>
                     <TableCell>
-                      {
-                        // Prefer originalTimeIn, fallback to requestedTimeIn, else "-"
-                        (() => {
-                          const dateStr = req.originalTimeIn || req.requestedTimeIn
-                          if (!dateStr) return "-"
-                          const date = new Date(dateStr)
-                          return (
-                            <div className="flex flex-col items-start leading-tight">
-                              <span className="text-xs text-muted-foreground">
-                                {date.toLocaleDateString("en-US", { weekday: "short" })}
-                              </span>
-                              <span>
-                                {date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
-                              </span>
-                            </div>
-                          )
-                        })()
-                      }
+                      {(() => {
+                        const dateStr = session.originalTimeIn || session.requestedTimeIn
+                        if (!dateStr) return "-"
+                        const date = new Date(dateStr)
+                        return (
+                          <div className="flex flex-col items-start leading-tight">
+                            <span className="text-xs text-muted-foreground">
+                              {date.toLocaleDateString("en-US", { weekday: "short" })}
+                            </span>
+                            <span>
+                              {date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                            </span>
+                          </div>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell>
-                      {req.originalTimeIn ? (
+                      {session.originalTimeIn ? (
                         <Badge
                           variant="outline"
                           className={
-                            req.status === "approved"
+                            session.status === "approved"
                               ? "bg-gray-100 text-gray-700 border-gray-300"
                               : "bg-green-100 text-green-700 border-green-300"
                           }
                         >
-                          {new Date(req.originalTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(session.originalTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </Badge>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {req.originalTimeOut ? (
+                      {session.originalTimeOut ? (
                         <Badge
                           variant="outline"
                           className={
-                            req.status === "approved"
+                            session.status === "approved"
                               ? "bg-gray-100 text-gray-700 border-gray-300"
                               : "bg-red-100 text-red-700 border-red-300"
                           }
                         >
-                          {new Date(req.originalTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(session.originalTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </Badge>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {req.requestedTimeIn ? (
+                      {session.requestedTimeIn ? (
                         <Badge
                           variant="outline"
                           className={
-                            req.status === "pending"
-                              ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                              : req.status === "rejected"
-                              ? "bg-gray-100 text-gray-700 border-gray-300"
-                              : "bg-green-100 text-green-700 border-green-300"
+                            session.status === "pending"
+                              ? "bg-blue-100 text-blue-700 border-blue-300"
+                              : session.status === "approved"
+                                ? "bg-green-100 text-green-700 border-green-300"
+                                : "bg-gray-100 text-gray-700 border-gray-300"
                           }
                         >
-                          {new Date(req.requestedTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(session.requestedTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </Badge>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      {req.requestedTimeOut ? (
+                      {session.requestedTimeOut ? (
                         <Badge
                           variant="outline"
                           className={
-                            req.status === "pending"
-                              ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                              : req.status === "rejected"
-                              ? "bg-gray-100 text-gray-700 border-gray-300"
-                              : "bg-red-100 text-red-700 border-red-300"
+                            session.status === "pending"
+                              ? "bg-blue-100 text-blue-700 border-blue-300"
+                              : session.status === "approved"
+                                ? "bg-green-100 text-green-700 border-green-300"
+                                : "bg-gray-100 text-gray-700 border-gray-300"
                           }
                         >
-                          {new Date(req.requestedTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {new Date(session.requestedTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </Badge>
                       ) : (
                         <span className="text-gray-400">-</span>
@@ -354,31 +418,50 @@ export function EditLogRequestsAdmin() {
                     </TableCell>
                     <TableCell>
                       <Badge
+                        variant={session.status === "pending" ? "default" : "outline"}
                         className={
-                          req.status === "pending"
-                            ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                            : req.status === "approved"
-                            ? "bg-green-100 text-green-700 border-green-300"
-                            : "bg-gray-100 text-gray-700 border-gray-300"
+                          session.status === "pending"
+                            ? "bg-yellow-500 text-white"
+                            : session.status === "approved"
+                              ? "bg-green-100 text-green-700 border-green-300"
+                              : "bg-red-100 text-red-700 border-red-300"
                         }
                       >
-                        {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                        {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
                       </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {req.status === "pending" && (
-                        <div className="flex gap-2 justify-end">
-                          <Button size="sm" variant="outline" disabled={actionLoading === req.id} onClick={() => handleAction(req.id, "approve")}>Approve</Button>
-                          <Button size="sm" variant="destructive" disabled={actionLoading === req.id} onClick={() => handleAction(req.id, "reject")}>Reject</Button>
+                      {session.allRequestIds.length > 1 && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          {session.allRequestIds.length} requests
                         </div>
                       )}
-                      {(req.status === "approved" || req.status === "rejected") && (
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {session.status === "pending" ? (
+                        <div className="flex gap-2 justify-end">
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            disabled={actionLoading === session.allRequestIds[0]} 
+                            onClick={() => handleAction(session.sessionId, "approve")}
+                          >
+                            Approve
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="destructive" 
+                            disabled={actionLoading === session.allRequestIds[0]} 
+                            onClick={() => handleAction(session.sessionId, "reject")}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      ) : (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="text-gray-600 border-gray-300 hover:bg-gray-50"
-                          disabled={actionLoading === req.id}
-                          onClick={() => handleAction(req.id, "revert")}
+                          disabled={actionLoading === session.allRequestIds[0]}
+                          onClick={() => handleAction(session.sessionId, "revert")}
+                          title="Revert to pending"
                         >
                           Revert
                         </Button>

@@ -1129,7 +1129,7 @@ export async function updateOvertimeStatus(
           approved_by = NULL,
           approved_at = NULL,
           updated_at = NOW()
-        WHERE id = ${timeLogId} AND log_type = 'overtime'
+        WHERE id = ${timeLogId} AND log_type IN ('overtime', 'extended_overtime')
         RETURNING id
       `
     } else {
@@ -1141,7 +1141,7 @@ export async function updateOvertimeStatus(
           approved_by = ${adminId},
           approved_at = NOW(),
           updated_at = NOW()
-        WHERE id = ${timeLogId} AND log_type = 'overtime'
+        WHERE id = ${timeLogId} AND log_type IN ('overtime', 'extended_overtime')
         RETURNING id
       `
     }
@@ -1164,7 +1164,7 @@ export async function updateOvertimeStatus(
  * 
  * Finds all regular logs >9 hours and splits them:
  * - Original log is trimmed to 9 hours (regular time)
- * - New overtime log created for remaining time with pending status
+ * - New overtime log created for the remaining time with pending status
  * 
  * @returns Migration result with success status, processed count, and errors
  */
@@ -1469,6 +1469,306 @@ export async function updateTimeLogEditRequest(
   } catch (error) {
     console.error("Error updating time log edit request:", error)
     return { success: false, error: "Failed to update edit request" }
+  }
+}
+
+/**
+ * Process continuous edit requests for approval/rejection/revert
+ * Handles multiple requests as a single continuous session
+ */
+export async function processContinuousEditRequests(
+  requestIds: number[],
+  action: "approve" | "reject" | "revert"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (requestIds.length === 0) {
+      return { success: false, error: "No request IDs provided" }
+    }
+
+    // For single requests, use existing logic
+    if (requestIds.length === 1) {
+      if (action === "revert") {
+        return await revertTimeLogToOriginal(requestIds[0])
+      } else {
+        return await updateTimeLogEditRequest(requestIds[0], action)
+      }
+    }
+
+    // For multiple continuous requests, we need special handling
+    if (action === "approve") {
+      return await approveContinuousEditRequests(requestIds)
+    } else if (action === "reject") {
+      return await rejectContinuousEditRequests(requestIds)
+    } else if (action === "revert") {
+      return await revertContinuousEditRequests(requestIds)
+    }
+
+    return { success: false, error: "Invalid action" }
+  } catch (error) {
+    console.error("Error processing continuous edit requests:", error)
+    return { success: false, error: "Failed to process edit requests" }
+  }
+}
+
+/**
+ * Approve multiple continuous edit requests as a single session
+ */
+async function approveContinuousEditRequests(requestIds: number[]): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get all edit requests
+    const requests = await sql`
+      SELECT * FROM time_log_edit_requests 
+      WHERE id = ANY(${requestIds})
+      ORDER BY id
+    `
+
+    if (requests.length === 0) {
+      return { success: false, error: "Edit requests not found" }
+    }
+
+    // Get the earliest time in and latest time out from the requests
+    const earliestTimeIn = requests[0].requested_time_in
+    const latestTimeOut = requests[requests.length - 1].requested_time_out
+
+    if (!earliestTimeIn || !latestTimeOut) {
+      return { success: false, error: "Invalid time range in requests" }
+    }
+
+    // Get user and date info from first request
+    const firstLogId = requests[0].log_id
+    const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${firstLogId}`
+    if (logRes.length === 0) {
+      return { success: false, error: "Associated time log not found" }
+    }
+
+    const { user_id: userId, created_at: createdAt } = logRes[0]
+    const dateKey = new Date(earliestTimeIn).toISOString().slice(0, 10)
+
+    await sql.begin(async (tx) => {
+      // Delete all existing logs for this user on this date
+      await tx`
+        DELETE FROM time_logs
+        WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+      `
+
+      // Calculate total duration and create new logs
+      const timeIn = new Date(earliestTimeIn)
+      const timeOut = new Date(latestTimeOut)
+      timeIn.setSeconds(0, 0)
+      timeOut.setSeconds(0, 0)
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+
+      // Split into regular and overtime if needed
+      if (totalHours > DAILY_REQUIRED_HOURS) {
+        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
+
+        // Insert regular log
+        await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+        `
+
+        // Insert overtime log
+        await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
+            'completed', 'overtime', 'pending', ${createdAt}, NOW()
+          )
+        `
+      } else {
+        // Insert single regular log
+        await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+        `
+      }
+
+      // Update all edit requests to approved
+      await tx`
+        UPDATE time_log_edit_requests
+        SET status = 'approved', reviewed_at = NOW()
+        WHERE id = ANY(${requestIds})
+      `
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error approving continuous edit requests:", error)
+    return { success: false, error: "Failed to approve continuous edit requests" }
+  }
+}
+
+/**
+ * Reject multiple continuous edit requests
+ */
+async function rejectContinuousEditRequests(requestIds: number[]): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Simply update all requests to rejected status
+    await sql`
+      UPDATE time_log_edit_requests
+      SET status = 'rejected', reviewed_at = NOW()
+      WHERE id = ANY(${requestIds})
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error rejecting continuous edit requests:", error)
+    return { success: false, error: "Failed to reject continuous edit requests" }
+  }
+}
+
+/**
+ * Revert multiple continuous edit requests back to pending
+ */
+async function revertContinuousEditRequests(requestIds: number[]): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get the first request to get log info
+    const requests = await sql`
+      SELECT * FROM time_log_edit_requests 
+      WHERE id = ANY(${requestIds})
+      ORDER BY id
+      LIMIT 1
+    `
+
+    if (requests.length === 0) {
+      return { success: false, error: "Edit requests not found" }
+    }
+
+    const firstRequest = requests[0]
+    const logRes = await sql`SELECT user_id FROM time_logs WHERE id = ${firstRequest.log_id}`
+    if (logRes.length === 0) {
+      return { success: false, error: "Associated time log not found" }
+    }
+
+    const { user_id: userId } = logRes[0]
+    const dateKey = new Date(firstRequest.original_time_in).toISOString().slice(0, 10)
+
+    await sql.begin(async (tx) => {
+      // Delete current logs for the date
+      await tx`
+        DELETE FROM time_logs
+        WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+      `
+
+      // Restore original logs for each request
+      for (const requestId of requestIds) {
+        const reqResult = await revertTimeLogToOriginal(requestId)
+        if (!reqResult.success) {
+          throw new Error(reqResult.error || "Failed to revert individual request")
+        }
+      }
+
+      // Update all requests to pending
+      await tx`
+        UPDATE time_log_edit_requests
+        SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+        WHERE id = ANY(${requestIds})
+      `
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error reverting continuous edit requests:", error)
+    return { success: false, error: "Failed to revert continuous edit requests" }
+  }
+}
+
+/**
+ * Creates a single edit request for a continuous session that spans multiple logs
+ * This merges multiple logs into a single continuous edit request
+ */
+export async function createContinuousSessionEditRequest(params: {
+  logIds: number[]
+  requestedBy: number | string
+  requestedTimeIn: string
+  requestedTimeOut: string
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (params.logIds.length === 0) {
+      return { success: false, error: "No log IDs provided" }
+    }
+
+    // For continuous sessions, we need to:
+    // 1. Get all the logs in chronological order
+    // 2. Find the earliest time_in and latest time_out from the original logs
+    // 3. Create a single edit request that represents the merged continuous session
+    
+    const logsRes = await sql`
+      SELECT id, time_in, time_out, log_type 
+      FROM time_logs 
+      WHERE id = ANY(${params.logIds})
+      ORDER BY time_in ASC
+    `
+    
+    if (logsRes.length === 0) {
+      return { success: false, error: "No time logs found" }
+    }
+
+    if (logsRes.length !== params.logIds.length) {
+      return { success: false, error: "Some time logs not found" }
+    }
+
+    // Find the earliest time_in and latest time_out from original logs
+    const originalTimeIn = logsRes[0].time_in
+    const originalTimeOut = logsRes[logsRes.length - 1].time_out
+
+    if (!originalTimeIn) {
+      return { success: false, error: "First log has no time_in" }
+    }
+
+    // For continuous sessions, we'll use the first log ID as the representative log
+    // and store the merged session information
+    const representativeLogId = logsRes[0].id
+
+    // Store session metadata in the JSON fields for processing later
+    const sessionMetadata = {
+      isContinuousSession: true,
+      allLogIds: params.logIds,
+      originalLogs: logsRes.map(log => ({
+        id: log.id,
+        timeIn: log.time_in,
+        timeOut: log.time_out,
+        logType: log.log_type
+      }))
+    }
+
+    await sql`
+      INSERT INTO time_log_edit_requests (
+        log_id, 
+        original_time_in, 
+        original_time_out, 
+        requested_time_in, 
+        requested_time_out, 
+        status, 
+        requested_by,
+        metadata
+      )
+      VALUES (
+        ${representativeLogId},
+        ${originalTimeIn},
+        ${originalTimeOut},
+        ${truncateToMinute(params.requestedTimeIn)},
+        ${truncateToMinute(params.requestedTimeOut)},
+        'pending',
+        ${params.requestedBy},
+        ${JSON.stringify(sessionMetadata)}
+      )
+    `
+    
+    return { success: true }
+  } catch (error) {
+    console.error("Error creating continuous session edit request:", error)
+    return { success: false, error: "Failed to create continuous session edit request" }
   }
 }
 

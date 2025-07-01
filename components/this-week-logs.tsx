@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps, getTotalBadgeProps } from "@/lib/session-utils"
+import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps, getTotalBadgeProps, getAdjustedSessionHours } from "@/lib/session-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -170,19 +170,25 @@ export function ThisWeekLogs({
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {sessionData.sessions.map((session, sessionIndex) => {
-                            const badgeProps = getDurationBadgeProps(session.regularHours, "regular")
-                            
-                            return (
-                              <Badge 
-                                key={sessionIndex} 
-                                variant="outline" 
-                                className={badgeProps.className}
-                              >
-                                {badgeProps.text}
-                              </Badge>
-                            )
-                          })}
+                          {(() => {
+                            let previousRegularHours = 0
+                            return sessionData.sessions.map((session, sessionIndex) => {
+                              const { adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
+                              const badgeProps = getDurationBadgeProps(adjustedRegularHours, "regular")
+                              
+                              previousRegularHours += adjustedRegularHours
+                              
+                              return (
+                                <Badge 
+                                  key={sessionIndex} 
+                                  variant="outline" 
+                                  className={badgeProps.className}
+                                >
+                                  {badgeProps.text}
+                                </Badge>
+                              )
+                            })
+                          })()}
                           
                           {/* Show total if multiple non-overtime sessions */}
                           {sessionData.sessions.length > 1 && 
@@ -198,19 +204,27 @@ export function ThisWeekLogs({
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {sessionData.sessions.map((session, sessionIndex) => {
-                            const badgeProps = getDurationBadgeProps(session.overtimeHours, "overtime", session.overtimeStatus)
-                            
-                            return (
-                              <Badge 
-                                key={sessionIndex}
-                                variant="outline" 
-                                className={badgeProps.className}
-                              >
-                                {badgeProps.text}
-                              </Badge>
-                            )
-                          })}
+                          {(() => {
+                            let previousRegularHours = 0
+                            return sessionData.sessions.map((session, sessionIndex) => {
+                              const { adjustedOvertimeHours } = getAdjustedSessionHours(session, previousRegularHours)
+                              const badgeProps = getDurationBadgeProps(adjustedOvertimeHours, "overtime", session.overtimeStatus)
+                              
+                              // Update previousRegularHours for next iteration
+                              const { adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
+                              previousRegularHours += adjustedRegularHours
+                              
+                              return (
+                                <Badge 
+                                  key={sessionIndex}
+                                  variant="outline" 
+                                  className={badgeProps.className}
+                                >
+                                  {badgeProps.text}
+                                </Badge>
+                              )
+                            })
+                          })()}
                         </div>
                       </TableCell>
                     </TableRow>

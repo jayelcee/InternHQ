@@ -17,7 +17,7 @@ import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
 import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
 import { formatLogDate, groupLogsByDate, TimeLogDisplay } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
+import { processTimeLogSessions, getTimeBadgeProps, getAdjustedSessionHours } from "@/lib/session-utils"
 
 /**
  * Types for intern logs and intern records
@@ -624,29 +624,74 @@ export function HRAdminDashboard() {
                               </div>
                             </div>
                           </TableCell>
-                          {/* Status badges for today's logs */}
+                          {/* Status badges for today's logs - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {intern.todayLogs?.length > 0 ? (
-                                intern.todayLogs.map((log: TodayLog, idx: number) => (
-                                  <span key={idx} className="flex items-center gap-2">
-                                    {log.timeIn && (
-                                      <Badge variant="outline" className="bg-green-50 text-green-700">
-                                        In: {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </Badge>
-                                    )}
-                                    {log.timeOut && (
-                                      <Badge variant="outline" className="bg-red-50 text-red-700">
-                                        Out: {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </Badge>
-                                    )}
-                                    {!log.timeIn && !log.timeOut && (
-                                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                        Pending
-                                      </Badge>
-                                    )}
-                                  </span>
-                                ))
+                                (() => {
+                                  // Convert TodayLog to TimeLogDisplay format
+                                  const timeLogDisplays: TimeLogDisplay[] = intern.todayLogs.map((log, idx) => ({
+                                    id: idx, // Use index as ID since TodayLog doesn't have IDs
+                                    time_in: log.timeIn,
+                                    time_out: log.timeOut,
+                                    status: log.timeOut ? 'completed' as const : 'pending' as const,
+                                    user_id: intern.id,
+                                    log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                    created_at: log.timeIn || new Date().toISOString(),
+                                    updated_at: log.timeOut || new Date().toISOString()
+                                  }))
+                                  
+                                  // Process into sessions
+                                  const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
+                                  
+                                  // Group sessions by continuity for display (similar to DTR logic)
+                                  const displaySessions = []
+                                  for (let i = 0; i < sessions.length; i++) {
+                                    const session = sessions[i]
+                                    
+                                    // For continuous sessions, only show one in/out pair
+                                    let showTimeIn = true
+                                    let showTimeOut = true
+                                    
+                                    if (session.isContinuousSession && i > 0) {
+                                      const prevSession = sessions[i - 1]
+                                      if (prevSession && prevSession.isContinuousSession) {
+                                        showTimeIn = false // Skip showing duplicate time-in for continuous sessions
+                                      }
+                                    }
+                                    
+                                    if (session.isContinuousSession && i < sessions.length - 1) {
+                                      const nextSession = sessions[i + 1]
+                                      if (nextSession && nextSession.isContinuousSession) {
+                                        showTimeOut = false // Skip showing intermediate time-outs for continuous sessions
+                                      }
+                                    }
+                                    
+                                    displaySessions.push(
+                                      <span key={i} className="flex items-center gap-2">
+                                        {session.timeIn && showTimeIn && (
+                                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                                            In: {new Date(session.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          </Badge>
+                                        )}
+                                        {session.timeOut && showTimeOut && (
+                                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                                            Out: {new Date(session.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          </Badge>
+                                        )}
+                                        {session.isActive && (
+                                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                            In Progress
+                                          </Badge>
+                                        )}
+                                      </span>
+                                    )
+                                  }
+                                  
+                                  return displaySessions.length > 0 ? displaySessions : (
+                                    <span className="text-gray-500">No sessions</span>
+                                  )
+                                })()
                               ) : (
                                 <span className="text-gray-500">No sessions</span>
                               )}
@@ -792,87 +837,118 @@ export function HRAdminDashboard() {
                               <span>{formatLogDate(datePart)}</span>
                             </div>
                           </TableCell>
-                          {/* Time In - Show all session time ins like DTR */}
+                          {/* Time In - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const sessionTimeIn = session.timeIn
-                                if (!sessionTimeIn) return null
-                                
-                                const badgeProps = getTimeBadgeProps(
-                                  sessionTimeIn,
-                                  session.sessionType,
-                                  "in",
-                                  session.overtimeStatus,
-                                  session.isContinuousSession
-                                )
-                                
-                                return (
-                                  <Badge key={i} variant="outline" className={badgeProps.className}>
-                                    {badgeProps.text}
-                                  </Badge>
-                                )
-                              })}
-                            </div>
-                          </TableCell>
-                          {/* Time Out - Show all session time outs like DTR */}
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const sessionTimeOut = session.timeOut || null
-                                
-                                if (sessionTimeOut) {
+                              {(() => {
+                                // Group sessions by continuity for display
+                                const displaySessions = []
+                                for (let i = 0; i < sessions.length; i++) {
+                                  const session = sessions[i]
+                                  if (!session.timeIn) continue
+                                  
+                                  // If this is a continuous session, only show the first time in
+                                  if (session.isContinuousSession && i > 0) {
+                                    const prevSession = sessions[i - 1]
+                                    if (prevSession && prevSession.isContinuousSession) {
+                                      continue // Skip showing duplicate time-in for continuous sessions
+                                    }
+                                  }
+                                  
                                   const badgeProps = getTimeBadgeProps(
-                                    sessionTimeOut,
-                                    session.sessionType,
-                                    "out",
+                                    session.timeIn,
+                                    session.isContinuousSession ? "regular" : session.sessionType,
+                                    "in",
                                     session.overtimeStatus,
                                     session.isContinuousSession
                                   )
-                                  return (
-                                    <Badge key={i} variant="outline" className={badgeProps.className}>
-                                      {badgeProps.text}
-                                    </Badge>
-                                  )
-                                } else {
-                                  const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
-                                  return (
+                                  
+                                  displaySessions.push(
                                     <Badge key={i} variant="outline" className={badgeProps.className}>
                                       {badgeProps.text}
                                     </Badge>
                                   )
                                 }
-                              })}
+                                return displaySessions
+                              })()}
                             </div>
                           </TableCell>
-                          {/* Regular Shift - Show per session + total like DTR */}
+                          {/* Time Out - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const isOvertimeOnlySession = session.isOvertimeSession
-                                if (isOvertimeOnlySession) {
-                                  return (
-                                    <Badge key={i} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
-                                      0h 00m
-                                    </Badge>
-                                  )
-                                } else {
-                                  // Use calculated regular hours from session
-                                  const sessionRegularHours = session.regularHours
-                                  const cappedHours = Math.min(sessionRegularHours, DAILY_REQUIRED_HOURS)
-                                  const displayHours = Math.floor(cappedHours)
-                                  const displayMinutes = Math.round((cappedHours % 1) * 60)
-                                  return (
-                                    <Badge
-                                      key={i}
-                                      variant="outline"
-                                      className={cappedHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300"}
-                                    >
-                                      {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
-                                    </Badge>
-                                  )
+                              {(() => {
+                                // Group sessions by continuity for display
+                                const displaySessions = []
+                                for (let i = 0; i < sessions.length; i++) {
+                                  const session = sessions[i]
+                                  
+                                  // For continuous sessions, only show the last time out
+                                  if (session.isContinuousSession && i < sessions.length - 1) {
+                                    const nextSession = sessions[i + 1]
+                                    if (nextSession && nextSession.isContinuousSession) {
+                                      continue // Skip showing intermediate time-outs for continuous sessions
+                                    }
+                                  }
+                                  
+                                  if (session.timeOut) {
+                                    const badgeProps = getTimeBadgeProps(
+                                      session.timeOut,
+                                      session.isContinuousSession ? "regular" : session.sessionType,
+                                      "out",
+                                      session.overtimeStatus,
+                                      session.isContinuousSession
+                                    )
+                                    displaySessions.push(
+                                      <Badge key={i} variant="outline" className={badgeProps.className}>
+                                        {badgeProps.text}
+                                      </Badge>
+                                    )
+                                  } else {
+                                    const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
+                                    displaySessions.push(
+                                      <Badge key={i} variant="outline" className={badgeProps.className}>
+                                        {badgeProps.text}
+                                      </Badge>
+                                    )
+                                  }
                                 }
-                              })}
+                                return displaySessions
+                              })()}
+                            </div>
+                          </TableCell>
+                          {/* Regular Shift - Show per session with real-time overflow */}
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {(() => {
+                                let previousRegularHours = 0
+                                return sessions.map((session, i) => {
+                                  const isOvertimeOnlySession = session.isOvertimeSession
+                                  if (isOvertimeOnlySession) {
+                                    return (
+                                      <Badge key={i} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
+                                        0h 00m
+                                      </Badge>
+                                    )
+                                  } else {
+                                    // Use adjusted hours with real-time overflow
+                                    const { adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
+                                    const displayHours = Math.floor(adjustedRegularHours)
+                                    const displayMinutes = Math.round((adjustedRegularHours % 1) * 60)
+                                    
+                                    previousRegularHours += adjustedRegularHours
+                                    
+                                    return (
+                                      <Badge
+                                        key={i}
+                                        variant="outline"
+                                        className={adjustedRegularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300"}
+                                      >
+                                        {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
+                                      </Badge>
+                                    )
+                                  }
+                                })
+                              })()}
                               {sessions.length > 1 &&
                                 sessions.some(session => !session.isOvertimeSession) &&
                                 sessions.filter(session => !session.isOvertimeSession).length > 1 && (
@@ -889,33 +965,39 @@ export function HRAdminDashboard() {
                                 )}
                             </div>
                           </TableCell>
-                          {/* Overtime - Show per session like DTR */}
+                          {/* Overtime - Show per session with real-time overflow */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                // Use calculated overtime hours and status from session
-                                const sessionOvertimeHours = session.overtimeHours
-                                const sessionOvertimeStatus = session.overtimeStatus
-                                const displayHours = Math.floor(sessionOvertimeHours)
-                                const displayMinutes = Math.round((sessionOvertimeHours % 1) * 60)
-                                return (
-                                  <Badge
-                                    key={i}
-                                    variant="outline"
-                                    className={
-                                      displayHours === 0 && displayMinutes === 0
-                                        ? "bg-gray-100 text-gray-700 border-gray-300"
-                                        : sessionOvertimeStatus === "approved"
-                                          ? "bg-purple-100 text-purple-700 border-purple-300"
-                                          : sessionOvertimeStatus === "rejected"
-                                            ? "bg-gray-100 text-gray-700 border-gray-300"
-                                            : "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                    }
-                                  >
-                                    {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
-                                  </Badge>
-                                )
-                              })}
+                              {(() => {
+                                let previousRegularHours = 0
+                                return sessions.map((session, i) => {
+                                  // Use adjusted overtime hours with real-time overflow
+                                  const { adjustedOvertimeHours, adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
+                                  const sessionOvertimeStatus = session.overtimeStatus
+                                  const displayHours = Math.floor(adjustedOvertimeHours)
+                                  const displayMinutes = Math.round((adjustedOvertimeHours % 1) * 60)
+                                  
+                                  previousRegularHours += adjustedRegularHours
+                                  
+                                  return (
+                                    <Badge
+                                      key={i}
+                                      variant="outline"
+                                      className={
+                                        displayHours === 0 && displayMinutes === 0
+                                          ? "bg-gray-100 text-gray-700 border-gray-300"
+                                          : sessionOvertimeStatus === "approved"
+                                            ? "bg-purple-100 text-purple-700 border-purple-300"
+                                            : sessionOvertimeStatus === "rejected"
+                                              ? "bg-gray-100 text-gray-700 border-gray-300"
+                                              : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                      }
+                                    >
+                                      {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
+                                    </Badge>
+                                  )
+                                })
+                              })()}
                             </div>
                           </TableCell>
                           {/* Actions: Only one pencil per date, pass all logs for the date */}
