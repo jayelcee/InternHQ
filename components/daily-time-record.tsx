@@ -494,27 +494,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                               )
                             })
                           })()}
-                          
-                          {/* Show total only if multiple non-overtime sessions */}
-                          {sessions.length > 1 && 
-                           sessions.filter(s => !s.isOvertimeSession).length > 1 && (
-                            <Badge 
-                              variant="outline" 
-                              className={
-                                hasAnyPendingEdit 
-                                  ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                  : "bg-blue-200 text-blue-800 border-blue-400 font-medium"
-                              }
-                            >
-                              Total: {formatAccurateHours(
-                                sessions.reduce((total, session, i) => {
-                                  const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                  return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).regularHours
-                                }, 0)
-                              )}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       
@@ -560,28 +539,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                               )
                             })
                           })()}
-                          
-                          {/* Show overtime total only if multiple sessions with overtime */}
-                          {sessions.length > 1 && 
-                           sessions.some(s => s.isOvertimeSession || 
-                             calculateRawSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
-                            <Badge 
-                              variant="outline" 
-                              className={
-                                hasAnyPendingEdit 
-                                  ? "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                  : "bg-purple-200 text-purple-800 border-purple-400 font-medium"
-                              }
-                            >
-                              Total: {formatAccurateHours(
-                                sessions.reduce((total, session, i) => {
-                                  const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateRawSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                  return total + calculateRawSessionDuration(session.logs, new Date(), prevHours).overtimeHours
-                                }, 0)
-                              )}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       

@@ -213,33 +213,149 @@ export function TimeTracking({
     onOvertimeConfirmationHide?.()
   }
 
-  const handleDiscardOvertime = () => {
+  const handleDiscardOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     setOvertimeNote("")
     onOvertimeConfirmationHide?.()
-    handleTimeOut(undefined, false, undefined, true)
+    
+    // For separate overtime/extended overtime sessions, delete the log from database
+    if (isOvertimeIn && overtimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ discardOvertime: true })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to discard overtime session')
+        }
+      } catch (error) {
+        console.error('Error discarding overtime session:', error)
+      }
+    } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ discardOvertime: true })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to discard extended overtime session')
+        }
+      } catch (error) {
+        console.error('Error discarding extended overtime session:', error)
+      }
+    } else {
+      // For continuous sessions, use the existing logic
+      handleTimeOut(undefined, false, undefined, true)
+    }
   }
 
-  const handleConfirmStandardOvertime = () => {
+  const handleConfirmStandardOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     onOvertimeConfirmationHide?.()
-    // Calculate cutoff time for standard overtime (9 + 3 = 12 hours from start)
-    if (timeInTimestamp) {
-      const maxStandardOvertimeCutoff = new Date(timeInTimestamp.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
-      handleTimeOut(maxStandardOvertimeCutoff, false, undefined, false, overtimeNote.trim())
+    
+    // For separate overtime sessions, complete with note
+    if (isOvertimeIn && overtimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            discardOvertime: false,
+            overtimeNote: overtimeNote.trim()
+          })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to complete overtime session')
+        }
+      } catch (error) {
+        console.error('Error completing overtime session:', error)
+      }
+    } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            discardOvertime: false,
+            overtimeNote: overtimeNote.trim()
+          })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to complete extended overtime session')
+        }
+      } catch (error) {
+        console.error('Error completing extended overtime session:', error)
+      }
     } else {
-      handleTimeOut(undefined, false, undefined, false, overtimeNote.trim())
+      // For continuous sessions, calculate cutoff time for standard overtime (9 + 3 = 12 hours from start)
+      if (timeInTimestamp) {
+        const maxStandardOvertimeCutoff = new Date(timeInTimestamp.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+        handleTimeOut(maxStandardOvertimeCutoff, false, undefined, false, overtimeNote.trim())
+      } else {
+        handleTimeOut(undefined, false, undefined, false, overtimeNote.trim())
+      }
     }
     setOvertimeNote("")
   }
 
-  const handleConfirmAllOvertime = () => {
+  const handleConfirmAllOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     onOvertimeConfirmationHide?.()
-    handleTimeOut(undefined, false, undefined, false, overtimeNote.trim())
+    
+    // For separate overtime/extended overtime sessions, complete with note
+    if (isOvertimeIn && overtimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            discardOvertime: false,
+            overtimeNote: overtimeNote.trim()
+          })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to complete overtime session')
+        }
+      } catch (error) {
+        console.error('Error completing overtime session:', error)
+      }
+    } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      try {
+        const response = await fetch('/api/time-logs/clock-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ 
+            discardOvertime: false,
+            overtimeNote: overtimeNote.trim()
+          })
+        })
+        
+        if (!response.ok) {
+          console.error('Failed to complete extended overtime session')
+        }
+      } catch (error) {
+        console.error('Error completing extended overtime session:', error)
+      }
+    } else {
+      // For continuous sessions, use existing logic
+      handleTimeOut(undefined, false, undefined, false, overtimeNote.trim())
+    }
     setOvertimeNote("")
   }
 
