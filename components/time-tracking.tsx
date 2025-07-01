@@ -99,8 +99,10 @@ export function TimeTracking({
     : isExtendedOvertimeIn ? extendedOvertimeInTimestamp : null
   
   // Determine if the next log would be overtime or extended overtime
-  const nextWillBeExtendedOvertime = hasReachedOvertimeLimit && !currentSessionActive
-  const nextWillBeOvertime = hasReachedDailyRequirement && !hasReachedOvertimeLimit && !currentSessionActive
+  // Consider both current active sessions and total hours worked today
+  const totalWorkedToday = todayTotalHours + (currentSessionActive ? 0 : 0) // todayTotalHours already includes active sessions
+  const nextWillBeExtendedOvertime = totalWorkedToday >= (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) && !currentSessionActive
+  const nextWillBeOvertime = totalWorkedToday >= DAILY_REQUIRED_HOURS && totalWorkedToday < (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) && !currentSessionActive
 
   // Handle timeout with overtime confirmation when needed
   const handleTimeOutWithConfirmation = () => {
@@ -230,8 +232,18 @@ export function TimeTracking({
         })
         
         if (!response.ok) {
-          console.error('Failed to discard overtime session')
+          // For separate overtime sessions, a 400 error is expected when the log is successfully deleted
+          // The backend deletes the log and returns an error because there's no log to update
+          // This is the expected behavior, so we don't need to show an error
+          if (response.status === 400) {
+            console.log('Overtime session successfully discarded (log deleted)')
+          } else {
+            console.error('Failed to discard overtime session')
+          }
         }
+        
+        // Force a page refresh to update the UI state
+        window.location.reload()
       } catch (error) {
         console.error('Error discarding overtime session:', error)
       }
@@ -245,8 +257,16 @@ export function TimeTracking({
         })
         
         if (!response.ok) {
-          console.error('Failed to discard extended overtime session')
+          // For separate overtime sessions, a 400 error is expected when the log is successfully deleted
+          if (response.status === 400) {
+            console.log('Extended overtime session successfully discarded (log deleted)')
+          } else {
+            console.error('Failed to discard extended overtime session')
+          }
         }
+        
+        // Force a page refresh to update the UI state
+        window.location.reload()
       } catch (error) {
         console.error('Error discarding extended overtime session:', error)
       }
@@ -276,6 +296,9 @@ export function TimeTracking({
         
         if (!response.ok) {
           console.error('Failed to complete overtime session')
+        } else {
+          // Force a page refresh to update the UI state
+          window.location.reload()
         }
       } catch (error) {
         console.error('Error completing overtime session:', error)
@@ -294,6 +317,9 @@ export function TimeTracking({
         
         if (!response.ok) {
           console.error('Failed to complete extended overtime session')
+        } else {
+          // Force a page refresh to update the UI state
+          window.location.reload()
         }
       } catch (error) {
         console.error('Error completing extended overtime session:', error)
@@ -330,6 +356,9 @@ export function TimeTracking({
         
         if (!response.ok) {
           console.error('Failed to complete overtime session')
+        } else {
+          // Force a page refresh to update the UI state
+          window.location.reload()
         }
       } catch (error) {
         console.error('Error completing overtime session:', error)
@@ -348,6 +377,9 @@ export function TimeTracking({
         
         if (!response.ok) {
           console.error('Failed to complete extended overtime session')
+        } else {
+          // Force a page refresh to update the UI state
+          window.location.reload()
         }
       } catch (error) {
         console.error('Error completing extended overtime session:', error)

@@ -269,6 +269,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
           DELETE FROM time_logs
           WHERE id = ${log.id}
         `
+        
+        return { success: true }
       } else {
         // Complete the overtime/extended overtime session normally
         await sql`
@@ -278,6 +280,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
               updated_at = NOW()
           WHERE id = ${log.id}
         `
+        
+        return { success: true }
       }
     } else {
       // For regular logs
@@ -782,6 +786,8 @@ export async function getAllInterns() {
     time_in: Date | null
     time_out: Date | null
     status: string
+    log_type: string | null
+    overtime_status: string | null
   }
 
   const interns = await Promise.all(result.map(async (row) => {
@@ -801,7 +807,7 @@ export async function getAllInterns() {
 
     // Get all today's logs
     const todayLogRes = await sql<TimeLogRow[]>`
-      SELECT time_in, time_out, status
+      SELECT time_in, time_out, status, log_type, overtime_status
       FROM time_logs
       WHERE user_id = ${row.id} AND time_in::date = ${today}
       ORDER BY time_in ASC
@@ -812,6 +818,8 @@ export async function getAllInterns() {
       timeIn: log.time_in,
       timeOut: log.time_out,
       status: log.status,
+      logType: log.log_type,
+      overtimeStatus: log.overtime_status,
       label: log.time_in && log.time_out
         ? `Clocked in at ${new Date(log.time_in!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, Clocked out at ${new Date(log.time_out!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
         : log.time_in

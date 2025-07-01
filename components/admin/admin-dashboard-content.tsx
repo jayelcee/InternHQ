@@ -27,6 +27,8 @@ type TodayLog = {
   timeOut: string | null
   status: string
   label: string
+  logType?: string | null
+  overtimeStatus?: string | null
 }
 
 type InternRecord = {
@@ -728,7 +730,12 @@ export function HRAdminDashboard() {
                                   time_out: log.timeOut,
                                   status: log.timeOut ? 'completed' as const : 'pending' as const,
                                   user_id: intern.id,
-                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  log_type: (log.logType === 'overtime' || log.logType === 'extended_overtime') 
+                                    ? log.logType as 'overtime' | 'extended_overtime'
+                                    : 'regular' as const,
+                                  overtime_status: (log.overtimeStatus === 'pending' || log.overtimeStatus === 'approved' || log.overtimeStatus === 'rejected')
+                                    ? log.overtimeStatus as 'pending' | 'approved' | 'rejected'
+                                    : undefined,
                                   created_at: log.timeIn || new Date().toISOString(),
                                   updated_at: log.timeOut || new Date().toISOString()
                                 }))
@@ -763,7 +770,12 @@ export function HRAdminDashboard() {
                                   time_out: log.timeOut,
                                   status: log.timeOut ? 'completed' as const : 'pending' as const,
                                   user_id: intern.id,
-                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  log_type: (log.logType === 'overtime' || log.logType === 'extended_overtime') 
+                                    ? log.logType as 'overtime' | 'extended_overtime'
+                                    : 'regular' as const,
+                                  overtime_status: (log.overtimeStatus === 'pending' || log.overtimeStatus === 'approved' || log.overtimeStatus === 'rejected')
+                                    ? log.overtimeStatus as 'pending' | 'approved' | 'rejected'
+                                    : undefined,
                                   created_at: log.timeIn || new Date().toISOString(),
                                   updated_at: log.timeOut || new Date().toISOString()
                                 }))
