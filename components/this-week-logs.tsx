@@ -114,7 +114,8 @@ export function ThisWeekLogs({
                               timeIn, 
                               session.sessionType, 
                               "in", 
-                              session.overtimeStatus
+                              session.overtimeStatus,
+                              session.isContinuousSession
                             )
                             
                             return (
@@ -147,7 +148,8 @@ export function ThisWeekLogs({
                                 timeOut, 
                                 session.sessionType, 
                                 "out", 
-                                session.overtimeStatus
+                                session.overtimeStatus,
+                                session.isContinuousSession
                               )
                               return (
                                 <Badge 

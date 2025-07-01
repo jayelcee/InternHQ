@@ -45,6 +45,7 @@ export function TimeTracking({
   handleTimeOut,
   onOvertimeConfirmationShow,
   onOvertimeConfirmationHide,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isOvertimeSession = false,
   isOvertimeIn = false,
   overtimeInTimestamp = null,
@@ -101,8 +102,63 @@ export function TimeTracking({
   const nextWillBeExtendedOvertime = hasReachedOvertimeLimit && !currentSessionActive
   const nextWillBeOvertime = hasReachedDailyRequirement && !hasReachedOvertimeLimit && !currentSessionActive
 
-  // Handle forgotten timeout scenario - when user has worked more than required hours total today
+  // Handle timeout with overtime confirmation when needed
   const handleTimeOutWithConfirmation = () => {
+    // Check for separate overtime session timeout
+    if (isOvertimeIn && overtimeInTimestamp) {
+      const sessionDurationHours = (Date.now() - overtimeInTimestamp.getTime()) / (1000 * 60 * 60)
+      
+      // Helper function to format duration
+      const formatDuration = (hours: number) => {
+        const h = Math.floor(hours)
+        const m = Math.floor((hours % 1) * 60)
+        return `${h}h ${m.toString().padStart(2, '0')}m`
+      }
+
+      // Show overtime confirmation dialog for separate overtime session
+      setOvertimeDialogData({ 
+        sessionDuration: formatDuration(sessionDurationHours), 
+        standardOvertimeDuration: formatDuration(sessionDurationHours),
+        extendedOvertimeDuration: "0h 00m",
+        totalOvertimeDuration: formatDuration(sessionDurationHours),
+        hasExtendedOvertime: false
+      })
+      setShowOvertimeDialog(true)
+      
+      // Freeze calculations at the current time
+      const freezeTime = new Date()
+      onOvertimeConfirmationShow?.(freezeTime)
+      return
+    }
+
+    // Check for separate extended overtime session timeout
+    if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      const sessionDurationHours = (Date.now() - extendedOvertimeInTimestamp.getTime()) / (1000 * 60 * 60)
+      
+      // Helper function to format duration
+      const formatDuration = (hours: number) => {
+        const h = Math.floor(hours)
+        const m = Math.floor((hours % 1) * 60)
+        return `${h}h ${m.toString().padStart(2, '0')}m`
+      }
+
+      // Show extended overtime confirmation dialog
+      setOvertimeDialogData({ 
+        sessionDuration: formatDuration(sessionDurationHours), 
+        standardOvertimeDuration: "0h 00m",
+        extendedOvertimeDuration: formatDuration(sessionDurationHours),
+        totalOvertimeDuration: formatDuration(sessionDurationHours),
+        hasExtendedOvertime: true
+      })
+      setShowOvertimeDialog(true)
+      
+      // Freeze calculations at the current time
+      const freezeTime = new Date()
+      onOvertimeConfirmationShow?.(freezeTime)
+      return
+    }
+
+    // Handle continuous session overtime (existing logic)
     if (isTimedIn && timeInTimestamp && todayTotalHours > DAILY_REQUIRED_HOURS) {
       // Calculate how much of today's total time comes from the current session
       const sessionDurationHours = (Date.now() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
@@ -348,10 +404,12 @@ export function TimeTracking({
               {overtimeDialogData?.hasExtendedOvertime ? "Extended Overtime Detected" : "Overtime Hours Detected"}
             </DialogTitle>
             <DialogDescription>
-              You&apos;ve worked past your daily requirement of {DAILY_REQUIRED_HOURS} hours. 
-              {overtimeDialogData?.hasExtendedOvertime 
-                ? " Your session includes extended overtime beyond the standard overtime limit. Choose how to handle your overtime:"
-                : " How would you like to handle the overtime?"
+              {isOvertimeIn || isExtendedOvertimeIn 
+                ? `You're ending your ${isExtendedOvertimeIn ? 'extended ' : ''}overtime session. Please provide a note describing what you worked on during this overtime period.`
+                : `You've worked past your daily requirement of ${DAILY_REQUIRED_HOURS} hours. ${overtimeDialogData?.hasExtendedOvertime 
+                    ? " Your session includes extended overtime beyond the standard overtime limit. Choose how to handle your overtime:"
+                    : " How would you like to handle the overtime?"
+                  }`
               }
             </DialogDescription>
           </DialogHeader>

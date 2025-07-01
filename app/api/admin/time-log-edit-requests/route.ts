@@ -17,7 +17,8 @@ export async function GET() {
       ORDER BY r.created_at DESC
     `
     return NextResponse.json(requests)
-  } catch (e) {
+  } catch (err) {
+    console.error("Error fetching edit requests:", err)
     return NextResponse.json({ error: "Failed to fetch edit requests" }, { status: 500 })
   }
 }

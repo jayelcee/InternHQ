@@ -21,6 +21,9 @@ interface EditLogRequest {
   originalTimeOut: string | null
   status: "pending" | "approved" | "rejected"
   requestedAt: string
+  email?: string
+  school?: string
+  department?: string
 }
 
 export function EditLogRequestsAdmin() {
@@ -48,8 +51,9 @@ export function EditLogRequestsAdmin() {
       if (!res.ok) throw new Error("Failed to fetch edit requests")
       const data = await res.json()
       setRequests(Array.isArray(data) ? data : data.requests)
-    } catch (err: any) {
-      setError(err.message || "Failed to load requests")
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load requests"
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -79,7 +83,8 @@ export function EditLogRequestsAdmin() {
         if (!res.ok) throw new Error("Failed to update request")
       }
       await fetchRequests()
-    } catch (err) {
+    } catch (error) {
+      console.error("Error performing action:", error)
       // Optionally show toast
     } finally {
       setActionLoading(null)
@@ -88,20 +93,20 @@ export function EditLogRequestsAdmin() {
 
   // Get unique departments from requests
   const departments = Array.from(
-    new Set(requests.map(r => (r as any).department || ""))
+    new Set(requests.map(r => r.department || ""))
   ).filter(Boolean)
 
   // Filtered requests based on search, status, department, and date
   const filteredRequests = requests.filter(req => {
     const matchesSearch =
       req.internName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((req as any).email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((req as any).school || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ((req as any).department || "").toLowerCase().includes(searchTerm.toLowerCase())
+      (req.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (req.school || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (req.department || "").toLowerCase().includes(searchTerm.toLowerCase())
     const matchesStatus =
       statusFilter === "all" || req.status === statusFilter
     const matchesDept =
-      departmentFilter === "all" || ((req as any).department || "") === departmentFilter
+      departmentFilter === "all" || (req.department || "") === departmentFilter
     const matchesDate =
       !selectedDate ||
       (

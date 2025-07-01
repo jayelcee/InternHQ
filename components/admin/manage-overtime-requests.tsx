@@ -183,8 +183,7 @@ export function OvertimeLogsDashboard() {
       })
       
       if (response.ok) {
-        const result = await response.json()
-        // Removed: alert(`Migration completed! Processed ${result.processed} logs.${result.errors.length > 0 ? `\n\nErrors: ${result.errors.join('\n')}` : ''}`)
+        await response.json()
         // Refresh data after migration
         await Promise.all([fetchOvertimeLogs(), checkLongLogs()])
       } else {

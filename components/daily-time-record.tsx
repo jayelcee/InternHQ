@@ -121,7 +121,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
           })
           if (onTimeLogUpdate) onTimeLogUpdate()
         }
-      } catch (err) {
+      } catch (error) {
+        console.error("Error migrating long logs:", error)
         // Ignore errors, don't block DTR
       }
     }
@@ -235,7 +236,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                               session.timeIn,
                               session.sessionType,
                               "in",
-                              session.overtimeStatus === "none" ? undefined : session.overtimeStatus
+                              session.overtimeStatus === "none" ? undefined : session.overtimeStatus,
+                              session.isContinuousSession
                             )
                             return (
                               <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
@@ -256,7 +258,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                                   session.timeOut,
                                   session.sessionType,
                                   "out",
-                                  session.overtimeStatus === "none" ? undefined : session.overtimeStatus
+                                  session.overtimeStatus === "none" ? undefined : session.overtimeStatus,
+                                  session.isContinuousSession
                                 )
                             return (
                               <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
@@ -278,8 +281,14 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                               </Badge>
                             )
                           })}
-                          {sessions.length > 1 && sessions.some(s => s.regularHours > 0) && (
-                            <Badge variant="outline" className={getTotalBadgeProps(totals.totalRegularHours, "regular").className}>
+                          
+                          {/* Show total only if multiple non-overtime sessions */}
+                          {sessions.length > 1 && 
+                           sessions.filter(s => !s.isOvertimeSession).length > 1 && (
+                            <Badge 
+                              variant="outline" 
+                              className={getTotalBadgeProps(totals.totalRegularHours, "regular").className}
+                            >
                               {getTotalBadgeProps(totals.totalRegularHours, "regular").text}
                             </Badge>
                           )}

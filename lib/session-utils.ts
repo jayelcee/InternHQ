@@ -20,6 +20,7 @@ export interface ProcessedSession {
   timeOut: string | null
   isActive: boolean
   isOvertimeSession: boolean
+  isContinuousSession: boolean // New: indicates mixed regular/overtime logs
   overtimeStatus: "none" | "pending" | "approved" | "rejected"
   regularHours: number
   overtimeHours: number
@@ -124,6 +125,11 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
   // Determine if this is an overtime session
   const isOvertimeSession = logs.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
   
+  // Determine if this is a continuous session (contains both regular and overtime logs)
+  const hasRegularLogs = logs.some(log => !log.log_type || log.log_type === "regular")
+  const hasOvertimeLogs = logs.some(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+  const isContinuousSession = hasRegularLogs && hasOvertimeLogs
+  
   // Determine overtime status
   let overtimeStatus: "none" | "pending" | "approved" | "rejected" = "none"
   if (isOvertimeSession || logs.some(log => log.log_type === "overtime" || log.log_type === "extended_overtime")) {
@@ -168,6 +174,7 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
     timeOut,
     isActive,
     isOvertimeSession,
+    isContinuousSession,
     overtimeStatus,
     regularHours,
     overtimeHours,
@@ -225,12 +232,15 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
 
 /**
  * Gets consistent badge properties for time display
+ * For continuous sessions (mixed regular/overtime), uses regular colors
+ * For separate overtime sessions, uses overtime status colors
  */
 export function getTimeBadgeProps(
   time: string | null,
   logType: "regular" | "overtime" | "extended_overtime" = "regular",
   variant: "in" | "out" | "active" = "in",
-  overtimeStatus?: "pending" | "approved" | "rejected" | "none"
+  overtimeStatus?: "pending" | "approved" | "rejected" | "none",
+  isContinuousSession?: boolean
 ): BadgeProps {
   if (!time && variant !== "active") {
     return {
@@ -248,7 +258,22 @@ export function getTimeBadgeProps(
     }
   }
 
-  // Overtime badge styling
+  // For continuous sessions (mixed regular/overtime), always use regular colors
+  if (isContinuousSession) {
+    const regularClasses = {
+      in: "bg-green-100 text-green-700 border-green-300",
+      out: "bg-red-100 text-red-700 border-red-300",
+      active: "bg-yellow-100 text-yellow-700 border-yellow-300"
+    }
+
+    return {
+      className: regularClasses[variant],
+      text: new Date(time!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      variant: "outline"
+    }
+  }
+
+  // For separate overtime sessions, use overtime status colors
   if (logType === "overtime" || logType === "extended_overtime") {
     if (overtimeStatus === "approved") {
       return {

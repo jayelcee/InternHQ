@@ -17,7 +17,7 @@ interface EditTimeLogDialogProps {
   isIntern?: boolean
 }
 
-export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin = false }: EditTimeLogDialogProps) {
   const [open, setOpen] = useState(false)
   // Store timeIn/timeOut for each log by id
   const [logTimes, setLogTimes] = useState<Record<number, { timeIn: string; timeOut: string }>>({})

@@ -6,8 +6,6 @@ export const dynamic = "force-dynamic";
 
 // Use the new Next.js 13+ convention for dynamic route params
 export async function POST(request: NextRequest) {
-  // Get params from request (Next.js 13+)
-  const { searchParams } = new URL(request.url)
   // The id param is in the pathname, extract it
   const urlParts = request.nextUrl.pathname.split("/").filter(Boolean)
   const idStr = urlParts[urlParts.length - 2]
@@ -26,7 +24,8 @@ export async function POST(request: NextRequest) {
       WHERE id = ${id}
     `
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (err) {
+    console.error("Error reverting time log edit request:", err)
     return NextResponse.json({ error: "Failed to revert time log" }, { status: 500 })
   }
 }

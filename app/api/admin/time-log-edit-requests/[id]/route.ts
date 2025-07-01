@@ -51,7 +51,8 @@ export async function PUT(request: NextRequest) {
       `
     }
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (err) {
+    console.error("Error updating request:", err)
     return NextResponse.json({ error: "Failed to update request" }, { status: 500 })
   }
 }
@@ -61,7 +62,7 @@ export async function PUT(request: NextRequest) {
 export const dynamic = "force-dynamic"; // Ensure Next.js treats both PUT and POST as valid
 
 // This POST handler will only respond to /api/admin/time-log-edit-requests/[id]/revert
-export async function POST(request: NextRequest, context: { params: { id: string } }) {
+export async function POST(request: NextRequest) {
   // Check if the path ends with /revert
   const url = request.nextUrl.pathname
   if (!url.endsWith("/revert")) {
@@ -85,7 +86,8 @@ export async function POST(request: NextRequest, context: { params: { id: string
       WHERE id = ${id}
     `
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (err) {
+    console.error("Error reverting time log:", err)
     return NextResponse.json({ error: "Failed to revert time log" }, { status: 500 })
   }
 }

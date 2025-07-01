@@ -15,8 +15,9 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, getContinuousTime, filterLogsByInternId, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
+import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
 import { formatLogDate, groupLogsByDate, TimeLogDisplay } from "@/lib/ui-utils"
+import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
 
 /**
  * Types for intern logs and intern records
@@ -767,76 +768,9 @@ export function HRAdminDashboard() {
                     {groupedLogsForDTR.map((group) => {
                       const { key, logs: logsForDate, datePart, internName, department } = group
                       
-                      // Convert TimeLog[] to TimeLogDisplay[] for DTR processing
-                      const dtrLogs: TimeLogDisplay[] = logsForDate
-
-                      // Process logs exactly like DTR
-                      const regularLogs = dtrLogs.filter(log => !log.log_type || log.log_type === "regular")
-                      const overtimeLogs = dtrLogs.filter(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
-                      const allLogs = [...regularLogs, ...overtimeLogs].sort((a, b) => {
-                        const aTime = a.time_in || a.time_out || ""
-                        const bTime = b.time_in || b.time_out || ""
-                        return new Date(aTime).getTime() - new Date(bTime).getTime()
-                      })
-
-                      // Group logs into continuous sessions (DTR logic)
-                      const isContinuous = (log1: TimeLogDisplay, log2: TimeLogDisplay): boolean => {
-                        if (!log1.time_out || !log2.time_in) return false
-                        const gap = new Date(log2.time_in).getTime() - new Date(log1.time_out).getTime()
-                        return gap <= 60 * 1000
-                      }
-                      const sessions: TimeLogDisplay[][] = []
-                      let currentSession: TimeLogDisplay[] = []
-                      for (const log of allLogs) {
-                        if (currentSession.length === 0) {
-                          currentSession = [log]
-                        } else {
-                          const lastLog = currentSession[currentSession.length - 1]
-                          if (isContinuous(lastLog, log)) {
-                            currentSession.push(log)
-                          } else {
-                            sessions.push(currentSession)
-                            currentSession = [log]
-                          }
-                        }
-                      }
-                      if (currentSession.length > 0) sessions.push(currentSession)
-
-                      // Calculate totals (DTR logic)
-                      let totalRegularHours = 0
-                      let totalOvertimeHours = 0
-                      let overallOvertimeStatus = "none"
-                      for (const session of sessions) {
-                        for (const log of session) {
-                          if (log.time_in && log.time_out) {
-                            const result = calculateTimeWorked(log.time_in, log.time_out)
-                            const logHours = result.hoursWorked
-                            if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
-                              totalOvertimeHours += logHours
-                              if (log.overtime_status === "approved" && overallOvertimeStatus !== "rejected") {
-                                overallOvertimeStatus = "approved"
-                              } else if ((!log.overtime_status || log.overtime_status === "pending") && overallOvertimeStatus === "none") {
-                                overallOvertimeStatus = "pending"
-                              } else if (log.overtime_status === "rejected") {
-                                overallOvertimeStatus = "rejected"
-                              }
-                            } else {
-                              totalRegularHours += logHours
-                            }
-                          }
-                        }
-                      }
-                      if (totalRegularHours > DAILY_REQUIRED_HOURS) {
-                        // Cap regular hours at DAILY_REQUIRED_HOURS, move excess to overtime
-                        const excess = totalRegularHours - DAILY_REQUIRED_HOURS
-                        totalRegularHours = DAILY_REQUIRED_HOURS
-                        totalOvertimeHours += excess
-                      }
-                      // If any overtime log is rejected, set overtime to 0 and cap regular at DAILY_REQUIRED_HOURS
-                      if (overallOvertimeStatus === "rejected") {
-                        totalRegularHours = Math.min(totalRegularHours, DAILY_REQUIRED_HOURS)
-                        totalOvertimeHours = 0
-                      }
+                      // Use centralized session processing
+                      const { sessions, totals } = processTimeLogSessions(logsForDate)
+                      const { totalRegularHours } = totals
 
                       return (
                         <TableRow key={key}>
@@ -862,26 +796,22 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
-                                const sessionTimeIn = session[0]?.time_in
-                                const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
-                                const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
-                                return sessionTimeIn ? (
-                                  <Badge
-                                    key={i}
-                                    variant="outline"
-                                    className={
-                                      isOvertimeSession
-                                        ? overtimeStatus === "approved"
-                                          ? "bg-purple-100 text-purple-700 border-purple-300"
-                                          : overtimeStatus === "rejected"
-                                            ? "bg-gray-100 text-gray-700 border-gray-300"
-                                            : "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                        : "bg-green-100 text-green-700 border-green-300"
-                                    }
-                                  >
-                                    {new Date(sessionTimeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                const sessionTimeIn = session.timeIn
+                                if (!sessionTimeIn) return null
+                                
+                                const badgeProps = getTimeBadgeProps(
+                                  sessionTimeIn,
+                                  session.sessionType,
+                                  "in",
+                                  session.overtimeStatus,
+                                  session.isContinuousSession
+                                )
+                                
+                                return (
+                                  <Badge key={i} variant="outline" className={badgeProps.className}>
+                                    {badgeProps.text}
                                   </Badge>
-                                ) : null
+                                )
                               })}
                             </div>
                           </TableCell>
@@ -889,32 +819,26 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
-                                const isOvertimeSession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
-                                const overtimeStatus = isOvertimeSession ? session[0]?.overtime_status : null
-                                const lastLog = session[session.length - 1]
-                                const sessionTimeOut = lastLog?.time_out || null
+                                const sessionTimeOut = session.timeOut || null
+                                
                                 if (sessionTimeOut) {
+                                  const badgeProps = getTimeBadgeProps(
+                                    sessionTimeOut,
+                                    session.sessionType,
+                                    "out",
+                                    session.overtimeStatus,
+                                    session.isContinuousSession
+                                  )
                                   return (
-                                    <Badge
-                                      key={i}
-                                      variant="outline"
-                                      className={
-                                        isOvertimeSession
-                                          ? overtimeStatus === "approved"
-                                            ? "bg-purple-100 text-purple-700 border-purple-300"
-                                            : overtimeStatus === "rejected"
-                                              ? "bg-gray-100 text-gray-700 border-gray-300"
-                                              : "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                          : "bg-red-100 text-red-700 border-red-300"
-                                      }
-                                    >
-                                      {new Date(sessionTimeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    <Badge key={i} variant="outline" className={badgeProps.className}>
+                                      {badgeProps.text}
                                     </Badge>
                                   )
                                 } else {
+                                  const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
                                   return (
-                                    <Badge key={i} variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-300">
-                                      In Progress
+                                    <Badge key={i} variant="outline" className={badgeProps.className}>
+                                      {badgeProps.text}
                                     </Badge>
                                   )
                                 }
@@ -925,7 +849,7 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
-                                const isOvertimeOnlySession = session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")
+                                const isOvertimeOnlySession = session.isOvertimeSession
                                 if (isOvertimeOnlySession) {
                                   return (
                                     <Badge key={i} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
@@ -933,16 +857,8 @@ export function HRAdminDashboard() {
                                     </Badge>
                                   )
                                 } else {
-                                  // Calculate regular hours for this session
-                                  let sessionRegularHours = 0
-                                  for (const log of session) {
-                                    if (log.log_type === "regular" || !log.log_type) {
-                                      if (log.time_in && log.time_out) {
-                                        const result = calculateTimeWorked(log.time_in, log.time_out)
-                                        sessionRegularHours += result.hoursWorked
-                                      }
-                                    }
-                                  }
+                                  // Use calculated regular hours from session
+                                  const sessionRegularHours = session.regularHours
                                   const cappedHours = Math.min(sessionRegularHours, DAILY_REQUIRED_HOURS)
                                   const displayHours = Math.floor(cappedHours)
                                   const displayMinutes = Math.round((cappedHours % 1) * 60)
@@ -958,8 +874,8 @@ export function HRAdminDashboard() {
                                 }
                               })}
                               {sessions.length > 1 &&
-                                sessions.some(session => !session.every(log => log.log_type === "overtime" || log.log_type === "extended_overtime")) &&
-                                sessions.filter(session => session.some(log => log.log_type !== "overtime" && log.log_type !== "extended_overtime")).length > 1 && (
+                                sessions.some(session => !session.isOvertimeSession) &&
+                                sessions.filter(session => !session.isOvertimeSession).length > 1 && (
                                   <Badge
                                     variant="outline"
                                     className={
@@ -977,23 +893,9 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
-                                let sessionOvertimeHours = 0
-                                let sessionOvertimeStatus = "none"
-                                for (const log of session) {
-                                  if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
-                                    if (log.time_in && log.time_out) {
-                                      const result = calculateTimeWorked(log.time_in, log.time_out)
-                                      sessionOvertimeHours += result.hoursWorked
-                                    }
-                                    if (log.overtime_status === "approved") {
-                                      sessionOvertimeStatus = "approved"
-                                    } else if (log.overtime_status === "rejected") {
-                                      sessionOvertimeStatus = "rejected"
-                                    } else if (sessionOvertimeStatus === "none") {
-                                      sessionOvertimeStatus = "pending"
-                                    }
-                                  }
-                                }
+                                // Use calculated overtime hours and status from session
+                                const sessionOvertimeHours = session.overtimeHours
+                                const sessionOvertimeStatus = session.overtimeStatus
                                 const displayHours = Math.floor(sessionOvertimeHours)
                                 const displayMinutes = Math.round((sessionOvertimeHours % 1) * 60)
                                 return (
@@ -1021,7 +923,7 @@ export function HRAdminDashboard() {
                             <div className="flex flex-col gap-1 items-end">
                               <EditTimeLogDialog
                                 key={key}
-                                logs={dtrLogs}
+                                logs={logsForDate}
                                 onSave={handleTimeLogUpdate}
                                 onDelete={handleTimeLogDelete}
                                 isLoading={isUpdatingTimeLog}
