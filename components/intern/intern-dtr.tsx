@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { GraduationCap } from "lucide-react"
 import { 
-  calculateInternshipProgress, 
+  calculateTimeStatistics, 
   DEFAULT_INTERNSHIP_DETAILS,
   filterLogsByInternId
 } from "@/lib/time-utils"
@@ -127,19 +127,39 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
   const internshipDetails: InternshipDetails = profile?.internship ?? DEFAULT_INTERNSHIP_DETAILS
 
   // Calculate hours and progress using centralized function
-  const { completedHours, totalHoursWorked } = (() => {
-    const filteredLogs = filterLogsByInternId(logs, internId)
-    
-    // Use centralized calculation for consistent progress tracking
-    const totalWorked = calculateInternshipProgress(filteredLogs)
-    const completed = Math.min(totalWorked, internshipDetails.required_hours)
-    
-    return { completedHours: completed, totalHoursWorked: totalWorked }
-  })()
+  const [timeStats, setTimeStats] = useState({
+    completedHours: 0,
+    totalHoursWorked: 0,
+    progressPercentage: 0
+  })
 
-  const progressPercentage = internshipDetails.required_hours > 0
-    ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
-    : 0
+  useEffect(() => {
+    const updateStats = async () => {
+      const filteredLogs = filterLogsByInternId(logs, internId)
+      
+      if (filteredLogs.length === 0) {
+        setTimeStats({ completedHours: 0, totalHoursWorked: 0, progressPercentage: 0 })
+        return
+      }
+      
+      // Use centralized calculation with edit request support for consistent progress tracking
+      const stats = await calculateTimeStatistics(filteredLogs, internId, {
+        includeEditRequests: true,
+        requiredHours: internshipDetails.required_hours || 0
+      })
+      
+      setTimeStats({
+        completedHours: Math.min(stats.internshipProgress, internshipDetails.required_hours),
+        totalHoursWorked: stats.internshipProgress,
+        progressPercentage: stats.progressPercentage
+      })
+    }
+    
+    updateStats()
+  }, [logs, internId, internshipDetails])
+
+  const { completedHours, totalHoursWorked } = timeStats
+  const progressPercentage = timeStats.progressPercentage
 
   return (
     <div>

@@ -15,8 +15,8 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { calculateInternshipProgress, calculateTimeWorked, truncateTo2Decimals, getLocalDateString, DAILY_REQUIRED_HOURS } from "@/lib/time-utils"
-import { formatLogDate, groupLogsByDate, TimeLogDisplay } from "@/lib/ui-utils"
+import { calculateTimeStatistics, getLocalDateString, calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
+import { formatLogDate, groupLogsByDate, TimeLogDisplay, useSortDirection } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
 
 /**
@@ -89,7 +89,8 @@ export function HRAdminDashboard() {
   const [selectedInternId, setSelectedInternId] = useState<number | null>(null)
   const [selectedDTRInternId, setSelectedDTRInternId] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
-  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc")
+  // Sort state management - centralized
+  const { sortDirection, setSortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
 
   const [interns, setInterns] = useState<InternRecord[]>([])
   const [logs, setLogs] = useState<TimeLog[]>([])
@@ -121,21 +122,25 @@ export function HRAdminDashboard() {
         const logsData = await logsRes.json()
         const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
 
-        // Map interns with their completed hours
-        const internsWithLogHours = internsData.map((intern) => {
+        // Map interns with their completed hours using centralized calculation
+        const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
           const internLogs = logsArray.filter(
             (log) => log.internId === intern.id
           )
-          // Use centralized calculation for consistent progress tracking
-          const completedHours = calculateInternshipProgress(internLogs)
+          // Use centralized calculation with edit request support for consistent progress tracking
+          const stats = await calculateTimeStatistics(internLogs, intern.id, {
+            includeEditRequests: true,
+            requiredHours: intern.internshipDetails?.requiredHours || 0
+          })
+          
           return {
             ...intern,
             internshipDetails: {
               ...intern.internshipDetails,
-              completedHours,
+              completedHours: stats.internshipProgress,
             },
           }
-        })
+        }))
 
         setInterns(internsWithLogHours)
         setLogs(logsArray)
@@ -209,19 +214,22 @@ export function HRAdminDashboard() {
         const internsRes = await fetch("/api/interns")
         if (internsRes.ok) {
           const internsData: InternRecord[] = await internsRes.json()
-          const internsWithLogHours = internsData.map((intern) => {
+          const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
             const internLogs = logsArray.filter(
               (log: TimeLog) => log.internId === intern.id
             )
-            const completedHours = calculateInternshipProgress(internLogs)
+            const stats = await calculateTimeStatistics(internLogs, intern.id, {
+              includeEditRequests: true,
+              requiredHours: intern.internshipDetails?.requiredHours || 0
+            })
             return {
               ...intern,
               internshipDetails: {
                 ...intern.internshipDetails,
-                completedHours,
+                completedHours: stats.internshipProgress,
               },
             }
-          })
+          }))
           setInterns(internsWithLogHours)
         }
       }
@@ -312,11 +320,11 @@ export function HRAdminDashboard() {
   const lastViewMode = useRef(viewMode)
   useEffect(() => {
     if (lastViewMode.current !== viewMode) {
-      if (viewMode === "logs") setSortDirection("asc")
-      if (viewMode === "overview") setSortDirection("desc")
+      // Always start with descending (newest first) for both modes
+      setSortDirection("desc")
       lastViewMode.current = viewMode
     }
-  }, [viewMode])
+  }, [viewMode, setSortDirection])
 
   /**
    * Optimized grouping by intern and date for DTR-style display
@@ -356,7 +364,7 @@ export function HRAdminDashboard() {
       }
     })
 
-    // Sort by date based on sortDirection
+    // Sort by date using centralized logic
     groupsWithInternInfo.sort((a, b) => {
       const aTime = new Date(a.datePart).getTime()
       const bTime = new Date(b.datePart).getTime()
@@ -395,19 +403,22 @@ export function HRAdminDashboard() {
         const internsRes = await fetch("/api/interns")
         if (internsRes.ok) {
           const internsData: InternRecord[] = await internsRes.json()
-          const internsWithLogHours = internsData.map((intern) => {
+          const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
             const internLogs = logsArray.filter(
               (log: TimeLog) => log.internId === intern.id
             )
-            const completedHours = calculateInternshipProgress(internLogs)
+            const stats = await calculateTimeStatistics(internLogs, intern.id, {
+              includeEditRequests: true,
+              requiredHours: intern.internshipDetails?.requiredHours || 0
+            })
             return {
               ...intern,
               internshipDetails: {
                 ...intern.internshipDetails,
-                completedHours,
+                completedHours: stats.internshipProgress,
               },
             }
-          })
+          }))
           setInterns(internsWithLogHours)
         }
       }
@@ -599,7 +610,8 @@ export function HRAdminDashboard() {
                     <TableRow>
                       <TableHead>Intern Details</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Today&apos;s Duration</TableHead>
+                      <TableHead>Regular Shift</TableHead>
+                      <TableHead>Overtime</TableHead>
                       <TableHead>Internship Progress</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -624,53 +636,174 @@ export function HRAdminDashboard() {
                               </div>
                             </div>
                           </TableCell>
-                          {/* Status badges for today's logs */}
+                          {/* Status badges for today's logs - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {intern.todayLogs?.length > 0 ? (
-                                intern.todayLogs.map((log: TodayLog, idx: number) => (
-                                  <span key={idx} className="flex items-center gap-2">
-                                    {log.timeIn && (
-                                      <Badge variant="outline" className="bg-green-50 text-green-700">
-                                        In: {new Date(log.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </Badge>
-                                    )}
-                                    {log.timeOut && (
-                                      <Badge variant="outline" className="bg-red-50 text-red-700">
-                                        Out: {new Date(log.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </Badge>
-                                    )}
-                                    {!log.timeIn && !log.timeOut && (
-                                      <Badge variant="outline" className="bg-yellow-50 text-yellow-700">
-                                        Pending
-                                      </Badge>
-                                    )}
-                                  </span>
-                                ))
+                                (() => {
+                                  // Convert TodayLog to TimeLogDisplay format
+                                  const timeLogDisplays: TimeLogDisplay[] = intern.todayLogs.map((log, idx) => ({
+                                    id: idx, // Use index as ID since TodayLog doesn't have IDs
+                                    time_in: log.timeIn,
+                                    time_out: log.timeOut,
+                                    status: log.timeOut ? 'completed' as const : 'pending' as const,
+                                    user_id: intern.id,
+                                    log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                    created_at: log.timeIn || new Date().toISOString(),
+                                    updated_at: log.timeOut || new Date().toISOString()
+                                  }))
+                                  
+                                  // Process into sessions
+                                  const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
+                                  
+                                  // Group sessions by continuity for display (similar to DTR logic)
+                                  const displaySessions = []
+                                  for (let i = 0; i < sessions.length; i++) {
+                                    const session = sessions[i]
+                                    
+                                    // For continuous sessions, only show one in/out pair
+                                    let showTimeIn = true
+                                    let showTimeOut = true
+                                    
+                                    if (session.isContinuousSession && i > 0) {
+                                      const prevSession = sessions[i - 1]
+                                      if (prevSession && prevSession.isContinuousSession) {
+                                        showTimeIn = false // Skip showing duplicate time-in for continuous sessions
+                                      }
+                                    }
+                                    
+                                    if (session.isContinuousSession && i < sessions.length - 1) {
+                                      const nextSession = sessions[i + 1]
+                                      if (nextSession && nextSession.isContinuousSession) {
+                                        showTimeOut = false // Skip showing intermediate time-outs for continuous sessions
+                                      }
+                                    }
+                                    
+                                    displaySessions.push(
+                                      <span key={i} className="flex items-center gap-2">
+                                        {session.timeIn && showTimeIn && (
+                                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                                            In: {new Date(session.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          </Badge>
+                                        )}
+                                        {session.timeOut && showTimeOut && (
+                                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                                            Out: {new Date(session.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          </Badge>
+                                        )}
+                                        {session.isActive && (
+                                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                            In Progress
+                                          </Badge>
+                                        )}
+                                      </span>
+                                    )
+                                  }
+                                  
+                                  return displaySessions.length > 0 ? displaySessions : (
+                                    <span className="text-gray-500">No sessions</span>
+                                  )
+                                })()
                               ) : (
                                 <span className="text-gray-500">No sessions</span>
                               )}
                             </div>
                           </TableCell>
-                          {/* Today's total duration */}
+                          {/* Today's Regular Shift duration */}
                           <TableCell>
                             <span className="font-mono font-semibold">
                               {(() => {
-                                const today = getLocalDateString(new Date().toISOString())
-                                let totalHours = 0
-                                if (intern.todayLogs && intern.todayLogs.length > 0) {
-                                  intern.todayLogs.forEach(log => {
-                                    if (log.timeIn && getLocalDateString(log.timeIn) === today) {
-                                      const outTime = log.timeOut ? log.timeOut : currentTime.toISOString()
-                                      const result = calculateTimeWorked(log.timeIn, outTime)
-                                      totalHours += result.hoursWorked
-                                    }
-                                  })
+                                if (!intern.todayLogs || intern.todayLogs.length === 0) {
+                                  return "0h 00m"
                                 }
-                                // Convert total hours back to hours and minutes format
-                                const hours = Math.floor(totalHours)
-                                const minutes = Math.floor((totalHours % 1) * 60)
-                                return `${hours}h ${minutes.toString().padStart(2, "0")}m`
+                                
+                                // Convert TodayLog to TimeLogDisplay format
+                                const timeLogDisplays: TimeLogDisplay[] = intern.todayLogs.map((log, idx) => ({
+                                  id: idx,
+                                  time_in: log.timeIn,
+                                  time_out: log.timeOut,
+                                  status: log.timeOut ? 'completed' as const : 'pending' as const,
+                                  user_id: intern.id,
+                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  created_at: log.timeIn || new Date().toISOString(),
+                                  updated_at: log.timeOut || new Date().toISOString()
+                                }))
+                                
+                                // Calculate accurate regular hours
+                                let totalRegularHours = 0
+                                let previousRegularHours = 0
+                                
+                                const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
+                                sessions.forEach(session => {
+                                  const accurateCalc = calculateAccurateSessionDuration(
+                                    session.logs,
+                                    currentTime,
+                                    previousRegularHours
+                                  )
+                                  totalRegularHours += accurateCalc.regularHours
+                                  previousRegularHours += accurateCalc.regularHours
+                                })
+                                
+                                return formatAccurateHours(totalRegularHours)
+                              })()}
+                            </span>
+                          </TableCell>
+                          {/* Today's Overtime duration */}
+                          <TableCell>
+                            <span className="font-mono font-semibold">
+                              {(() => {
+                                if (!intern.todayLogs || intern.todayLogs.length === 0) {
+                                  return "0h 00m"
+                                }
+                                
+                                // Convert TodayLog to TimeLogDisplay format
+                                const timeLogDisplays: TimeLogDisplay[] = intern.todayLogs.map((log, idx) => ({
+                                  id: idx,
+                                  time_in: log.timeIn,
+                                  time_out: log.timeOut,
+                                  status: log.timeOut ? 'completed' as const : 'pending' as const,
+                                  user_id: intern.id,
+                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  created_at: log.timeIn || new Date().toISOString(),
+                                  updated_at: log.timeOut || new Date().toISOString()
+                                }))
+                                
+                                // Calculate accurate overtime hours
+                                let totalOvertimeHours = 0
+                                let previousRegularHours = 0
+                                
+                                const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
+                                sessions.forEach(session => {
+                                  const accurateCalc = calculateAccurateSessionDuration(
+                                    session.logs,
+                                    currentTime,
+                                    previousRegularHours
+                                  )
+                                  totalOvertimeHours += accurateCalc.overtimeHours
+                                  previousRegularHours += accurateCalc.regularHours
+                                })
+                                
+                                // Apply styling based on overall overtime status
+                                const hasApprovedOvertime = sessions.some(s => s.overtimeStatus === "approved")
+                                const hasRejectedOvertime = sessions.some(s => s.overtimeStatus === "rejected") 
+                                const hasPendingOvertime = sessions.some(s => s.overtimeStatus === "pending" || s.overtimeStatus === "none")
+                                
+                                let className = "font-mono font-semibold"
+                                if (totalOvertimeHours > 0) {
+                                  if (hasApprovedOvertime) {
+                                    className += " text-purple-700"
+                                  } else if (hasRejectedOvertime) {
+                                    className += " text-gray-500"
+                                  } else if (hasPendingOvertime) {
+                                    className += " text-yellow-700"
+                                  }
+                                }
+                                
+                                return (
+                                  <span className={className}>
+                                    {formatAccurateHours(totalOvertimeHours)}
+                                  </span>
+                                )
                               })()}
                             </span>
                           </TableCell>
@@ -740,12 +873,9 @@ export function HRAdminDashboard() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      setSortDirection((prev) => (prev === "desc" ? "asc" : "desc"))
-                    }
+                    onClick={toggleSort}
                   >
-                    Sort by Date&nbsp;
-                    {sortDirection === "desc" ? "↓" : "↑"}
+                    {sortButtonText}
                   </Button>
                 </div>
               </div>
@@ -769,8 +899,7 @@ export function HRAdminDashboard() {
                       const { key, logs: logsForDate, datePart, internName, department } = group
                       
                       // Use centralized session processing
-                      const { sessions, totals } = processTimeLogSessions(logsForDate)
-                      const { totalRegularHours } = totals
+                      const { sessions } = processTimeLogSessions(logsForDate)
 
                       return (
                         <TableRow key={key}>
@@ -792,130 +921,191 @@ export function HRAdminDashboard() {
                               <span>{formatLogDate(datePart)}</span>
                             </div>
                           </TableCell>
-                          {/* Time In - Show all session time ins like DTR */}
+                          {/* Time In - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const sessionTimeIn = session.timeIn
-                                if (!sessionTimeIn) return null
-                                
-                                const badgeProps = getTimeBadgeProps(
-                                  sessionTimeIn,
-                                  session.sessionType,
-                                  "in",
-                                  session.overtimeStatus,
-                                  session.isContinuousSession
-                                )
-                                
-                                return (
-                                  <Badge key={i} variant="outline" className={badgeProps.className}>
-                                    {badgeProps.text}
-                                  </Badge>
-                                )
-                              })}
-                            </div>
-                          </TableCell>
-                          {/* Time Out - Show all session time outs like DTR */}
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const sessionTimeOut = session.timeOut || null
-                                
-                                if (sessionTimeOut) {
+                              {(() => {
+                                // Group sessions by continuity for display
+                                const displaySessions = []
+                                for (let i = 0; i < sessions.length; i++) {
+                                  const session = sessions[i]
+                                  if (!session.timeIn) continue
+                                  
+                                  // If this is a continuous session, only show the first time in
+                                  if (session.isContinuousSession && i > 0) {
+                                    const prevSession = sessions[i - 1]
+                                    if (prevSession && prevSession.isContinuousSession) {
+                                      continue // Skip showing duplicate time-in for continuous sessions
+                                    }
+                                  }
+                                  
                                   const badgeProps = getTimeBadgeProps(
-                                    sessionTimeOut,
-                                    session.sessionType,
-                                    "out",
+                                    session.timeIn,
+                                    session.isContinuousSession ? "regular" : session.sessionType,
+                                    "in",
                                     session.overtimeStatus,
                                     session.isContinuousSession
                                   )
-                                  return (
-                                    <Badge key={i} variant="outline" className={badgeProps.className}>
-                                      {badgeProps.text}
-                                    </Badge>
-                                  )
-                                } else {
-                                  const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
-                                  return (
+                                  
+                                  displaySessions.push(
                                     <Badge key={i} variant="outline" className={badgeProps.className}>
                                       {badgeProps.text}
                                     </Badge>
                                   )
                                 }
-                              })}
+                                return displaySessions
+                              })()}
                             </div>
                           </TableCell>
-                          {/* Regular Shift - Show per session + total like DTR */}
+                          {/* Time Out - Group continuous sessions */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                const isOvertimeOnlySession = session.isOvertimeSession
-                                if (isOvertimeOnlySession) {
-                                  return (
-                                    <Badge key={i} variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
-                                      0h 00m
-                                    </Badge>
+                              {(() => {
+                                // Group sessions by continuity for display
+                                const displaySessions = []
+                                for (let i = 0; i < sessions.length; i++) {
+                                  const session = sessions[i]
+                                  
+                                  // For continuous sessions, only show the last time out
+                                  if (session.isContinuousSession && i < sessions.length - 1) {
+                                    const nextSession = sessions[i + 1]
+                                    if (nextSession && nextSession.isContinuousSession) {
+                                      continue // Skip showing intermediate time-outs for continuous sessions
+                                    }
+                                  }
+                                  
+                                  if (session.timeOut) {
+                                    const badgeProps = getTimeBadgeProps(
+                                      session.timeOut,
+                                      session.isContinuousSession ? "regular" : session.sessionType,
+                                      "out",
+                                      session.overtimeStatus,
+                                      session.isContinuousSession
+                                    )
+                                    displaySessions.push(
+                                      <Badge key={i} variant="outline" className={badgeProps.className}>
+                                        {badgeProps.text}
+                                      </Badge>
+                                    )
+                                  } else {
+                                    const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
+                                    displaySessions.push(
+                                      <Badge key={i} variant="outline" className={badgeProps.className}>
+                                        {badgeProps.text}
+                                      </Badge>
+                                    )
+                                  }
+                                }
+                                return displaySessions
+                              })()}
+                            </div>
+                          </TableCell>
+                          {/* Regular Shift - Show per session with accurate calculation */}
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {(() => {
+                                let previousRegularHours = 0
+                                return sessions.map((session, i) => {
+                                  // Use accurate calculation instead of truncated session-utils
+                                  const accurateCalc = calculateAccurateSessionDuration(
+                                    session.logs,
+                                    new Date(),
+                                    previousRegularHours
                                   )
-                                } else {
-                                  // Use calculated regular hours from session
-                                  const sessionRegularHours = session.regularHours
-                                  const cappedHours = Math.min(sessionRegularHours, DAILY_REQUIRED_HOURS)
-                                  const displayHours = Math.floor(cappedHours)
-                                  const displayMinutes = Math.round((cappedHours % 1) * 60)
+                                  
+                                  const displayText = formatAccurateHours(accurateCalc.regularHours)
+                                  const badgeProps = {
+                                    variant: "outline" as const,
+                                    className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
+                                    text: displayText
+                                  }
+                                  
+                                  previousRegularHours += accurateCalc.regularHours
+                                  
                                   return (
                                     <Badge
                                       key={i}
-                                      variant="outline"
-                                      className={cappedHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300"}
+                                      variant={badgeProps.variant}
+                                      className={badgeProps.className}
                                     >
-                                      {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
+                                      {badgeProps.text}
                                     </Badge>
                                   )
-                                }
-                              })}
+                                })
+                              })()}
                               {sessions.length > 1 &&
                                 sessions.some(session => !session.isOvertimeSession) &&
                                 sessions.filter(session => !session.isOvertimeSession).length > 1 && (
                                   <Badge
                                     variant="outline"
-                                    className={
-                                      totalRegularHours > 0
-                                        ? "bg-blue-200 text-blue-800 border-blue-400 font-medium"
-                                        : "bg-gray-100 text-gray-700 border-gray-300"
-                                    }
+                                    className="bg-blue-200 text-blue-800 border-blue-400 font-medium"
                                   >
-                                    {truncateTo2Decimals(totalRegularHours)}h
+                                    Total: {formatAccurateHours(
+                                      sessions.reduce((total, session, i) => {
+                                        const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
+                                          sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                        return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).regularHours
+                                      }, 0)
+                                    )}
                                   </Badge>
                                 )}
                             </div>
                           </TableCell>
-                          {/* Overtime - Show per session like DTR */}
+                          {/* Overtime - Show per session with accurate calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
-                              {sessions.map((session, i) => {
-                                // Use calculated overtime hours and status from session
-                                const sessionOvertimeHours = session.overtimeHours
-                                const sessionOvertimeStatus = session.overtimeStatus
-                                const displayHours = Math.floor(sessionOvertimeHours)
-                                const displayMinutes = Math.round((sessionOvertimeHours % 1) * 60)
-                                return (
-                                  <Badge
-                                    key={i}
-                                    variant="outline"
-                                    className={
-                                      displayHours === 0 && displayMinutes === 0
-                                        ? "bg-gray-100 text-gray-700 border-gray-300"
-                                        : sessionOvertimeStatus === "approved"
-                                          ? "bg-purple-100 text-purple-700 border-purple-300"
-                                          : sessionOvertimeStatus === "rejected"
-                                            ? "bg-gray-100 text-gray-700 border-gray-300"
-                                            : "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                    }
-                                  >
-                                    {`${displayHours}h ${displayMinutes.toString().padStart(2, '0')}m`}
-                                  </Badge>
-                                )
-                              })}
+                              {(() => {
+                                let previousRegularHours = 0
+                                return sessions.map((session, i) => {
+                                  // Use accurate calculation for overtime
+                                  const accurateCalc = calculateAccurateSessionDuration(
+                                    session.logs,
+                                    new Date(),
+                                    previousRegularHours
+                                  )
+                                  
+                                  const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                                  const badgeProps = {
+                                    variant: "outline" as const,
+                                    className: accurateCalc.overtimeHours > 0 ? 
+                                      (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                       accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                       "bg-yellow-100 text-yellow-700 border-yellow-300") :
+                                      "bg-gray-100 text-gray-700 border-gray-300",
+                                    text: displayText
+                                  }
+                                  
+                                  previousRegularHours += accurateCalc.regularHours
+                                  
+                                  return (
+                                    <Badge
+                                      key={i}
+                                      variant={badgeProps.variant}
+                                      className={badgeProps.className}
+                                    >
+                                      {badgeProps.text}
+                                    </Badge>
+                                  )
+                                })
+                              })()}
+                              
+                              {/* Show overtime total if multiple sessions with overtime */}
+                              {sessions.length > 1 && 
+                               sessions.some(s => s.isOvertimeSession || 
+                                 calculateAccurateSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
+                                <Badge 
+                                  variant="outline" 
+                                  className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
+                                >
+                                  Total: {formatAccurateHours(
+                                    sessions.reduce((total, session, i) => {
+                                      const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
+                                        sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                      return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).overtimeHours
+                                    }, 0)
+                                  )}
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           {/* Actions: Only one pencil per date, pass all logs for the date */}

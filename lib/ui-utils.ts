@@ -289,3 +289,81 @@ export function calculateOvertimeHours(logs: TimeLogDisplay[], status: "approved
       return sum + result.hoursWorked
     }, 0)
 }
+
+/**
+ * Centralized sorting direction type
+ */
+export type SortDirection = "asc" | "desc"
+
+/**
+ * Centralized sort button component props and utilities
+ */
+export interface SortButtonConfig {
+  direction: SortDirection
+  onToggle: () => void
+  label?: string
+}
+
+/**
+ * Get sort button text based on direction
+ */
+export function getSortButtonText(direction: SortDirection, label: string = "Date"): string {
+  if (direction === "desc") {
+    return `Newest ${label} First ↓`
+  } else {
+    return `Oldest ${label} First ↑`
+  }
+}
+
+/**
+ * Sort logs by date with the given direction
+ */
+export function sortLogsByDate<T extends { created_at?: string; time_in?: string | null; date?: string }>(
+  logs: T[], 
+  direction: SortDirection = "desc"
+): T[] {
+  return [...logs].sort((a, b) => {
+    // Extract date for comparison - prefer time_in, then created_at, then date
+    const dateA = new Date(a.time_in || a.created_at || a.date || '').getTime()
+    const dateB = new Date(b.time_in || b.created_at || b.date || '').getTime()
+    
+    return direction === "desc" ? dateB - dateA : dateA - dateB
+  })
+}
+
+/**
+ * Sort grouped logs by date key with the given direction
+ */
+export function sortGroupedLogsByDate<T>(
+  groupedLogs: [string, T][], 
+  direction: SortDirection = "desc"
+): [string, T][] {
+  return [...groupedLogs].sort(([keyA], [keyB]) => {
+    // Extract date from key (handles formats like "internId-YYYY-MM-DD" or just "YYYY-MM-DD")
+    const datePartA = keyA.includes("-") ? keyA.split("-").slice(-3).join("-") : keyA
+    const datePartB = keyB.includes("-") ? keyB.split("-").slice(-3).join("-") : keyB
+    
+    const dateA = new Date(datePartA).getTime()
+    const dateB = new Date(datePartB).getTime()
+    
+    return direction === "desc" ? dateB - dateA : dateA - dateB
+  })
+}
+
+/**
+ * Hook for managing sort direction state
+ */
+export function useSortDirection(initialDirection: SortDirection = "desc") {
+  const [sortDirection, setSortDirection] = useState<SortDirection>(initialDirection)
+  
+  const toggleSort = useCallback(() => {
+    setSortDirection(prev => prev === "desc" ? "asc" : "desc")
+  }, [])
+  
+  return {
+    sortDirection,
+    setSortDirection,
+    toggleSort,
+    sortButtonText: getSortButtonText(sortDirection)
+  }
+}

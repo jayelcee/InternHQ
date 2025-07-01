@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield, Search, Calendar } from "lucide-react"
-import { calculateTimeWorked, truncateTo2Decimals } from "@/lib/time-utils"
-import { formatLogDate } from "@/lib/ui-utils"
+import { calculateTimeWorked } from "@/lib/time-utils"
+import { formatLogDate, TimeLogDisplay, useSortDirection, sortLogsByDate } from "@/lib/ui-utils"
+import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps } from "@/lib/session-utils"
 import { format } from "date-fns"
 
 /**
@@ -68,7 +69,8 @@ export function OvertimeLogsDashboard() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [migrationLoading, setMigrationLoading] = useState(false)
-  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("asc")
+  // Sort state management - centralized  
+  const { sortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus>({
     hasLongLogs: false,
     count: 0
@@ -355,7 +357,7 @@ export function OvertimeLogsDashboard() {
   /**
    * Get status badge component based on overtime status
    */
-  const getStatusBadge = (overtime_status: string) => {
+  /* const getStatusBadge = (overtime_status: string) => {
     const statusConfig = {
       approved: {
         className: "bg-green-50 text-green-700 border-green-300",
@@ -383,7 +385,7 @@ export function OvertimeLogsDashboard() {
         {config.label}
       </Badge>
     )
-  }
+  } */
 
   // Calculate summary statistics
   const stats = {
@@ -445,18 +447,8 @@ export function OvertimeLogsDashboard() {
   }
 
   // Sort filtered logs by date
-  const sortedLogs = [...filteredLogs].sort((a, b) => {
-    const aDate = new Date(a.time_in).getTime()
-    const bDate = new Date(b.time_in).getTime()
-    
-    // Handle invalid dates in sorting
-    if (isNaN(aDate) && isNaN(bDate)) return 0
-    if (isNaN(aDate)) return 1
-    if (isNaN(bDate)) return -1
-    
-    // Sort by date: ascending shows oldest first, descending shows newest first
-    return sortDirection === "desc" ? bDate - aDate : aDate - bDate
-  })
+  // Sort logs using centralized logic
+  const sortedLogs = sortLogsByDate(filteredLogs, sortDirection)
 
   if (loading) {
     return (
@@ -756,12 +748,9 @@ export function OvertimeLogsDashboard() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setSortDirection((prev) => (prev === "desc" ? "asc" : "desc"))
-                }
+                onClick={toggleSort}
               >
-                Sort by Date&nbsp;
-                {sortDirection === "desc" ? "↓" : "↑"}
+                {sortButtonText}
               </Button>
               {(stats.pending > 0 || filteredProcessedLogs.length > 0) && (
                 <Button
@@ -812,118 +801,256 @@ export function OvertimeLogsDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedLogs.map((log) => {
-                    const timeWorked = calculateTimeWorked(log.time_in, log.time_out)
+                  {(() => {
+                    // Convert overtime logs to TimeLogDisplay format
+                    const timeLogDisplays: TimeLogDisplay[] = sortedLogs.map(log => ({
+                      id: log.id,
+                      user_id: log.user_id,
+                      time_in: log.time_in,
+                      time_out: log.time_out,
+                      log_type: log.log_type as "overtime" | "extended_overtime",
+                      overtime_status: log.overtime_status,
+                      status: 'completed' as const, // Required field for TimeLogDisplay
+                      created_at: log.created_at,
+                      updated_at: log.updated_at
+                    }))
                     
-                    return (
-                      <TableRow key={log.id}>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">
-                              {log.user.first_name} {log.user.last_name}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {log.user.department} • {log.user.school}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-1">
-                              {log.overtime_status === "rejected" && "❌ Rejected - Not counted in progress"}
-                              {log.overtime_status === "approved" && "✅ Approved - Counted in progress"}
-                              {log.overtime_status === "pending" && "⏳ Pending approval - Awaiting admin decision"}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="text-xs text-gray-500">
-                              {new Date(log.time_in).toLocaleDateString("en-US", { weekday: "short" })}
-                            </span>
-                            <span>{formatLogDate(log.time_in.split("T")[0])}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
-                            {new Date(log.time_in).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
-                            {new Date(log.time_out).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="bg-gray-100 text-gray-700">
-                            {truncateTo2Decimals(timeWorked.hoursWorked)}h
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {getStatusBadge(log.overtime_status)}
-                        </TableCell>
-                        <TableCell>
-                          {log.approver_name ? (
-                            <div className="text-sm">
-                              <div>{log.approver_name}</div>
-                              <div className="text-xs text-gray-500">
-                                {log.approved_at ? new Date(log.approved_at).toLocaleDateString() : ""}
+                    // Group by user and date
+                    const groupedByUserAndDate = timeLogDisplays.reduce((groups, log) => {
+                      const user = sortedLogs.find(l => l.id === log.id)?.user
+                      if (!user || !log.time_in) return groups
+                      
+                      const dateKey = log.time_in.split('T')[0]
+                      const groupKey = `${user.id}-${dateKey}`
+                      
+                      if (!groups[groupKey]) {
+                        groups[groupKey] = {
+                          user,
+                          date: dateKey,
+                          logs: []
+                        }
+                      }
+                      groups[groupKey].logs.push(log)
+                      return groups
+                    }, {} as Record<string, { user: { id: number; first_name: string; last_name: string; email: string; role: string; department: string; school: string }, date: string, logs: TimeLogDisplay[] }>)
+                    
+                    // Process each group into sessions
+                    return Object.values(groupedByUserAndDate).map(group => {
+                      const { sessions } = processTimeLogSessions(group.logs)
+                      const overtimeSessions = sessions.filter(s => s.isOvertimeSession || s.overtimeHours > 0)
+                      
+                      return overtimeSessions.map((session, sessionIndex) => {
+                        // Determine the overall status for the session
+                        const sessionStatus: "pending" | "approved" | "rejected" = 
+                          session.overtimeStatus === "none" ? "pending" : session.overtimeStatus
+                        
+                        // Find the first log ID for actions (we'll act on all logs in the session)
+                        const firstLogId = session.logs[0]?.id
+                        const originalLog = sortedLogs.find(l => l.id === firstLogId)
+                        if (!originalLog) return null
+                        
+                        return (
+                          <TableRow key={`${group.user.id}-${group.date}-${sessionIndex}`}>
+                            <TableCell>
+                              <div className="text-sm">
+                                <div className="font-medium">
+                                  {group.user.first_name} {group.user.last_name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {group.user.department} • {group.user.school}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {session.logs.length > 1 && `Combined from ${session.logs.length} continuous logs`}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {sessionStatus === "rejected" && "❌ Rejected - Not counted in progress"}
+                                  {sessionStatus === "approved" && "✅ Approved - Counted in progress"}
+                                  {sessionStatus === "pending" && "⏳ Pending approval - Awaiting admin decision"}
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {log.overtime_status === "pending" && (
-                            <div className="flex gap-2 justify-end">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-green-600 border-green-300 hover:bg-green-50"
-                                onClick={() => handleStatusUpdate(log.id, "approved")}
-                                disabled={actionLoading === log.id}
-                              >
-                                {actionLoading === log.id ? (
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
-                                ) : (
-                                  <CheckCircle className="h-3 w-3" />
-                                )}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-600 border-red-300 hover:bg-red-50"
-                                onClick={() => handleStatusUpdate(log.id, "rejected")}
-                                disabled={actionLoading === log.id}
-                              >
-                                {actionLoading === log.id ? (
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                                ) : (
-                                  <XCircle className="h-3 w-3" />
-                                )}
-                              </Button>
-                            </div>
-                          )}
-                          {(log.overtime_status === "approved" || log.overtime_status === "rejected") && (
-                            <div className="flex gap-2 justify-end">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-gray-600 border-gray-300 hover:bg-gray-50"
-                                onClick={() => handleStatusUpdate(log.id, "pending")}
-                                disabled={actionLoading === log.id}
-                                title="Revert to pending status"
-                              >
-                                {actionLoading === log.id ? (
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
-                                ) : (
-                                  <Clock className="h-3 w-3" />
-                                )}
-                                Revert
-                              </Button>
-                            </div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span className="text-xs text-gray-500">
+                                  {new Date(group.date).toLocaleDateString("en-US", { weekday: "short" })}
+                                </span>
+                                <span>{formatLogDate(group.date)}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {session.timeIn && (() => {
+                                const badge = getTimeBadgeProps(
+                                  session.timeIn,
+                                  session.sessionType,
+                                  "in",
+                                  session.overtimeStatus,
+                                  session.isContinuousSession
+                                )
+                                return (
+                                  <Badge variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              {session.timeOut && (() => {
+                                const badge = getTimeBadgeProps(
+                                  session.timeOut,
+                                  session.sessionType,
+                                  "out",
+                                  session.overtimeStatus,
+                                  session.isContinuousSession
+                                )
+                                return (
+                                  <Badge variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const badge = getDurationBadgeProps(
+                                  session.overtimeHours,
+                                  "overtime",
+                                  session.overtimeStatus
+                                )
+                                return (
+                                  <Badge variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const badge = getTimeBadgeProps(
+                                  session.timeIn,
+                                  session.sessionType,
+                                  session.isActive ? "active" : "in",
+                                  session.overtimeStatus,
+                                  session.isContinuousSession
+                                )
+                                // Use status badge color for status column
+                                let statusBadgeProps = badge
+                                if (session.overtimeStatus === "approved") {
+                                  statusBadgeProps = {
+                                    ...badge,
+                                    className: "bg-green-50 text-green-700 border-green-300"
+                                  }
+                                } else if (session.overtimeStatus === "rejected") {
+                                  statusBadgeProps = {
+                                    ...badge,
+                                    className: "bg-red-50 text-red-700 border-red-300"
+                                  }
+                                } else if (session.overtimeStatus === "pending" || session.overtimeStatus === "none") {
+                                  statusBadgeProps = {
+                                    ...badge,
+                                    className: "bg-yellow-50 text-yellow-700 border-yellow-300"
+                                  }
+                                }
+                                return (
+                                  <Badge variant={statusBadgeProps.variant} className={statusBadgeProps.className}>
+                                    {session.overtimeStatus === "approved" && (
+                                      <CheckCircle className="w-3 h-3 mr-1" />
+                                    )}
+                                    {session.overtimeStatus === "rejected" && (
+                                      <XCircle className="w-3 h-3 mr-1" />
+                                    )}
+                                    {(session.overtimeStatus === "pending" || session.overtimeStatus === "none") && (
+                                      <Clock className="w-3 h-3 mr-1" />
+                                    )}
+                                    {session.overtimeStatus === "approved" && "Approved"}
+                                    {session.overtimeStatus === "rejected" && "Rejected"}
+                                    {(session.overtimeStatus === "pending" || session.overtimeStatus === "none") && "Pending"}
+                                  </Badge>
+                                )
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              {originalLog.approver_name ? (
+                                <div className="text-sm">
+                                  <div>{originalLog.approver_name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {originalLog.approved_at ? new Date(originalLog.approved_at).toLocaleDateString() : ""}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {sessionStatus === "pending" && (
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-green-600 border-green-300 hover:bg-green-50"
+                                    onClick={async () => {
+                                      // Approve all logs in this session
+                                      for (const log of session.logs) {
+                                        await handleStatusUpdate(log.id, "approved")
+                                      }
+                                    }}
+                                    disabled={actionLoading === firstLogId}
+                                  >
+                                    {actionLoading === firstLogId ? (
+                                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
+                                    ) : (
+                                      <CheckCircle className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 border-red-300 hover:bg-red-50"
+                                    onClick={async () => {
+                                      // Reject all logs in this session
+                                      for (const log of session.logs) {
+                                        await handleStatusUpdate(log.id, "rejected")
+                                      }
+                                    }}
+                                    disabled={actionLoading === firstLogId}
+                                  >
+                                    {actionLoading === firstLogId ? (
+                                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                                    ) : (
+                                      <XCircle className="h-3 w-3" />
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                              {(sessionStatus === "approved" || sessionStatus === "rejected") && (
+                                <div className="flex gap-2 justify-end">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                                    onClick={async () => {
+                                      // Revert all logs in this session to pending
+                                      for (const log of session.logs) {
+                                        await handleStatusUpdate(log.id, "pending")
+                                      }
+                                    }}
+                                    disabled={actionLoading === firstLogId}
+                                    title="Revert to pending status"
+                                  >
+                                    {actionLoading === firstLogId ? (
+                                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
+                                    ) : (
+                                      <Clock className="h-3 w-3" />
+                                    )}
+                                    Revert
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }).filter(Boolean) // Remove null entries
+                    }).flat()
+                  })()}
                 </TableBody>
               </Table>
             </div>

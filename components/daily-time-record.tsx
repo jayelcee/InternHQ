@@ -7,9 +7,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps, getTotalBadgeProps } from "@/lib/session-utils"
-import { filterLogsByInternId } from "@/lib/time-utils"
+import { TimeLogDisplay, groupLogsByDate, formatLogDate, useSortDirection, sortGroupedLogsByDate } from "@/lib/ui-utils"
+import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
+import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
+
+interface EditLogRequest {
+  id: number
+  logId: number
+  internName: string
+  requestedTimeIn: string | null
+  requestedTimeOut: string | null
+  originalTimeIn: string | null
+  originalTimeOut: string | null
+  status: "pending" | "approved" | "rejected"
+  requestedAt: string
+}
 
 interface DailyTimeRecordProps {
   logs: TimeLogDisplay[]
@@ -27,9 +39,75 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
   const { user } = useAuth()
   const [isUpdating, setIsUpdating] = useState(false)
   const [showActions, setShowActions] = useState(false)
-  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc")
+  // Sort state management - centralized
+  const { sortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
+  const [editRequests, setEditRequests] = useState<EditLogRequest[]>([])
   const isAdmin = user?.role === "admin"
   const isIntern = user?.role === "intern"
+
+  // Fetch edit requests to show pending status
+  const fetchEditRequestsData = async () => {
+    try {
+      const response = await fetch("/api/admin/time-log-edit-requests", {
+        credentials: "include",
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setEditRequests(Array.isArray(data) ? data : data.requests || [])
+      }
+    } catch (error) {
+      console.error("Error fetching edit requests:", error)
+      // Don't block the DTR if edit requests fail
+    }
+  }
+
+  useEffect(() => {
+    fetchEditRequestsData()
+  }, [logs])
+
+  // Helper function to get pending edit request for a log
+  const getPendingEditRequest = (logId: number): EditLogRequest | null => {
+    return editRequests.find(req => req.logId === logId && req.status === "pending") || null
+  }
+
+  // Helper function to get effective time (requested if pending, otherwise original)
+  // const getEffectiveTime = (log: TimeLogDisplay, field: "time_in" | "time_out"): string | null => {
+  //   const pendingRequest = getPendingEditRequest(log.id)
+  //   if (pendingRequest) {
+  //     return field === "time_in" ? pendingRequest.requestedTimeIn : pendingRequest.requestedTimeOut
+  //   }
+  //   return log[field]
+  // }
+
+  // Helper function to create modified log with pending request data
+  const getLogWithPendingData = (log: TimeLogDisplay): TimeLogDisplay => {
+    const pendingRequest = getPendingEditRequest(log.id)
+    if (pendingRequest) {
+      return {
+        ...log,
+        time_in: pendingRequest.requestedTimeIn || log.time_in,
+        time_out: pendingRequest.requestedTimeOut || log.time_out,
+      }
+    }
+    return log
+  }
+
+  // Check if a log has pending edit request
+  const hasPendingEdit = (logId: number): boolean => {
+    return getPendingEditRequest(logId) !== null
+  }
+
+  // Get yellow badge props for pending edit requests
+  // const getPendingBadgeProps = (originalBadgeProps: any, logId: number) => {
+  //   if (hasPendingEdit(logId)) {
+  //     return {
+  //       ...originalBadgeProps,
+  //       variant: "outline" as const,
+  //       className: "bg-yellow-100 text-yellow-700 border-yellow-300"
+  //     }
+  //   }
+  //   return originalBadgeProps
+  // }
 
   const handleTimeLogUpdate = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
     if (!isAdmin) return
@@ -52,6 +130,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       if (onTimeLogUpdate) {
         onTimeLogUpdate()
       }
+      // Refetch edit requests after time log update
+      fetchEditRequestsData()
     } catch (error) {
       console.error("Error updating time log:", error)
     } finally {
@@ -76,6 +156,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       if (onTimeLogUpdate) {
         onTimeLogUpdate()
       }
+      // Refetch edit requests after time log update
+      fetchEditRequestsData()
     } catch (error) {
       console.error("Error deleting time log:", error)
     } finally {
@@ -99,6 +181,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
         throw new Error("Failed to submit edit request")
       }
       if (onTimeLogUpdate) onTimeLogUpdate()
+      // Refetch edit requests after submitting edit request
+      fetchEditRequestsData()
     } catch (error) {
       console.error("Error submitting edit request:", error)
     } finally {
@@ -157,10 +241,10 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setSortDirection((prev) => (prev === "desc" ? "asc" : "desc"))}
+              onClick={toggleSort}
               type="button"
             >
-              Sort by Date&nbsp;{sortDirection === "desc" ? "↓" : "↑"}
+              {sortButtonText}
             </Button>
             {isIntern && (
               !showActions ? (
@@ -202,19 +286,23 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
               </TableRow>
             </TableHeader>
             <TableBody>
-              {groupLogsByDate(
-                filterLogsByInternId(logs, internId)
+              {sortGroupedLogsByDate(
+                groupLogsByDate(
+                  filterLogsByInternId(logs, internId)
+                ), 
+                sortDirection
               )
-                .sort(([keyA], [keyB]) => {
-                  const dateA = new Date(keyA.split("-").slice(-3).join("-")).getTime()
-                  const dateB = new Date(keyB.split("-").slice(-3).join("-")).getTime()
-                  return sortDirection === "desc" ? dateB - dateA : dateA - dateB
-                })
                 .map(([key, logsForDate]) => {
                   const datePart = key.split("-").slice(-3).join("-")
                   
-                  // Use centralized session processing
-                  const { sessions, totals } = processTimeLogSessions(logsForDate)
+                  // Transform logs to use pending request data if available
+                  const logsWithPendingData = logsForDate.map(log => getLogWithPendingData(log))
+                  
+                  // Check if any log in this date has pending edit requests
+                  const hasAnyPendingEdit = logsForDate.some(log => hasPendingEdit(log.id))
+                  
+                  // Use centralized session processing with modified logs
+                  const { sessions } = processTimeLogSessions(logsWithPendingData)
 
                   return (
                     <TableRow key={key}>
@@ -232,13 +320,23 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                         <div className="flex flex-col gap-1">
                           {sessions.map((session, i) => {
                             if (!session.timeIn) return null
-                            const badgeProps = getTimeBadgeProps(
+                            let badgeProps = getTimeBadgeProps(
                               session.timeIn,
                               session.sessionType,
                               "in",
                               session.overtimeStatus === "none" ? undefined : session.overtimeStatus,
                               session.isContinuousSession
                             )
+                            
+                            // Apply yellow badge styling if any log in this date has pending edit
+                            if (hasAnyPendingEdit) {
+                              badgeProps = {
+                                ...badgeProps,
+                                variant: "outline" as const,
+                                className: "bg-yellow-100 text-yellow-700 border-yellow-300"
+                              }
+                            }
+                            
                             return (
                               <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
                                 {badgeProps.text}
@@ -252,7 +350,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       <TableCell>
                         <div className="flex flex-col gap-1">
                           {sessions.map((session, i) => {
-                            const badgeProps = session.isActive
+                            let badgeProps = session.isActive
                               ? getTimeBadgeProps(null, session.sessionType, "active")
                               : getTimeBadgeProps(
                                   session.timeOut,
@@ -261,6 +359,16 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                                   session.overtimeStatus === "none" ? undefined : session.overtimeStatus,
                                   session.isContinuousSession
                                 )
+                            
+                            // Apply yellow badge styling if any log in this date has pending edit
+                            if (hasAnyPendingEdit) {
+                              badgeProps = {
+                                ...badgeProps,
+                                variant: "outline" as const,
+                                className: "bg-yellow-100 text-yellow-700 border-yellow-300"
+                              }
+                            }
+                            
                             return (
                               <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
                                 {badgeProps.text}
@@ -273,23 +381,60 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       {/* Regular Shift Column */}
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {sessions.map((session, i) => {
-                            const badgeProps = getDurationBadgeProps(session.regularHours, "regular")
-                            return (
-                              <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
-                                {badgeProps.text}
-                              </Badge>
-                            )
-                          })}
+                          {(() => {
+                            let previousRegularHours = 0
+                            return sessions.map((session, i) => {
+                              // Use accurate calculation instead of centralized truncation
+                              const accurateCalc = calculateAccurateSessionDuration(
+                                session.logs,
+                                new Date(),
+                                previousRegularHours
+                              )
+                              
+                              const displayText = formatAccurateHours(accurateCalc.regularHours)
+                              let badgeProps = {
+                                variant: "outline" as const,
+                                className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
+                                text: displayText
+                              }
+                              
+                              // Apply yellow badge styling if any log in this date has pending edit
+                              if (hasAnyPendingEdit) {
+                                badgeProps = {
+                                  ...badgeProps,
+                                  className: "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                }
+                              }
+                              
+                              // Update tracking variables for next iteration
+                              previousRegularHours += accurateCalc.regularHours
+                              
+                              return (
+                                <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
+                                  {badgeProps.text}
+                                </Badge>
+                              )
+                            })
+                          })()}
                           
                           {/* Show total only if multiple non-overtime sessions */}
                           {sessions.length > 1 && 
                            sessions.filter(s => !s.isOvertimeSession).length > 1 && (
                             <Badge 
                               variant="outline" 
-                              className={getTotalBadgeProps(totals.totalRegularHours, "regular").className}
+                              className={
+                                hasAnyPendingEdit 
+                                  ? "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                  : "bg-blue-200 text-blue-800 border-blue-400 font-medium"
+                              }
                             >
-                              {getTotalBadgeProps(totals.totalRegularHours, "regular").text}
+                              Total: {formatAccurateHours(
+                                sessions.reduce((total, session, i) => {
+                                  const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
+                                    sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                  return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).regularHours
+                                }, 0)
+                              )}
                             </Badge>
                           )}
                         </div>
@@ -298,18 +443,67 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       {/* Overtime Column */}
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {sessions.map((session, i) => {
-                            const badgeProps = getDurationBadgeProps(
-                              session.overtimeHours,
-                              "overtime",
-                              session.overtimeStatus
-                            )
-                            return (
-                              <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
-                                {badgeProps.text}
-                              </Badge>
-                            )
-                          })}
+                          {(() => {
+                            let previousRegularHours = 0
+                            return sessions.map((session, i) => {
+                              // Use accurate calculation for overtime
+                              const accurateCalc = calculateAccurateSessionDuration(
+                                session.logs,
+                                new Date(),
+                                previousRegularHours
+                              )
+                              
+                              const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                              let badgeProps = {
+                                variant: "outline" as const,
+                                className: accurateCalc.overtimeHours > 0 ? 
+                                  (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                   accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                   "bg-yellow-100 text-yellow-700 border-yellow-300") :
+                                  "bg-gray-100 text-gray-700 border-gray-300",
+                                text: displayText
+                              }
+                              
+                              // Apply yellow badge styling if any log in this date has pending edit
+                              if (hasAnyPendingEdit) {
+                                badgeProps = {
+                                  ...badgeProps,
+                                  className: "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                }
+                              }
+                              
+                              // Update tracking variables for next iteration
+                              previousRegularHours += accurateCalc.regularHours
+                              
+                              return (
+                                <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
+                                  {badgeProps.text}
+                                </Badge>
+                              )
+                            })
+                          })()}
+                          
+                          {/* Show overtime total only if multiple sessions with overtime */}
+                          {sessions.length > 1 && 
+                           sessions.some(s => s.isOvertimeSession || 
+                             calculateAccurateSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
+                            <Badge 
+                              variant="outline" 
+                              className={
+                                hasAnyPendingEdit 
+                                  ? "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                  : "bg-purple-200 text-purple-800 border-purple-400 font-medium"
+                              }
+                            >
+                              Total: {formatAccurateHours(
+                                sessions.reduce((total, session, i) => {
+                                  const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
+                                    sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                  return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).overtimeHours
+                                }, 0)
+                              )}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                       
