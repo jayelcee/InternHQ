@@ -206,6 +206,9 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
       overtimeStatus = 'pending'
     }
     
+    // Truncate time to minute
+    const timeToUse = time ? truncateToMinute(time) : sql`date_trunc('minute', NOW())`
+    
     // Clock in with appropriate log type
     await sql`
       INSERT INTO time_logs (
@@ -213,7 +216,7 @@ export async function clockIn(userId: string, time?: string): Promise<{ success:
       )
       VALUES (
         ${userIdNum}, 
-        ${time ?? sql`NOW()`}, 
+        ${timeToUse}, 
         'pending', 
         ${logType},
         ${overtimeStatus},
@@ -249,7 +252,10 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
     
     const log = activeLog[0]
     const timeIn = new Date(log.time_in)
+    // Truncate timeOut to minute
     const timeOut = time ? new Date(time) : new Date()
+    timeOut.setSeconds(0, 0)
+    // Calculate total hours for this session
     const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
     
     // Handle based on the log type
@@ -257,7 +263,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
       // For overtime and extended overtime logs, just complete them as-is
       await sql`
         UPDATE time_logs
-        SET time_out = ${timeOut.toISOString()}, 
+        SET time_out = ${truncateToMinute(timeOut)}, 
             status = 'completed',
             updated_at = NOW()
         WHERE id = ${log.id}
@@ -270,6 +276,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
         
         // Calculate cutoff time (9 hours from start)
         const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
         
         // Use the timeIn date to determine "today" for deleting any existing overtime logs
         const today = timeIn.toISOString().split('T')[0] // Get YYYY-MM-DD format
@@ -282,7 +289,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
           // Update the regular log to end at exactly 9 hours
           await tx`
             UPDATE time_logs
-            SET time_out = ${regularCutoff.toISOString()}, 
+            SET time_out = ${truncateToMinute(regularCutoff)}, 
                 status = 'completed', 
                 log_type = 'regular',
                 updated_at = NOW()
@@ -305,6 +312,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
         // Overtime scenario - split the log into regular, overtime, and potentially extended overtime
         const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
         const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
+        overtimeCutoff.setSeconds(0, 0)
         
         const hasExtendedOvertime = totalHours > (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS)
         
@@ -313,7 +322,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
           // Update the original log to be regular time (first 9 hours)
           await tx`
             UPDATE time_logs
-            SET time_out = ${regularCutoff.toISOString()}, 
+            SET time_out = ${truncateToMinute(regularCutoff)}, 
                 status = 'completed', 
                 log_type = 'regular',
                 updated_at = NOW()
@@ -329,8 +338,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
               )
               VALUES (
                 ${Number(userId)}, 
-                ${regularCutoff.toISOString()}, 
-                ${overtimeCutoff.toISOString()}, 
+                ${truncateToMinute(regularCutoff)}, 
+                ${truncateToMinute(overtimeCutoff)}, 
                 'completed', 
                 'overtime', 
                 'pending',
@@ -348,8 +357,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
               )
               VALUES (
                 ${Number(userId)}, 
-                ${overtimeCutoff.toISOString()}, 
-                ${timeOut.toISOString()}, 
+                ${truncateToMinute(overtimeCutoff)}, 
+                ${truncateToMinute(timeOut)}, 
                 'completed', 
                 'extended_overtime', 
                 'pending',
@@ -367,8 +376,8 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
               )
               VALUES (
                 ${Number(userId)}, 
-                ${regularCutoff.toISOString()}, 
-                ${timeOut.toISOString()}, 
+                ${truncateToMinute(regularCutoff)}, 
+                ${truncateToMinute(timeOut)}, 
                 'completed', 
                 'overtime', 
                 'pending',
@@ -383,7 +392,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
         // For logs <= 9 hours, just complete them normally as regular
         await sql`
           UPDATE time_logs
-          SET time_out = ${timeOut.toISOString()}, 
+          SET time_out = ${truncateToMinute(timeOut)}, 
               status = 'completed', 
               log_type = 'regular',
               updated_at = NOW()
@@ -712,29 +721,14 @@ export async function getAllTimeLogsWithDetails(): Promise<TimeLogWithDetails[]>
     created_at: row.created_at,
     updated_at: row.updated_at,
     duration: row.time_in && row.time_out
-      ? calculateDuration(row.time_in, row.time_out)
+      ? calculateTimeWorked(row.time_in, row.time_out).duration
       : null,
     hoursWorked: row.time_in && row.time_out
-      ? calculateHours(row.time_in, row.time_out)
+      ? calculateTimeWorked(row.time_in, row.time_out).hoursWorked
       : 0,
     department: row.department || "",
     school: row.school || "",
   })) as TimeLogWithDetails[]
-}
-
-// --- Helper Functions ---
-
-// These functions are now deprecated - use calculateTimeWorked from time-utils.ts instead
-// Kept for backward compatibility but should be replaced with centralized functions
-
-function calculateDuration(timeIn: string, timeOut: string) {
-  const result = calculateTimeWorked(timeIn, timeOut)
-  return result.duration
-}
-
-function calculateHours(timeIn: string, timeOut: string) {
-  const result = calculateTimeWorked(timeIn, timeOut)
-  return result.hoursWorked
 }
 
 // --- Intern List ---
@@ -968,13 +962,13 @@ export async function updateTimeLog(timeLogId: number, updates: {
 
     if (updates.time_in !== undefined) {
       updateFields.push(`time_in = $${paramCount}`)
-      updateValues.push(updates.time_in)
+      updateValues.push(truncateToMinute(updates.time_in))
       paramCount++
     }
 
     if (updates.time_out !== undefined) {
       updateFields.push(`time_out = $${paramCount}`)
-      updateValues.push(updates.time_out)
+      updateValues.push(truncateToMinute(updates.time_out))
       paramCount++
     }
 
@@ -1203,13 +1197,19 @@ export async function migrateExistingLongLogs(): Promise<{
       try {
         const timeIn = new Date(log.time_in)
         const timeOut = new Date(log.time_out)
+        // Truncate to minute
+        timeIn.setSeconds(0, 0)
+        timeOut.setSeconds(0, 0)
+        // Calculate total hours for this log
         const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
-        
         if (totalHours <= DAILY_REQUIRED_HOURS) continue // Skip if already within limits
 
         // Calculate split points
         const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-        const overtimeStartTime = new Date(regularEndTime.getTime() + (60 * 1000)) // 1 min gap
+        regularEndTime.setSeconds(0, 0)
+        // Overtime should start exactly at the end of regular time (no 1-minute gap)
+        const overtimeStartTime = new Date(regularEndTime.getTime())
+        overtimeStartTime.setSeconds(0, 0)
 
         // Begin transaction for atomic operation
         await sql.begin(async (tx) => {
@@ -1217,12 +1217,10 @@ export async function migrateExistingLongLogs(): Promise<{
             // For regular logs: Update to regular hours only, create overtime log
             await tx`
               UPDATE time_logs
-              SET time_out = ${regularEndTime.toISOString()}, 
+              SET time_out = ${truncateToMinute(regularEndTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
-            
-            // Create overtime log for remaining time
             await tx`
               INSERT INTO time_logs (
                 user_id, time_in, time_out, status, 
@@ -1230,8 +1228,8 @@ export async function migrateExistingLongLogs(): Promise<{
               )
               VALUES (
                 ${log.user_id}, 
-                ${overtimeStartTime.toISOString()}, 
-                ${log.time_out}, 
+                ${truncateToMinute(overtimeStartTime)}, 
+                ${truncateToMinute(timeOut)}, 
                 'completed', 
                 'overtime', 
                 'pending', 
@@ -1248,19 +1246,17 @@ export async function migrateExistingLongLogs(): Promise<{
               )
               VALUES (
                 ${log.user_id}, 
-                ${log.time_in}, 
-                ${regularEndTime.toISOString()}, 
-                'completed', 
-                'regular', 
-                ${log.created_at}, 
+                ${truncateToMinute(timeIn)}, 
+                ${truncateToMinute(regularEndTime)}, 
+                'completed',
+                'regular',
+                ${log.created_at},
                 NOW()
               )
             `
-            
-            // Update the overtime log to start after regular hours
             await tx`
               UPDATE time_logs
-              SET time_in = ${overtimeStartTime.toISOString()}, 
+              SET time_in = ${truncateToMinute(overtimeStartTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
@@ -1285,4 +1281,229 @@ export async function migrateExistingLongLogs(): Promise<{
       errors: [...errors, `Migration failed: ${error instanceof Error ? error.message : 'Unknown error'}`] 
     }
   }
+}
+
+/**
+ * Creates a time log edit request
+ */
+export async function createTimeLogEditRequest(params: {
+  logId: number
+  requestedBy: number | string
+  requestedTimeIn?: string
+  requestedTimeOut?: string
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Always fetch the original time_in and time_out from the time_logs table
+    const logRes = await sql`
+      SELECT time_in, time_out FROM time_logs WHERE id = ${params.logId}
+    `
+    if (logRes.length === 0) {
+      return { success: false, error: "Time log not found" }
+    }
+    const originalTimeIn = logRes[0].time_in
+    const originalTimeOut = logRes[0].time_out
+
+    await sql`
+      INSERT INTO time_log_edit_requests (
+        log_id, 
+        original_time_in, 
+        original_time_out, 
+        requested_time_in, 
+        requested_time_out, 
+        status, 
+        requested_by
+      )
+      VALUES (
+        ${params.logId},
+        ${originalTimeIn},
+        ${originalTimeOut},
+        ${params.requestedTimeIn ? truncateToMinute(params.requestedTimeIn) : null},
+        ${params.requestedTimeOut ? truncateToMinute(params.requestedTimeOut) : null},
+        'pending',
+        ${params.requestedBy}
+      )
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error creating time log edit request:", error)
+    return { success: false, error: "Failed to create edit request" }
+  }
+}
+
+/**
+ * Revert a time log to its original time_in and time_out using the edit request.
+ * This should be called when an edit request is reverted to 'pending'.
+ */
+export async function revertTimeLogToOriginal(editRequestId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get the edit request and its associated log
+    const req = await sql`
+      SELECT log_id, original_time_in, original_time_out
+      FROM time_log_edit_requests
+      WHERE id = ${editRequestId}
+    `
+    if (req.length === 0) {
+      return { success: false, error: "Edit request not found" }
+    }
+    const { log_id, original_time_in, original_time_out } = req[0]
+    // Update the time log with the original values
+    await sql`
+      UPDATE time_logs
+      SET time_in = ${truncateToMinute(original_time_in)}, time_out = ${truncateToMinute(original_time_out)}, updated_at = NOW()
+      WHERE id = ${log_id}
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error reverting time log to original:", error)
+    return { success: false, error: "Failed to revert time log" }
+  }
+}
+
+/**
+ * Approve or reject a time log edit request (admin only)
+ * If approved, update the time log and recalculate regular/overtime split.
+ * Also ensures DTR duration is recalculated by removing old logs and inserting new ones.
+ */
+export async function updateTimeLogEditRequest(
+  editRequestId: number,
+  action: "approve" | "reject"
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // Get the edit request and its associated log
+    const req = await sql`
+      SELECT * FROM time_log_edit_requests WHERE id = ${editRequestId}
+    `
+    if (req.length === 0) {
+      return { success: false, error: "Edit request not found" }
+    }
+    const editReq = req[0]
+    const logId = editReq.log_id
+    const requestedTimeIn = editReq.requested_time_in
+    const requestedTimeOut = editReq.requested_time_out
+
+    if (action === "approve") {
+      // Fetch the log to get user_id and created_at
+      const logRes = await sql`SELECT * FROM time_logs WHERE id = ${logId}`
+      if (logRes.length === 0) {
+        return { success: false, error: "Time log not found" }
+      }
+      const log = logRes[0]
+      const userId = log.user_id
+      const createdAt = log.created_at
+
+      // Remove all logs for this user on this date (to avoid duplicate durations)
+      const dateKey = new Date(requestedTimeIn).toISOString().slice(0, 10)
+      await sql`
+        DELETE FROM time_logs
+        WHERE user_id = ${userId}
+          AND time_in::date = ${dateKey}
+      `
+
+      // Calculate new duration
+      const timeIn = new Date(requestedTimeIn)
+      const timeOut = new Date(requestedTimeOut)
+      timeIn.setSeconds(0, 0)
+      timeOut.setSeconds(0, 0)
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+
+      // If duration > DAILY_REQUIRED_HOURS, split into regular and overtime
+      if (totalHours > DAILY_REQUIRED_HOURS) {
+        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
+        // Insert regular log
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${truncateToMinute(timeIn)},
+            ${truncateToMinute(regularCutoff)},
+            'completed',
+            'regular',
+            ${createdAt},
+            NOW()
+          )
+        `
+        // Insert overtime log
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${truncateToMinute(regularCutoff)},
+            ${truncateToMinute(timeOut)},
+            'completed',
+            'overtime',
+            'pending',
+            ${createdAt},
+            NOW()
+          )
+        `
+      } else {
+        // Just insert a regular log with the new times
+        await sql`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId},
+            ${truncateToMinute(timeIn)},
+            ${truncateToMinute(timeOut)},
+            'completed',
+            'regular',
+            ${createdAt},
+            NOW()
+          )
+        `
+      }
+    } else if (action === "reject") {
+      // If rejected, do nothing to the time log
+    }
+
+    // Update the edit request status
+    await sql`
+      UPDATE time_log_edit_requests
+      SET status = ${action}, reviewed_at = NOW()
+      WHERE id = ${editRequestId}
+    `
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating time log edit request:", error)
+    return { success: false, error: "Failed to update edit request" }
+  }
+}
+
+// Helper to truncate a Date or ISO string to minute precision
+function truncateToMinute(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date
+  d.setSeconds(0, 0)
+  return d.toISOString()
+}
+
+/**
+ * Checks if there are any long logs that need to be split (for all users).
+ * Returns { hasLongLogs: boolean }
+ */
+export async function checkLongLogs(): Promise<{ hasLongLogs: boolean }> {
+  const res = await sql`
+    SELECT COUNT(*) AS count
+    FROM time_logs
+    WHERE status = 'completed'
+      AND time_in IS NOT NULL
+      AND time_out IS NOT NULL
+      AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
+      AND (
+        log_type = 'regular'
+        OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+      )
+  `
+  return { hasLongLogs: Number(res[0]?.count) > 0 }
+}
+
+/**
+ * Runs the migration to split all long logs (for all users).
+ * Returns { success, processed, errors }
+ */
+export async function migrateLongLogs(): Promise<{ success: boolean; processed: number; errors: string[] }> {
+  // Just call the existing migrateExistingLongLogs function
+  return migrateExistingLongLogs()
 }

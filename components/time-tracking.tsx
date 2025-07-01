@@ -8,9 +8,9 @@ import { useState } from "react"
 import { DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS } from "@/lib/time-utils"
 
 /**
- * Props for the RegularTimeTracking component
+ * Props for the TimeTracking component
  */
-interface RegularTimeTrackingProps {
+interface TimeTrackingProps {
   isTimedIn: boolean
   timeInTimestamp: Date | null
   actionLoading: boolean
@@ -32,9 +32,9 @@ interface RegularTimeTrackingProps {
 }
 
 /**
- * RegularTimeTracking component handles manual time tracking functionality for interns.
+ * TimeTracking component handles manual time tracking functionality for interns.
  */
-export function RegularTimeTracking({
+export function TimeTracking({
   isTimedIn,
   timeInTimestamp,
   actionLoading,
@@ -45,6 +45,7 @@ export function RegularTimeTracking({
   handleTimeOut,
   onOvertimeConfirmationShow,
   onOvertimeConfirmationHide,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isOvertimeSession = false,
   isOvertimeIn = false,
   overtimeInTimestamp = null,
@@ -53,7 +54,7 @@ export function RegularTimeTracking({
   todayTotalHours = 0,
   hasReachedDailyRequirement = false,
   hasReachedOvertimeLimit = false,
-}: RegularTimeTrackingProps) {
+}: TimeTrackingProps) {
   const [showOvertimeDialog, setShowOvertimeDialog] = useState(false)
   const [overtimeDialogData, setOvertimeDialogData] = useState<{
     sessionDuration: string
@@ -101,8 +102,63 @@ export function RegularTimeTracking({
   const nextWillBeExtendedOvertime = hasReachedOvertimeLimit && !currentSessionActive
   const nextWillBeOvertime = hasReachedDailyRequirement && !hasReachedOvertimeLimit && !currentSessionActive
 
-  // Handle forgotten timeout scenario - when user has worked more than required hours total today
+  // Handle timeout with overtime confirmation when needed
   const handleTimeOutWithConfirmation = () => {
+    // Check for separate overtime session timeout
+    if (isOvertimeIn && overtimeInTimestamp) {
+      const sessionDurationHours = (Date.now() - overtimeInTimestamp.getTime()) / (1000 * 60 * 60)
+      
+      // Helper function to format duration
+      const formatDuration = (hours: number) => {
+        const h = Math.floor(hours)
+        const m = Math.floor((hours % 1) * 60)
+        return `${h}h ${m.toString().padStart(2, '0')}m`
+      }
+
+      // Show overtime confirmation dialog for separate overtime session
+      setOvertimeDialogData({ 
+        sessionDuration: formatDuration(sessionDurationHours), 
+        standardOvertimeDuration: formatDuration(sessionDurationHours),
+        extendedOvertimeDuration: "0h 00m",
+        totalOvertimeDuration: formatDuration(sessionDurationHours),
+        hasExtendedOvertime: false
+      })
+      setShowOvertimeDialog(true)
+      
+      // Freeze calculations at the current time
+      const freezeTime = new Date()
+      onOvertimeConfirmationShow?.(freezeTime)
+      return
+    }
+
+    // Check for separate extended overtime session timeout
+    if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+      const sessionDurationHours = (Date.now() - extendedOvertimeInTimestamp.getTime()) / (1000 * 60 * 60)
+      
+      // Helper function to format duration
+      const formatDuration = (hours: number) => {
+        const h = Math.floor(hours)
+        const m = Math.floor((hours % 1) * 60)
+        return `${h}h ${m.toString().padStart(2, '0')}m`
+      }
+
+      // Show extended overtime confirmation dialog
+      setOvertimeDialogData({ 
+        sessionDuration: formatDuration(sessionDurationHours), 
+        standardOvertimeDuration: "0h 00m",
+        extendedOvertimeDuration: formatDuration(sessionDurationHours),
+        totalOvertimeDuration: formatDuration(sessionDurationHours),
+        hasExtendedOvertime: true
+      })
+      setShowOvertimeDialog(true)
+      
+      // Freeze calculations at the current time
+      const freezeTime = new Date()
+      onOvertimeConfirmationShow?.(freezeTime)
+      return
+    }
+
+    // Handle continuous session overtime (existing logic)
     if (isTimedIn && timeInTimestamp && todayTotalHours > DAILY_REQUIRED_HOURS) {
       // Calculate how much of today's total time comes from the current session
       const sessionDurationHours = (Date.now() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
@@ -292,20 +348,22 @@ export function RegularTimeTracking({
             className={`w-full ${
               nextWillBeExtendedOvertime
                 ? "bg-red-600 hover:bg-red-700"
-                : nextWillBeOvertime || isOvertimeSession
+                : nextWillBeOvertime
                   ? "bg-purple-600 hover:bg-purple-700" 
                   : "bg-green-600 hover:bg-green-700"
             }`}
             disabled={actionLoading || freezeSessionAt !== null}
           >
             <Timer className="mr-2 h-5 w-5" />
-            {loadingAction === "timein" 
-              ? "Processing..." 
-              : nextWillBeExtendedOvertime
+            {loadingAction === "timein"
+              ? "Processing..."
+              : hasPastMaxStandardOvertime || nextWillBeExtendedOvertime || isExtendedOvertimeIn || isInExtendedOvertimePortion
                 ? "Extended Overtime In"
-                : nextWillBeOvertime || isOvertimeSession 
-                  ? "Overtime In" 
-                  : "Time In"}
+                : nextWillBeOvertime
+                  ? "Overtime In"
+                  : isInOvertimePortion
+                    ? "Overtime In"
+                    : "Time In"}
           </Button>
         ) : (
           <Button
@@ -320,12 +378,12 @@ export function RegularTimeTracking({
             disabled={actionLoading}
           >
             <Timer className="mr-2 h-5 w-5" />
-            {loadingAction === "timeout" 
-              ? "Processing..." 
-              : isExtendedOvertimeIn || isInExtendedOvertimePortion 
-                ? "Extended Overtime Out" 
-                : isOvertimeIn || isInOvertimePortion 
-                  ? "Overtime Out" 
+            {loadingAction === "timeout"
+              ? "Processing..."
+              : hasPastMaxStandardOvertime || isExtendedOvertimeIn || isInExtendedOvertimePortion
+                ? "Extended Overtime Out"
+                : isOvertimeIn || isInOvertimePortion
+                  ? "Overtime Out"
                   : "Time Out"}
           </Button>
         )}
@@ -346,10 +404,12 @@ export function RegularTimeTracking({
               {overtimeDialogData?.hasExtendedOvertime ? "Extended Overtime Detected" : "Overtime Hours Detected"}
             </DialogTitle>
             <DialogDescription>
-              You&apos;ve worked past your daily requirement of {DAILY_REQUIRED_HOURS} hours. 
-              {overtimeDialogData?.hasExtendedOvertime 
-                ? " Your session includes extended overtime beyond the standard overtime limit. Choose how to handle your overtime:"
-                : " How would you like to handle the overtime?"
+              {isOvertimeIn || isExtendedOvertimeIn 
+                ? `You're ending your ${isExtendedOvertimeIn ? 'extended ' : ''}overtime session. Please provide a note describing what you worked on during this overtime period.`
+                : `You've worked past your daily requirement of ${DAILY_REQUIRED_HOURS} hours. ${overtimeDialogData?.hasExtendedOvertime 
+                    ? " Your session includes extended overtime beyond the standard overtime limit. Choose how to handle your overtime:"
+                    : " How would you like to handle the overtime?"
+                  }`
               }
             </DialogDescription>
           </DialogHeader>

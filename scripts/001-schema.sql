@@ -236,6 +236,20 @@ CREATE TABLE IF NOT EXISTS intern_project_assignments (
     UNIQUE(user_id, project_id)
 );
 
+CREATE TABLE IF NOT EXISTS time_log_edit_requests (
+    id SERIAL PRIMARY KEY,
+    log_id INTEGER NOT NULL REFERENCES time_logs(id) ON DELETE CASCADE,
+    original_time_in TIMESTAMP WITH TIME ZONE,
+    original_time_out TIMESTAMP WITH TIME ZONE,
+    requested_time_in TIMESTAMP WITH TIME ZONE,
+    requested_time_out TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    requested_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    reviewed_by INTEGER REFERENCES users(id),
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ================================================================
 -- CONSTRAINTS AND INDEXES
 -- ================================================================
