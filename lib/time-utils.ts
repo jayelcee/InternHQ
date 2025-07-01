@@ -81,15 +81,19 @@ export function getTruncatedDecimalHours(timeIn: string, timeOut: string): numbe
 }
 
 /**
- * Centralized internship progress calculation function
- * Calculates total completed hours from time logs using consistent truncation logic
- * Only counts approved overtime hours towards internship progress
+ * Enhanced internship progress calculation function
+ * Calculates total completed hours from time logs with proper handling of:
+ * - Edit log request status (pending/approved/rejected)
+ * - Overtime approval status (pending/approved/rejected)
+ * - Extended overtime handling
  * @param logs - Array of time logs with time_in and time_out fields
  * @param internId - Optional intern ID to filter logs (can be string or number)
+ * @param editRequests - Optional array of edit requests to apply pending changes
  * @returns Total completed hours as a number, truncated to 2 decimal places
  */
 export function calculateInternshipProgress(
   logs: Array<{
+    id?: number
     time_in?: string | null
     time_out?: string | null
     timeIn?: string | null
@@ -99,8 +103,15 @@ export function calculateInternshipProgress(
     internId?: number | string
     log_type?: string
     overtime_status?: string
+    edit_request_status?: string
   }>,
-  internId?: string | number
+  internId?: string | number,
+  editRequests?: Array<{
+    logId: number
+    status: "pending" | "approved" | "rejected"
+    requestedTimeIn?: string | null
+    requestedTimeOut?: string | null
+  }>
 ): number {
   // Filter logs for specific intern if provided
   const filteredLogs = internId 
@@ -115,13 +126,31 @@ export function calculateInternshipProgress(
 
   filteredLogs.forEach(log => {
     // Handle both naming conventions: time_in/time_out and timeIn/timeOut
-    const timeIn = log.time_in || log.timeIn
-    const timeOut = log.time_out || log.timeOut
+    let timeIn = log.time_in || log.timeIn
+    let timeOut = log.time_out || log.timeOut
+
+    // Apply edit request changes if there are pending/approved edit requests
+    if (editRequests && log.id) {
+      const editRequest = editRequests.find(req => req.logId === log.id)
+      if (editRequest) {
+        if (editRequest.status === "approved") {
+          // Use the approved edited times
+          timeIn = editRequest.requestedTimeIn || timeIn
+          timeOut = editRequest.requestedTimeOut || timeOut
+        } else if (editRequest.status === "pending") {
+          // For pending requests, use original times for progress calculation
+          // (don't count optimistically)
+          // timeIn and timeOut remain as original
+        }
+        // For rejected edit requests, use original times (no change needed)
+      }
+    }
 
     // Only count completed logs with both times
     if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
-      // For overtime logs, only count if approved, skip if rejected or pending
-      if (log.log_type === 'overtime') {
+      // Handle overtime logs based on approval status
+      if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+        // Only count overtime if approved
         if (log.overtime_status !== 'approved') {
           return // Skip pending or rejected overtime
         }
@@ -142,6 +171,128 @@ export function calculateInternshipProgress(
   // Convert total duration to hours and truncate to 2 decimals
   const totalHours = totalDurationMs / (1000 * 60 * 60)
   return Number(truncateTo2Decimals(totalHours))
+}
+
+/**
+ * Calculate duration with edit request adjustments
+ * @param logs - Array of time logs
+ * @param editRequests - Optional array of edit requests
+ * @param internId - Optional intern ID to filter logs
+ * @param includeActive - Whether to include active (incomplete) sessions
+ * @param currentTime - Current time for active session calculations
+ * @returns Object with regular and overtime hours broken down by status
+ */
+export function calculateDurationWithEditRequests(
+  logs: Array<{
+    id?: number
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    user_id?: number | string
+    internId?: number | string
+    log_type?: string
+    overtime_status?: string
+  }>,
+  editRequests?: Array<{
+    logId: number
+    status: "pending" | "approved" | "rejected"
+    requestedTimeIn?: string | null
+    requestedTimeOut?: string | null
+  }>,
+  internId?: string | number,
+  includeActive: boolean = false,
+  currentTime?: Date
+): {
+  totalHours: number
+  regularHours: number
+  overtimeHours: { 
+    approved: number
+    pending: number
+    rejected: number
+    total: number
+  }
+  activeHours: number
+} {
+  // Filter logs for specific intern if provided
+  const filteredLogs = internId 
+    ? logs.filter(log => 
+        (log.user_id?.toString() === internId.toString()) ||
+        (log.internId?.toString() === internId.toString())
+      )
+    : logs
+
+  let totalMs = 0
+  let regularMs = 0
+  let approvedOvertimeMs = 0
+  let pendingOvertimeMs = 0
+  let rejectedOvertimeMs = 0
+  let activeMs = 0
+
+  filteredLogs.forEach(log => {
+    // Handle both naming conventions
+    let timeIn = log.time_in || log.timeIn
+    let timeOut = log.time_out || log.timeOut
+
+    // Apply edit request changes
+    if (editRequests && log.id) {
+      const editRequest = editRequests.find(req => req.logId === log.id)
+      if (editRequest && editRequest.status === "approved") {
+        timeIn = editRequest.requestedTimeIn || timeIn
+        timeOut = editRequest.requestedTimeOut || timeOut
+      }
+    }
+
+    if (timeIn) {
+      // Handle completed logs
+      if (timeOut && (!log.status || log.status === 'completed')) {
+        const inDate = new Date(timeIn)
+        const outDate = new Date(timeOut)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        
+        if (diffMs > 0) {
+          const truncatedMs = Math.floor(diffMs / (1000 * 60)) * (1000 * 60)
+          totalMs += truncatedMs
+
+          // Categorize by log type and status
+          if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+            if (log.overtime_status === 'approved') {
+              approvedOvertimeMs += truncatedMs
+            } else if (log.overtime_status === 'rejected') {
+              rejectedOvertimeMs += truncatedMs
+            } else {
+              pendingOvertimeMs += truncatedMs
+            }
+          } else {
+            regularMs += truncatedMs
+          }
+        }
+      }
+      // Handle active logs
+      else if (!timeOut && includeActive && currentTime && log.status === 'pending') {
+        const inDate = new Date(timeIn)
+        const diffMs = currentTime.getTime() - inDate.getTime()
+        if (diffMs > 0) {
+          const truncatedMs = Math.floor(diffMs / (1000 * 60)) * (1000 * 60)
+          activeMs += truncatedMs
+          totalMs += truncatedMs
+        }
+      }
+    }
+  })
+
+  return {
+    totalHours: totalMs / (1000 * 60 * 60),
+    regularHours: regularMs / (1000 * 60 * 60),
+    overtimeHours: {
+      approved: approvedOvertimeMs / (1000 * 60 * 60),
+      pending: pendingOvertimeMs / (1000 * 60 * 60),
+      rejected: rejectedOvertimeMs / (1000 * 60 * 60),
+      total: (approvedOvertimeMs + pendingOvertimeMs + rejectedOvertimeMs) / (1000 * 60 * 60)
+    },
+    activeHours: activeMs / (1000 * 60 * 60)
+  }
 }
 
 /**
@@ -340,4 +491,381 @@ export function getContinuousTime(logs: Array<{
     overtimeLogs,
     allLogs: logs
   }
+}
+
+/**
+ * Fetch edit requests for time logs
+ * @param internId - Optional intern ID to filter requests
+ * @returns Array of edit requests
+ */
+export async function fetchEditRequests(internId?: string | number): Promise<Array<{
+  logId: number
+  status: "pending" | "approved" | "rejected"
+  requestedTimeIn?: string | null
+  requestedTimeOut?: string | null
+}>> {
+  try {
+    const url = internId 
+      ? `/api/admin/time-log-edit-requests?internId=${internId}`
+      : "/api/admin/time-log-edit-requests"
+    
+    const response = await fetch(url, {
+      credentials: "include",
+    })
+    
+    if (!response.ok) {
+      return []
+    }
+    
+    const data = await response.json()
+    const requests = Array.isArray(data) ? data : data.requests || []
+    
+    return requests.map((req: {
+      logId: number
+      status: "pending" | "approved" | "rejected"
+      requestedTimeIn?: string | null
+      requestedTimeOut?: string | null
+    }) => ({
+      logId: req.logId,
+      status: req.status,
+      requestedTimeIn: req.requestedTimeIn,
+      requestedTimeOut: req.requestedTimeOut
+    }))
+  } catch (error) {
+    console.error("Error fetching edit requests:", error)
+    return []
+  }
+}
+
+/**
+ * Calculate comprehensive time statistics with edit request support
+ * This is the main function that should be used across all components for consistent calculations
+ * @param logs - Array of time logs
+ * @param internId - Optional intern ID to filter
+ * @param options - Calculation options
+ * @returns Complete time statistics object
+ */
+export async function calculateTimeStatistics(
+  logs: Array<{
+    id?: number
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    user_id?: number | string
+    internId?: number | string
+    log_type?: string
+    overtime_status?: string
+  }>,
+  internId?: string | number,
+  options: {
+    includeEditRequests?: boolean
+    includeActive?: boolean
+    currentTime?: Date
+    requiredHours?: number
+  } = {}
+): Promise<{
+  internshipProgress: number
+  totalHours: number
+  regularHours: number
+  overtimeHours: {
+    approved: number
+    pending: number
+    rejected: number
+    total: number
+  }
+  activeHours: number
+  progressPercentage: number
+  remainingHours: number
+  isCompleted: boolean
+}> {
+  const {
+    includeEditRequests = true,
+    includeActive = false,
+    currentTime = new Date(),
+    requiredHours = 0
+  } = options
+
+  // Fetch edit requests if needed
+  const editRequests = includeEditRequests ? await fetchEditRequests(internId) : []
+
+  // Calculate internship progress (only counts approved hours)
+  const internshipProgress = calculateInternshipProgress(logs, internId, editRequests)
+
+  // Calculate detailed duration breakdown
+  const duration = calculateDurationWithEditRequests(
+    logs,
+    editRequests,
+    internId,
+    includeActive,
+    currentTime
+  )
+
+  // Calculate progress metrics
+  const progressPercentage = requiredHours > 0 
+    ? Math.min((internshipProgress / requiredHours) * 100, 100) 
+    : 0
+  
+  const remainingHours = Math.max(0, requiredHours - internshipProgress)
+  const isCompleted = internshipProgress >= requiredHours && requiredHours > 0
+
+  return {
+    internshipProgress,
+    totalHours: duration.totalHours,
+    regularHours: duration.regularHours,
+    overtimeHours: duration.overtimeHours,
+    activeHours: duration.activeHours,
+    progressPercentage,
+    remainingHours,
+    isCompleted
+  }
+}
+
+/**
+ * Calculate today's duration with real-time accuracy (no truncation until final display)
+ * This function provides the most accurate calculation for real-time display
+ * @param logs - Array of time logs
+ * @param internId - Optional intern ID to filter logs
+ * @param isTimedIn - Whether user is currently timed in
+ * @param timeInTimestamp - Current session start time
+ * @param isOvertimeIn - Whether user is in overtime
+ * @param overtimeInTimestamp - Overtime session start time
+ * @param isExtendedOvertimeIn - Whether user is in extended overtime
+ * @param extendedOvertimeInTimestamp - Extended overtime session start time
+ * @param currentTime - Current time for active session calculation
+ * @returns Object with accurate hours and formatted duration
+ */
+export function calculateTodayProgressAccurate(
+  logs: Array<{
+    id?: number
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    user_id?: number | string
+    internId?: number | string
+    log_type?: string
+    overtime_status?: string
+  }>,
+  internId?: string | number,
+  isTimedIn: boolean = false,
+  timeInTimestamp: Date | null = null,
+  isOvertimeIn: boolean = false,
+  overtimeInTimestamp: Date | null = null,
+  isExtendedOvertimeIn: boolean = false,
+  extendedOvertimeInTimestamp: Date | null = null,
+  currentTime: Date = new Date()
+): {
+  regularHours: number
+  approvedOvertimeHours: number
+  pendingOvertimeHours: number
+  rejectedOvertimeHours: number
+  totalHours: number
+  formattedDuration: string
+} {
+  // Filter logs for specific intern and today only
+  const today = getCurrentDateString()
+  const filteredLogs = internId 
+    ? logs.filter(log => {
+        const logDate = log.time_in ? getLocalDateString(log.time_in) : (log.timeIn ? getLocalDateString(log.timeIn) : "")
+        return logDate === today && (
+          (log.user_id?.toString() === internId.toString()) ||
+          (log.internId?.toString() === internId.toString())
+        )
+      })
+    : logs.filter(log => {
+        const logDate = log.time_in ? getLocalDateString(log.time_in) : (log.timeIn ? getLocalDateString(log.timeIn) : "")
+        return logDate === today
+      })
+
+  let regularMs = 0
+  let approvedOvertimeMs = 0
+  let pendingOvertimeMs = 0
+  let rejectedOvertimeMs = 0
+
+  // Process completed logs with high precision (no truncation)
+  filteredLogs.forEach(log => {
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+
+    if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
+      const inDate = new Date(timeIn)
+      const outDate = new Date(timeOut)
+      const diffMs = outDate.getTime() - inDate.getTime()
+      
+      if (diffMs > 0) {
+        if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+          // Categorize overtime by approval status
+          if (log.overtime_status === 'approved') {
+            approvedOvertimeMs += diffMs
+          } else if (log.overtime_status === 'rejected') {
+            rejectedOvertimeMs += diffMs
+          } else {
+            pendingOvertimeMs += diffMs
+          }
+        } else {
+          // Regular logs
+          regularMs += diffMs
+        }
+      }
+    }
+  })
+
+  // Add active session time with high precision
+  if (isTimedIn && timeInTimestamp) {
+    const sessionEnd = (isExtendedOvertimeIn && extendedOvertimeInTimestamp) ? 
+      extendedOvertimeInTimestamp : 
+      ((isOvertimeIn && overtimeInTimestamp) ? overtimeInTimestamp : currentTime)
+    
+    const sessionDuration = sessionEnd.getTime() - timeInTimestamp.getTime()
+    if (sessionDuration > 0) {
+      // Cap at 24 hours for safety
+      const cappedDuration = Math.min(sessionDuration, 24 * 60 * 60 * 1000)
+      regularMs += cappedDuration
+    }
+  }
+
+  // Convert to hours with high precision
+  const regularHours = regularMs / (1000 * 60 * 60)
+  const approvedOvertimeHours = approvedOvertimeMs / (1000 * 60 * 60)
+  const pendingOvertimeHours = pendingOvertimeMs / (1000 * 60 * 60)
+  const rejectedOvertimeHours = rejectedOvertimeMs / (1000 * 60 * 60)
+
+  // For display, cap regular hours at daily requirement and only show approved overtime
+  const displayRegularHours = Math.min(regularHours, DAILY_REQUIRED_HOURS)
+  const displayTotalHours = displayRegularHours + approvedOvertimeHours
+
+  // Format for display - truncate only at the final step
+  const totalMinutes = Math.floor(displayTotalHours * 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+
+  return {
+    regularHours,
+    approvedOvertimeHours,
+    pendingOvertimeHours,
+    rejectedOvertimeHours,
+    totalHours: displayTotalHours,
+    formattedDuration: formatDuration(hours, minutes)
+  }
+}
+
+/**
+ * Calculate accurate session durations for time log table displays
+ * This function provides high-precision calculations without early truncation
+ * @param logs - Array of time logs for a specific date/session
+ * @param currentTime - Current time for active session calculations
+ * @param previousRegularHours - Previously accumulated regular hours for overflow calculation
+ * @returns Object with accurate regular and overtime hours
+ */
+export function calculateAccurateSessionDuration(
+  logs: Array<{
+    id?: number
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    log_type?: string
+    overtime_status?: string
+  }>,
+  currentTime: Date = new Date(),
+  previousRegularHours: number = 0
+): {
+  regularHours: number
+  overtimeHours: number
+  overtimeStatus: "approved" | "pending" | "rejected" | "none"
+  isActive: boolean
+} {
+  let totalSessionMs = 0
+  let overtimeStatus: "approved" | "pending" | "rejected" | "none" = "none"
+  let isActive = false
+
+  // Calculate total session duration with high precision
+  logs.forEach(log => {
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+
+    if (timeIn) {
+      if (timeOut && (!log.status || log.status === 'completed')) {
+        // Completed log - use full precision
+        const inDate = new Date(timeIn)
+        const outDate = new Date(timeOut)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        if (diffMs > 0) {
+          totalSessionMs += diffMs
+        }
+      } else if (!timeOut && log.status === 'pending') {
+        // Active session - use full precision
+        const inDate = new Date(timeIn)
+        const diffMs = currentTime.getTime() - inDate.getTime()
+        if (diffMs > 0) {
+          // Cap at 24 hours for safety
+          const cappedMs = Math.min(diffMs, 24 * 60 * 60 * 1000)
+          totalSessionMs += cappedMs
+          isActive = true
+        }
+      }
+
+      // Determine overtime status from logs
+      if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+        if (log.overtime_status === 'approved') {
+          overtimeStatus = 'approved'
+        } else if (log.overtime_status === 'rejected') {
+          overtimeStatus = 'rejected'
+        } else if (overtimeStatus === 'none') {
+          overtimeStatus = 'pending'
+        }
+      }
+    }
+  })
+
+  // Convert to hours with full precision
+  const totalSessionHours = totalSessionMs / (1000 * 60 * 60)
+
+  // Apply real-time overflow logic (like in Today's Progress)
+  const dailyLimitMs = DAILY_REQUIRED_HOURS * 60 * 60 * 1000
+  const previousRegularMs = previousRegularHours * 60 * 60 * 1000
+  const availableRegularMs = Math.max(0, dailyLimitMs - previousRegularMs)
+  
+  let regularHours = 0
+  let overtimeHours = 0
+
+  if (totalSessionMs <= availableRegularMs) {
+    // All session time fits within regular hours
+    regularHours = totalSessionHours
+    overtimeHours = 0
+  } else {
+    // Session overflows into overtime
+    regularHours = availableRegularMs / (1000 * 60 * 60)
+    overtimeHours = (totalSessionMs - availableRegularMs) / (1000 * 60 * 60)
+  }
+
+  // Handle overtime approval status - if rejected, don't count overtime for display
+  if (overtimeStatus !== 'none' && overtimeStatus === 'rejected') {
+    // For display purposes, rejected overtime shows 0 but regular hours are capped
+    overtimeHours = 0
+    // Regular hours are limited to available regular time
+    regularHours = Math.min(regularHours, availableRegularMs / (1000 * 60 * 60))
+  }
+
+  return {
+    regularHours,
+    overtimeHours,
+    overtimeStatus,
+    isActive
+  }
+}
+
+/**
+ * Format hours to display format (Xh XXm) with accurate precision
+ * Only truncates at the final display step
+ */
+export function formatAccurateHours(hours: number): string {
+  const totalMinutes = Math.floor(hours * 60)
+  const displayHours = Math.floor(totalMinutes / 60)
+  const displayMinutes = totalMinutes % 60
+  return formatDuration(displayHours, displayMinutes)
 }

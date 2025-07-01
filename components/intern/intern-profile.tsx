@@ -15,7 +15,7 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { calculateInternshipProgress, calculateTimeWorked } from "@/lib/time-utils"
+import { calculateTimeStatistics, calculateTimeWorked } from "@/lib/time-utils"
 
 /**
  * InternProfile component displays and manages intern profile information.
@@ -250,19 +250,41 @@ export function InternProfile({
     return isValid(date) ? format(date, "yyyy-MM-dd") : ""
   }
 
-  // Calculate completed hours from logs
+  // Calculate completed hours from logs using centralized function
   const currentInternId = internId ?? user?.id
+  const [timeStats, setTimeStats] = useState({
+    completedHours: 0,
+    progressPercentage: 0
+  })
 
-  const completedHours =
-    logsLoading || !profileData
-      ? 0
-      : logs.length > 0
-        ? calculateInternshipProgress(logs, currentInternId)
-        : profileData.completedHours || 0
+  useEffect(() => {
+    const updateStats = async () => {
+      if (logsLoading || !profileData || !logs.length) {
+        setTimeStats({ 
+          completedHours: profileData?.completedHours || 0, 
+          progressPercentage: 0 
+        })
+        return
+      }
+      
+      const requiredHours = profileData.requiredHours || 0
+      const stats = await calculateTimeStatistics(logs, currentInternId, {
+        includeEditRequests: true,
+        requiredHours
+      })
+      
+      setTimeStats({
+        completedHours: stats.internshipProgress,
+        progressPercentage: stats.progressPercentage
+      })
+    }
+    
+    updateStats()
+  }, [logs, logsLoading, profileData, currentInternId])
 
+  const completedHours = timeStats.completedHours
   const requiredHours = profileData?.requiredHours || 0
-  const progressPercentage =
-    requiredHours > 0 ? Math.min((completedHours / requiredHours) * 100, 100) : 0
+  const progressPercentage = timeStats.progressPercentage
 
   // Handle input changes for profile fields
   const handleInputChange = (field: keyof ProfileData, value: string | string[]) => {

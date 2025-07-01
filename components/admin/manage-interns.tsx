@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
-import { calculateInternshipProgress } from "@/lib/time-utils"
+import { calculateTimeStatistics } from "@/lib/time-utils"
 import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
@@ -106,7 +106,7 @@ export function ManageInternsDashboard() {
       const internsData = await internsRes.json()
 
       // 3. Map interns and calculate completedHours using logs
-      const mapped: Intern[] = internsData.map((intern: Record<string, unknown>) => {
+      const mapped: Intern[] = await Promise.all(internsData.map(async (intern: Record<string, unknown>) => {
         const internId = Number(intern.id)
         // Find all completed logs for this intern
         const internLogs = logsArr.filter(
@@ -114,8 +114,16 @@ export function ManageInternsDashboard() {
             (log.user_id === internId || log.internId === internId) &&
             log.status === "completed"
         )
-        // Use centralized calculation for consistent progress tracking
-        const completedHours = calculateInternshipProgress(internLogs)
+        
+        const requiredHours = (intern.internshipDetails as InternshipDetailsShape)?.requiredHours ||
+          (intern.internship as InternshipShape)?.required_hours ||
+          0
+        
+        // Use centralized calculation with edit request support for consistent progress tracking
+        const stats = await calculateTimeStatistics(internLogs, internId, {
+          includeEditRequests: true,
+          requiredHours
+        })
 
         return {
           id: intern.id?.toString() ?? "",
@@ -130,11 +138,8 @@ export function ManageInternsDashboard() {
             (intern.internship as InternshipShape)?.school?.name ||
             "",
           internshipDetails: {
-            requiredHours:
-              (intern.internshipDetails as InternshipDetailsShape)?.requiredHours ||
-              (intern.internship as InternshipShape)?.required_hours ||
-              0,
-            completedHours,
+            requiredHours,
+            completedHours: stats.internshipProgress,
             startDate:
               (intern.internshipDetails as InternshipDetailsShape)?.startDate ||
               (intern.internship as InternshipShape)?.start_date ||
@@ -145,7 +150,8 @@ export function ManageInternsDashboard() {
               "",
           },
         }
-      })
+      }))
+      
       setInterns(mapped)
     } catch {
       setInterns([])

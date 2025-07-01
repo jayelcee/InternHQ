@@ -198,7 +198,6 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
 
     // For active sessions or completed sessions, apply real-time overflow
     if (session.isActive || session.regularHours + session.overtimeHours > 0) {
-      const totalSessionHours = sessionRegularHours + sessionOvertimeHours
       const currentTotalRegular = totalRegularHours + sessionRegularHours
       
       // If adding this session's regular hours exceeds the daily limit
@@ -555,7 +554,7 @@ export function groupEditRequestsByContinuousSessions(
     requestedTimeOut: string | null
     status: "pending" | "approved" | "rejected"
     internName: string
-    [key: string]: any
+    [key: string]: unknown
   }>
 ): Array<{
   sessionId: string
@@ -632,7 +631,7 @@ function createEditRequestSession(requests: Array<{
   requestedTimeOut: string | null
   status: "pending" | "approved" | "rejected"
   internName: string
-  [key: string]: any
+  [key: string]: unknown
 }>): {
   sessionId: string
   requests: typeof requests

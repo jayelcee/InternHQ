@@ -11,8 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield, Search, Calendar } from "lucide-react"
-import { calculateTimeWorked, truncateTo2Decimals } from "@/lib/time-utils"
-import { formatLogDate, groupLogsByDate, TimeLogDisplay } from "@/lib/ui-utils"
+import { calculateTimeWorked } from "@/lib/time-utils"
+import { formatLogDate, TimeLogDisplay, useSortDirection, sortLogsByDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps } from "@/lib/session-utils"
 import { format } from "date-fns"
 
@@ -69,7 +69,8 @@ export function OvertimeLogsDashboard() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<number | null>(null)
   const [migrationLoading, setMigrationLoading] = useState(false)
-  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("asc")
+  // Sort state management - centralized  
+  const { sortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus>({
     hasLongLogs: false,
     count: 0
@@ -356,7 +357,7 @@ export function OvertimeLogsDashboard() {
   /**
    * Get status badge component based on overtime status
    */
-  const getStatusBadge = (overtime_status: string) => {
+  /* const getStatusBadge = (overtime_status: string) => {
     const statusConfig = {
       approved: {
         className: "bg-green-50 text-green-700 border-green-300",
@@ -384,7 +385,7 @@ export function OvertimeLogsDashboard() {
         {config.label}
       </Badge>
     )
-  }
+  } */
 
   // Calculate summary statistics
   const stats = {
@@ -446,18 +447,8 @@ export function OvertimeLogsDashboard() {
   }
 
   // Sort filtered logs by date
-  const sortedLogs = [...filteredLogs].sort((a, b) => {
-    const aDate = new Date(a.time_in).getTime()
-    const bDate = new Date(b.time_in).getTime()
-    
-    // Handle invalid dates in sorting
-    if (isNaN(aDate) && isNaN(bDate)) return 0
-    if (isNaN(aDate)) return 1
-    if (isNaN(bDate)) return -1
-    
-    // Sort by date: ascending shows oldest first, descending shows newest first
-    return sortDirection === "desc" ? bDate - aDate : aDate - bDate
-  })
+  // Sort logs using centralized logic
+  const sortedLogs = sortLogsByDate(filteredLogs, sortDirection)
 
   if (loading) {
     return (
@@ -757,12 +748,9 @@ export function OvertimeLogsDashboard() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setSortDirection((prev) => (prev === "desc" ? "asc" : "desc"))
-                }
+                onClick={toggleSort}
               >
-                Sort by Date&nbsp;
-                {sortDirection === "desc" ? "↓" : "↑"}
+                {sortButtonText}
               </Button>
               {(stats.pending > 0 || filteredProcessedLogs.length > 0) && (
                 <Button
@@ -844,7 +832,7 @@ export function OvertimeLogsDashboard() {
                       }
                       groups[groupKey].logs.push(log)
                       return groups
-                    }, {} as Record<string, { user: any, date: string, logs: TimeLogDisplay[] }>)
+                    }, {} as Record<string, { user: { id: number; first_name: string; last_name: string; email: string; role: string; department: string; school: string }, date: string, logs: TimeLogDisplay[] }>)
                     
                     // Process each group into sessions
                     return Object.values(groupedByUserAndDate).map(group => {
@@ -852,11 +840,8 @@ export function OvertimeLogsDashboard() {
                       const overtimeSessions = sessions.filter(s => s.isOvertimeSession || s.overtimeHours > 0)
                       
                       return overtimeSessions.map((session, sessionIndex) => {
-                        // Calculate total hours for this session
-                        const totalHours = session.overtimeHours
-                        
                         // Determine the overall status for the session
-                        let sessionStatus: "pending" | "approved" | "rejected" = 
+                        const sessionStatus: "pending" | "approved" | "rejected" = 
                           session.overtimeStatus === "none" ? "pending" : session.overtimeStatus
                         
                         // Find the first log ID for actions (we'll act on all logs in the session)

@@ -15,7 +15,8 @@ import {
   getCurrentDateString, 
   getWeekRange,
   formatDuration,
-  calculateInternshipProgress,
+  calculateTimeStatistics,
+  calculateTodayProgressAccurate,
   DAILY_REQUIRED_HOURS,
   MAX_OVERTIME_HOURS
 } from "@/lib/time-utils"
@@ -40,9 +41,7 @@ function safeGetDateString(dateStr: string): string {
   }
 }
 
-/**
- * Calculates today's total duration for regular logs only
- */
+/* Legacy function - replaced by calculateTodayProgressAccurate
 function getTodayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getTodayDateString()
   let totalMs = 0
@@ -83,11 +82,9 @@ function getTodayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeI
   const minutes = totalMinutes % 60
   return formatDuration(hours, minutes)
 }
+*/
 
-
-/**
- * Calculates today's overtime hours by status
- */
+/* Legacy function - replaced by calculateTodayProgressAccurate
 function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, currentTime?: Date) {
   const today = getTodayDateString()
   let approvedMs = 0
@@ -199,6 +196,7 @@ function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, ti
     total: (approvedMs + pendingMs + rejectedMs) / (1000 * 60 * 60)
   }
 }
+*/
 
 
 
@@ -264,6 +262,7 @@ function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTi
 /**
  * Calculates today's displayed total duration for main dashboard (regular hours + approved overtime only)
  */
+/* Legacy function - replaced by calculateTodayProgressAccurate
 function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTimestamp: Date | null, isOvertimeIn: boolean, overtimeInTimestamp: Date | null, isExtendedOvertimeIn?: boolean, extendedOvertimeInTimestamp?: Date | null, freezeAt?: Date, currentTime?: Date) {
   const today = getTodayDateString()
   let totalMs = 0
@@ -326,6 +325,7 @@ function getTodayDisplayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean
   const minutes = totalMinutes % 60
   return formatDuration(hours, minutes)
 }
+*/
 
 export function InternDashboardContent() {
   const { user } = useAuth()
@@ -531,20 +531,31 @@ export function InternDashboardContent() {
   // Internship details from user context
   const internshipDetails = user?.internship
 
-  /**
-   * Parse duration string to hours for calculations
-   */
+  /* Legacy function - replaced by calculateTodayProgressAccurate
   const parseDurationToHours = (duration: string) => {
     const match = duration.match(/(\d+)h\s+(\d+)m/)
     if (!match) return 0
     return parseInt(match[1], 10) + parseInt(match[2], 10) / 60
   }
+  */
 
-  // Calculate today's duration, freeze at auto timeout if needed
-  const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
-  const todayDisplayTotal = getTodayDisplayTotalDuration(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
-  const todayHours = parseDurationToHours(todayDuration)
-  const overtimeByStatus = getTodayOvertimeByStatus(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || currentTime)
+  // Calculate today's progress with high accuracy
+  const todayProgress = calculateTodayProgressAccurate(
+    allLogs,
+    user?.id,
+    isTimedIn,
+    timeInTimestamp,
+    isOvertimeIn,
+    overtimeInTimestamp,
+    isExtendedOvertimeIn,
+    extendedOvertimeInTimestamp,
+    overtimeConfirmationFreezeAt || currentTime
+  )
+  
+  // Legacy calculations for compatibility (can be removed later)
+  // const todayDuration = getTodayTotalDuration(allLogs, isTimedIn, timeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, currentTime)
+  // const todayHours = parseDurationToHours(todayDuration)
+  // const overtimeByStatus = getTodayOvertimeByStatus(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, overtimeConfirmationFreezeAt || currentTime)
 
   // --- Effects ---
 
@@ -820,23 +831,39 @@ export function InternDashboardContent() {
     }),
   }), [])
 
-  // Statistics calculations
-  const completedHours = useMemo(() => {
-    // Use centralized calculation for consistent progress tracking
-    return calculateInternshipProgress(allLogs)
-  }, [allLogs])
+  // Statistics calculations using centralized function
+  const [timeStats, setTimeStats] = useState({
+    internshipProgress: 0,
+    totalHours: 0,
+    regularHours: 0,
+    overtimeHours: { approved: 0, pending: 0, rejected: 0, total: 0 },
+    activeHours: 0,
+    progressPercentage: 0,
+    remainingHours: 0,
+    isCompleted: false
+  })
 
-  const progressPercentage = useMemo(() => 
-    internshipDetails?.required_hours && internshipDetails.required_hours > 0
-      ? Math.min((completedHours / internshipDetails.required_hours) * 100, 100)
-      : 0
-  , [completedHours, internshipDetails])
+  // Update time statistics when logs or internship details change
+  useEffect(() => {
+    const updateStats = async () => {
+      if (!allLogs.length || !internshipDetails) return
+      
+      const stats = await calculateTimeStatistics(allLogs, user?.id, {
+        includeEditRequests: true,
+        includeActive: true,
+        currentTime: new Date(),
+        requiredHours: internshipDetails.required_hours || 0
+      })
+      
+      setTimeStats(stats)
+    }
+    
+    updateStats()
+  }, [allLogs, internshipDetails, user?.id])
 
-  const remainingHours = useMemo(() =>
-    internshipDetails?.required_hours && completedHours >= internshipDetails.required_hours
-      ? 0
-      : Number(truncateTo2Decimals((internshipDetails?.required_hours || 0) - completedHours))
-  , [completedHours, internshipDetails])
+  const completedHours = timeStats.internshipProgress
+  const progressPercentage = timeStats.progressPercentage
+  const remainingHours = timeStats.remainingHours
 
   const totalDaysWorked = useMemo(() => {
     const dates = new Set(
@@ -1021,9 +1048,9 @@ export function InternDashboardContent() {
               overtimeInTimestamp={overtimeInTimestamp}
               isExtendedOvertimeIn={isExtendedOvertimeIn}
               extendedOvertimeInTimestamp={extendedOvertimeInTimestamp}
-              todayTotalHours={getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)}
-              hasReachedDailyRequirement={todayHours >= DAILY_REQUIRED_HOURS}
-              hasReachedOvertimeLimit={todayHours >= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS}
+              todayTotalHours={todayProgress.regularHours}
+              hasReachedDailyRequirement={todayProgress.regularHours >= DAILY_REQUIRED_HOURS}
+              hasReachedOvertimeLimit={todayProgress.regularHours >= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS}
             />
           </CardContent>
         </Card>
@@ -1037,9 +1064,9 @@ export function InternDashboardContent() {
           </CardHeader>
           <CardContent>
             <div className="text-center">
-              <div className="text-3xl font-bold text-blue-600">{todayDisplayTotal}</div>
+              <div className="text-3xl font-bold text-blue-600">{todayProgress.formattedDuration}</div>
               <p className="text-sm text-gray-600 mt-1">
-                {overtimeByStatus.approved > 0 ? 
+                {todayProgress.approvedOvertimeHours > 0 ? 
                   "Regular Hours + Approved Overtime" : 
                   "Total Time Worked Today"
                 }
@@ -1050,36 +1077,36 @@ export function InternDashboardContent() {
                 const badges = []
                 
                 // Show approved overtime badge
-                if (overtimeByStatus.approved > 0) {
+                if (todayProgress.approvedOvertimeHours > 0) {
                   badges.push(
                     <Badge key="approved" variant="secondary" className="bg-green-100 text-green-800 border-green-200">
                       ✅ {formatDuration(
-                        Math.floor(overtimeByStatus.approved), 
-                        Math.floor((overtimeByStatus.approved % 1) * 60)
+                        Math.floor(todayProgress.approvedOvertimeHours), 
+                        Math.floor((todayProgress.approvedOvertimeHours % 1) * 60)
                       )} Approved Overtime
                     </Badge>
                   )
                 }
                 
                 // Show pending overtime badge
-                if (overtimeByStatus.pending > 0) {
+                if (todayProgress.pendingOvertimeHours > 0) {
                   badges.push(
                     <Badge key="pending" variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">
                       🔄 {formatDuration(
-                        Math.floor(overtimeByStatus.pending), 
-                        Math.floor((overtimeByStatus.pending % 1) * 60)
+                        Math.floor(todayProgress.pendingOvertimeHours), 
+                        Math.floor((todayProgress.pendingOvertimeHours % 1) * 60)
                       )} Pending Overtime
                     </Badge>
                   )
                 }
                 
                 // Show rejected overtime badge
-                if (overtimeByStatus.rejected > 0) {
+                if (todayProgress.rejectedOvertimeHours > 0) {
                   badges.push(
                     <Badge key="rejected" variant="destructive" className="bg-red-100 text-red-800 border-red-200">
                       ❌ {formatDuration(
-                        Math.floor(overtimeByStatus.rejected), 
-                        Math.floor((overtimeByStatus.rejected % 1) * 60)
+                        Math.floor(todayProgress.rejectedOvertimeHours), 
+                        Math.floor((todayProgress.rejectedOvertimeHours % 1) * 60)
                       )} Rejected Overtime
                     </Badge>
                   )
@@ -1087,8 +1114,7 @@ export function InternDashboardContent() {
                 
                 // Show calculated overtime for active sessions (when no database overtime logs exist yet)
                 if (badges.length === 0) {
-                  const totalHours = getTodayTotalHours(allLogs, isTimedIn, timeInTimestamp, isOvertimeIn, overtimeInTimestamp, isExtendedOvertimeIn, extendedOvertimeInTimestamp, overtimeConfirmationFreezeAt || freezeSessionAt || undefined, overtimeConfirmationFreezeAt || currentTime)
-                  const overtimeHours = Math.max(0, totalHours - DAILY_REQUIRED_HOURS)
+                  const overtimeHours = Math.max(0, todayProgress.regularHours - DAILY_REQUIRED_HOURS)
                   
                   if (overtimeHours > 0) {
                     badges.push(
@@ -1099,15 +1125,15 @@ export function InternDashboardContent() {
                         )} For Approval
                       </Badge>
                     )
-                  } else if (totalHours >= DAILY_REQUIRED_HOURS && !isOvertimeIn && !isTimedIn) {
+                  } else if (todayProgress.regularHours >= DAILY_REQUIRED_HOURS && !isOvertimeIn && !isTimedIn) {
                     badges.push(
                       <Badge key="completed" variant="default" className="bg-green-100 text-green-800 border-green-200">
                         ✅ Daily requirement completed
                       </Badge>
                     )
-                  } else if (totalHours < DAILY_REQUIRED_HOURS) {
+                  } else if (todayProgress.regularHours < DAILY_REQUIRED_HOURS) {
                     // Show remaining duration needed to complete daily requirement
-                    const remainingHours = DAILY_REQUIRED_HOURS - totalHours
+                    const remainingHours = DAILY_REQUIRED_HOURS - todayProgress.regularHours
                     // Convert to total minutes to avoid floating point precision issues
                     const remainingMinutes = Math.round(remainingHours * 60)
                     const displayHours = Math.floor(remainingMinutes / 60)

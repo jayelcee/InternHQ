@@ -25,6 +25,7 @@ interface EditLogRequest {
   email?: string
   school?: string
   department?: string
+  [key: string]: unknown
 }
 
 export function EditLogRequestsAdmin() {

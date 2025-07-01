@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps, getTotalBadgeProps, getAdjustedSessionHours } from "@/lib/session-utils"
+import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
+import { calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -173,15 +174,26 @@ export function ThisWeekLogs({
                           {(() => {
                             let previousRegularHours = 0
                             return sessionData.sessions.map((session, sessionIndex) => {
-                              const { adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
-                              const badgeProps = getDurationBadgeProps(adjustedRegularHours, "regular")
+                              // Use accurate calculation instead of session-utils truncation
+                              const accurateCalc = calculateAccurateSessionDuration(
+                                session.logs,
+                                freezeAt || currentTime,
+                                previousRegularHours
+                              )
                               
-                              previousRegularHours += adjustedRegularHours
+                              const displayText = formatAccurateHours(accurateCalc.regularHours)
+                              const badgeProps = {
+                                variant: "outline" as const,
+                                className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
+                                text: displayText
+                              }
+                              
+                              previousRegularHours += accurateCalc.regularHours
                               
                               return (
                                 <Badge 
                                   key={sessionIndex} 
-                                  variant="outline" 
+                                  variant={badgeProps.variant} 
                                   className={badgeProps.className}
                                 >
                                   {badgeProps.text}
@@ -195,9 +207,15 @@ export function ThisWeekLogs({
                            sessionData.sessions.filter(s => !s.isOvertimeSession).length > 1 && (
                             <Badge 
                               variant="outline" 
-                              className={getTotalBadgeProps(sessionData.totals.totalRegularHours, "regular").className}
+                              className="bg-blue-200 text-blue-800 border-blue-400 font-medium"
                             >
-                              {getTotalBadgeProps(sessionData.totals.totalRegularHours, "regular").text}
+                              Total: {formatAccurateHours(
+                                sessionData.sessions.reduce((total, session, i) => {
+                                  const prevHours = sessionData.sessions.slice(0, i).reduce((sum, prevSession) => 
+                                    sum + calculateAccurateSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
+                                  return total + calculateAccurateSessionDuration(session.logs, freezeAt || currentTime, prevHours).regularHours
+                                }, 0)
+                              )}
                             </Badge>
                           )}
                         </div>
@@ -207,17 +225,31 @@ export function ThisWeekLogs({
                           {(() => {
                             let previousRegularHours = 0
                             return sessionData.sessions.map((session, sessionIndex) => {
-                              const { adjustedOvertimeHours } = getAdjustedSessionHours(session, previousRegularHours)
-                              const badgeProps = getDurationBadgeProps(adjustedOvertimeHours, "overtime", session.overtimeStatus)
+                              // Use accurate calculation for overtime
+                              const accurateCalc = calculateAccurateSessionDuration(
+                                session.logs,
+                                freezeAt || currentTime,
+                                previousRegularHours
+                              )
+                              
+                              const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                              const badgeProps = {
+                                variant: "outline" as const,
+                                className: accurateCalc.overtimeHours > 0 ? 
+                                  (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                   accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                   "bg-yellow-100 text-yellow-700 border-yellow-300") :
+                                  "bg-gray-100 text-gray-700 border-gray-300",
+                                text: displayText
+                              }
                               
                               // Update previousRegularHours for next iteration
-                              const { adjustedRegularHours } = getAdjustedSessionHours(session, previousRegularHours)
-                              previousRegularHours += adjustedRegularHours
+                              previousRegularHours += accurateCalc.regularHours
                               
                               return (
                                 <Badge 
                                   key={sessionIndex}
-                                  variant="outline" 
+                                  variant={badgeProps.variant} 
                                   className={badgeProps.className}
                                 >
                                   {badgeProps.text}
@@ -225,6 +257,24 @@ export function ThisWeekLogs({
                               )
                             })
                           })()}
+                          
+                          {/* Show overtime total if multiple sessions with overtime */}
+                          {sessionData.sessions.length > 1 && 
+                           sessionData.sessions.some(s => s.isOvertimeSession || 
+                             calculateAccurateSessionDuration(s.logs, freezeAt || currentTime, 0).overtimeHours > 0) && (
+                            <Badge 
+                              variant="outline" 
+                              className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
+                            >
+                              Total: {formatAccurateHours(
+                                sessionData.sessions.reduce((total, session, i) => {
+                                  const prevHours = sessionData.sessions.slice(0, i).reduce((sum, prevSession) => 
+                                    sum + calculateAccurateSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
+                                  return total + calculateAccurateSessionDuration(session.logs, freezeAt || currentTime, prevHours).overtimeHours
+                                }, 0)
+                              )}
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
