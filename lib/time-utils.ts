@@ -860,6 +860,109 @@ export function calculateAccurateSessionDuration(
 }
 
 /**
+ * Calculate session duration for display purposes - shows actual time worked
+ * regardless of overtime approval status (for DTR display only)
+ * @param logs - Array of time logs for the session
+ * @param currentTime - Current time for active session calculations
+ * @param previousRegularHours - Previously accumulated regular hours for overflow calculation
+ * @returns Object with accurate regular and overtime hours WITHOUT status adjustments
+ */
+export function calculateRawSessionDuration(
+  logs: Array<{
+    id?: number
+    time_in?: string | null
+    time_out?: string | null
+    timeIn?: string | null
+    timeOut?: string | null
+    status?: string
+    log_type?: string
+    overtime_status?: string
+  }>,
+  currentTime: Date = new Date(),
+  previousRegularHours: number = 0
+): {
+  regularHours: number
+  overtimeHours: number
+  overtimeStatus: "approved" | "pending" | "rejected" | "none"
+  isActive: boolean
+} {
+  let totalSessionMs = 0
+  let overtimeStatus: "approved" | "pending" | "rejected" | "none" = "none"
+  let isActive = false
+
+  // Calculate total session duration with high precision
+  logs.forEach(log => {
+    const timeIn = log.time_in || log.timeIn
+    const timeOut = log.time_out || log.timeOut
+
+    if (timeIn) {
+      if (timeOut && (!log.status || log.status === 'completed')) {
+        // Completed log - use full precision
+        const inDate = new Date(timeIn)
+        const outDate = new Date(timeOut)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        if (diffMs > 0) {
+          totalSessionMs += diffMs
+        }
+      } else if (!timeOut && log.status === 'pending') {
+        // Active session - use full precision
+        const inDate = new Date(timeIn)
+        const diffMs = currentTime.getTime() - inDate.getTime()
+        if (diffMs > 0) {
+          // Cap at 24 hours for safety
+          const cappedMs = Math.min(diffMs, 24 * 60 * 60 * 1000)
+          totalSessionMs += cappedMs
+          isActive = true
+        }
+      }
+
+      // Determine overtime status from logs
+      if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+        if (log.overtime_status === 'approved') {
+          overtimeStatus = 'approved'
+        } else if (log.overtime_status === 'rejected') {
+          overtimeStatus = 'rejected'
+        } else if (overtimeStatus === 'none') {
+          overtimeStatus = 'pending'
+        }
+      }
+    }
+  })
+
+  // Convert to hours with full precision
+  const totalSessionHours = totalSessionMs / (1000 * 60 * 60)
+
+  // Apply real-time overflow logic (like in Today's Progress)
+  const dailyLimitMs = DAILY_REQUIRED_HOURS * 60 * 60 * 1000
+  const previousRegularMs = previousRegularHours * 60 * 60 * 1000
+  const availableRegularMs = Math.max(0, dailyLimitMs - previousRegularMs)
+  
+  let regularHours = 0
+  let overtimeHours = 0
+
+  if (totalSessionMs <= availableRegularMs) {
+    // All session time fits within regular hours
+    regularHours = totalSessionHours
+    overtimeHours = 0
+  } else {
+    // Session overflows into overtime
+    regularHours = availableRegularMs / (1000 * 60 * 60)
+    overtimeHours = (totalSessionMs - availableRegularMs) / (1000 * 60 * 60)
+  }
+
+  // For RAW calculation: DO NOT apply status adjustments
+  // Show actual time worked regardless of approval status
+  // This is used for DTR display purposes only
+
+  return {
+    regularHours,
+    overtimeHours,
+    overtimeStatus,
+    isActive
+  }
+}
+
+/**
  * Format hours to display format (Xh XXm) with accurate precision
  * Only truncates at the final display step
  */

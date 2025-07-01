@@ -1410,6 +1410,7 @@ export async function updateTimeLogEditRequest(
       if (totalHours > DAILY_REQUIRED_HOURS) {
         const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
         regularCutoff.setSeconds(0, 0)
+
         // Insert regular log
         await sql`
           INSERT INTO time_logs (
@@ -1783,7 +1784,7 @@ function truncateToMinute(date: Date | string): string {
  * Checks if there are any long logs that need to be split (for all users).
  * Returns { hasLongLogs: boolean }
  */
-export async function checkLongLogs(): Promise<{ hasLongLogs: boolean }> {
+export async function checkLongLogs(): Promise<{ hasLongLogs: boolean; count: number }> {
   const res = await sql`
     SELECT COUNT(*) AS count
     FROM time_logs
@@ -1796,7 +1797,8 @@ export async function checkLongLogs(): Promise<{ hasLongLogs: boolean }> {
         OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
       )
   `
-  return { hasLongLogs: Number(res[0]?.count) > 0 }
+  const count = Number(res[0]?.count) || 0
+  return { hasLongLogs: count > 0, count }
 }
 
 /**
@@ -1806,4 +1808,142 @@ export async function checkLongLogs(): Promise<{ hasLongLogs: boolean }> {
 export async function migrateLongLogs(): Promise<{ success: boolean; processed: number; errors: string[] }> {
   // Just call the existing migrateExistingLongLogs function
   return migrateExistingLongLogs()
+}
+
+/**
+ * Check for long logs for a specific user
+ */
+export async function checkLongLogsForUser(userId: number): Promise<{ hasLongLogs: boolean; count: number }> {
+  const res = await sql`
+    SELECT COUNT(*) AS count
+    FROM time_logs
+    WHERE status = 'completed'
+      AND time_in IS NOT NULL
+      AND time_out IS NOT NULL
+      AND user_id = ${userId}
+      AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
+      AND (
+        log_type = 'regular'
+        OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+      )
+  `
+  const count = Number(res[0]?.count) || 0
+  return { hasLongLogs: count > 0, count }
+}
+
+/**
+ * Migrate long logs for a specific user
+ */
+export async function migrateLongLogsForUser(userId: number): Promise<{ 
+  success: boolean; 
+  processed: number; 
+  errors: string[] 
+}> {
+  const errors: string[] = []
+  let processed = 0
+
+  try {
+    // Find all unsplit long logs for the specific user
+    const longLogs = await sql`
+      SELECT id, user_id, time_in, time_out, created_at, log_type
+      FROM time_logs 
+      WHERE status = 'completed' 
+        AND time_in IS NOT NULL 
+        AND time_out IS NOT NULL
+        AND user_id = ${userId}
+        AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
+        AND (
+          log_type = 'regular' 
+          OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+        )
+      ORDER BY created_at ASC
+    `
+
+    // Process each long log using the same logic as the global migration
+    for (const log of longLogs) {
+      try {
+        const timeIn = new Date(log.time_in)
+        const timeOut = new Date(log.time_out)
+        // Truncate to minute
+        timeIn.setSeconds(0, 0)
+        timeOut.setSeconds(0, 0)
+        // Calculate total hours for this log
+        const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+        if (totalHours <= DAILY_REQUIRED_HOURS) continue // Skip if already within limits
+
+        // Calculate split points
+        const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        regularEndTime.setSeconds(0, 0)
+        // Overtime should start exactly at the end of regular time (no 1-minute gap)
+        const overtimeStartTime = new Date(regularEndTime.getTime())
+        overtimeStartTime.setSeconds(0, 0)
+
+        // Begin transaction for atomic operation
+        await sql.begin(async (tx) => {
+          if (log.log_type === 'regular') {
+            // For regular logs: Update to regular hours only, create overtime log
+            await tx`
+              UPDATE time_logs
+              SET time_out = ${truncateToMinute(regularEndTime)}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${truncateToMinute(overtimeStartTime)}, 
+                ${truncateToMinute(timeOut)}, 
+                'completed', 
+                'overtime', 
+                'pending', 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+          } else if (log.log_type === 'overtime') {
+            // For overtime logs that are too long: Create regular log, update overtime log
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${truncateToMinute(timeIn)}, 
+                ${truncateToMinute(regularEndTime)}, 
+                'completed',
+                'regular',
+                ${log.created_at},
+                NOW()
+              )
+            `
+            await tx`
+              UPDATE time_logs
+              SET time_in = ${truncateToMinute(overtimeStartTime)}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+          }
+        })
+
+        processed++
+      } catch (error) {
+        console.error(`Error processing log ${log.id}:`, error)
+        errors.push(`Log ${log.id}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      }
+    }
+
+    return { success: errors.length === 0, processed, errors }
+  } catch (error) {
+    console.error("Migration error:", error)
+    return { 
+      success: false, 
+      processed, 
+      errors: [error instanceof Error ? error.message : 'Unknown error'] 
+    }
+  }
 }

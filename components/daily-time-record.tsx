@@ -1,15 +1,16 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
+import { RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate, useSortDirection, sortGroupedLogsByDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours } from "@/lib/time-utils"
+import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
 
 interface EditLogRequest {
   id: number
@@ -190,30 +191,95 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     }
   }
 
-  // Automatic migration of long logs on DTR load
-  useEffect(() => {
-    let cancelled = false
-    async function maybeMigrateLongLogs() {
-      try {
-        const checkRes = await fetch("/api/time-logs/long-logs", { credentials: "include" })
-        if (!checkRes.ok) return
-        const checkData = await checkRes.json()
-        if (checkData.hasLongLogs && !cancelled) {
-          await fetch("/api/time-logs/long-logs", {
-            method: "POST",
-            credentials: "include"
-          })
-          if (onTimeLogUpdate) onTimeLogUpdate()
-        }
-      } catch (error) {
-        console.error("Error migrating long logs:", error)
-        // Ignore errors, don't block DTR
+  // State for long logs migration
+  const [migrationStatus, setMigrationStatus] = useState<{ hasLongLogs: boolean; count: number }>({
+    hasLongLogs: false,
+    count: 0
+  })
+  const [migrationLoading, setMigrationLoading] = useState(false)
+
+  // Check if there are long logs that need migration
+  const checkLongLogs = useCallback(async () => {
+    try {
+      // Determine the user ID to check
+      let targetUserId: string | null = null
+      
+      if (internId) {
+        // Admin viewing specific intern or explicit internId provided
+        targetUserId = internId
+      } else if (isIntern && user?.id) {
+        // Intern viewing their own DTR
+        targetUserId = String(user.id)
       }
+      
+      // Use user-specific endpoint if we have a target user ID, otherwise global endpoint
+      const endpoint = targetUserId 
+        ? `/api/time-logs/long-logs/user/${targetUserId}`
+        : "/api/time-logs/long-logs"
+      
+      const response = await fetch(endpoint, {
+        credentials: "include",
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setMigrationStatus({
+          hasLongLogs: data.hasLongLogs,
+          count: data.count
+        })
+      }
+    } catch (error) {
+      console.error("Error checking long logs:", error)
     }
-    maybeMigrateLongLogs()
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [internId, isIntern, user?.id])
+
+  // Check for long logs on component mount
+  useEffect(() => {
+    checkLongLogs()
+  }, [checkLongLogs])
+
+  // Handle manual migration of long logs
+  const handleMigration = async () => {
+    if (migrationLoading) return
+    
+    setMigrationLoading(true)
+    try {
+      // Determine the user ID to migrate
+      let targetUserId: string | null = null
+      
+      if (internId) {
+        // Admin viewing specific intern or explicit internId provided
+        targetUserId = internId
+      } else if (isIntern && user?.id) {
+        // Intern viewing their own DTR
+        targetUserId = String(user.id)
+      }
+      
+      // Use user-specific endpoint if we have a target user ID, otherwise global endpoint
+      const endpoint = targetUserId 
+        ? `/api/time-logs/long-logs/user/${targetUserId}/migrate`
+        : "/api/time-logs/long-logs"
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+      })
+      
+      if (response.ok) {
+        await response.json()
+        // Refresh data after migration
+        if (onTimeLogUpdate) onTimeLogUpdate()
+        await checkLongLogs()
+      } else {
+        const error = await response.json()
+        alert(`Migration failed: ${error.error}`)
+      }
+    } catch (error) {
+      console.error("Error running migration:", error)
+      alert("Failed to run migration. Please try again.")
+    } finally {
+      setMigrationLoading(false)
+    }
+  }
 
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
@@ -246,6 +312,18 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             >
               {sortButtonText}
             </Button>
+            {migrationStatus.hasLongLogs && (
+              <Button
+                onClick={handleMigration}
+                variant="outline"
+                size="sm"
+                disabled={migrationLoading}
+                className="shrink-0"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`} />
+                {migrationLoading ? 'Processing...' : `Split ${migrationStatus.count} Long Logs`}
+              </Button>
+            )}
             {isIntern && (
               !showActions ? (
                 <Button
@@ -446,19 +524,19 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                           {(() => {
                             let previousRegularHours = 0
                             return sessions.map((session, i) => {
-                              // Use accurate calculation for overtime
-                              const accurateCalc = calculateAccurateSessionDuration(
+                              // Use raw calculation for overtime display (shows actual time worked)
+                              const rawCalc = calculateRawSessionDuration(
                                 session.logs,
                                 new Date(),
                                 previousRegularHours
                               )
                               
-                              const displayText = formatAccurateHours(accurateCalc.overtimeHours)
+                              const displayText = formatAccurateHours(rawCalc.overtimeHours)
                               let badgeProps = {
                                 variant: "outline" as const,
-                                className: accurateCalc.overtimeHours > 0 ? 
-                                  (accurateCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
-                                   accurateCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                className: rawCalc.overtimeHours > 0 ? 
+                                  (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                   rawCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
                                    "bg-yellow-100 text-yellow-700 border-yellow-300") :
                                   "bg-gray-100 text-gray-700 border-gray-300",
                                 text: displayText
@@ -472,8 +550,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                                 }
                               }
                               
-                              // Update tracking variables for next iteration
-                              previousRegularHours += accurateCalc.regularHours
+                              // Update tracking variables for next iteration using RAW hours for display consistency
+                              previousRegularHours += rawCalc.regularHours
                               
                               return (
                                 <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
@@ -486,7 +564,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                           {/* Show overtime total only if multiple sessions with overtime */}
                           {sessions.length > 1 && 
                            sessions.some(s => s.isOvertimeSession || 
-                             calculateAccurateSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
+                             calculateRawSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
                             <Badge 
                               variant="outline" 
                               className={
@@ -498,8 +576,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                               Total: {formatAccurateHours(
                                 sessions.reduce((total, session, i) => {
                                   const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                  return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).overtimeHours
+                                    sum + calculateRawSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
+                                  return total + calculateRawSessionDuration(session.logs, new Date(), prevHours).overtimeHours
                                 }, 0)
                               )}
                             </Badge>
