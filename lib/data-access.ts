@@ -1310,19 +1310,25 @@ export async function createTimeLogEditRequest(params: {
   requestedBy: number | string
   requestedTimeIn?: string
   requestedTimeOut?: string
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; editRequestId?: number }> {
+  console.log(`[CREATE EDIT REQUEST] Creating edit request for log ${params.logId} by user ${params.requestedBy}`)
+  console.log(`[CREATE EDIT REQUEST] Requested times: ${params.requestedTimeIn} - ${params.requestedTimeOut}`)
+  
   try {
     // Always fetch the original time_in and time_out from the time_logs table
     const logRes = await sql`
       SELECT time_in, time_out FROM time_logs WHERE id = ${params.logId}
     `
     if (logRes.length === 0) {
+      console.error(`[CREATE EDIT REQUEST] Time log ${params.logId} not found`)
       return { success: false, error: "Time log not found" }
     }
     const originalTimeIn = logRes[0].time_in
     const originalTimeOut = logRes[0].time_out
 
-    await sql`
+    console.log(`[CREATE EDIT REQUEST] Original times: ${originalTimeIn} - ${originalTimeOut}`)
+
+    const result = await sql`
       INSERT INTO time_log_edit_requests (
         log_id, 
         original_time_in, 
@@ -1341,10 +1347,13 @@ export async function createTimeLogEditRequest(params: {
         'pending',
         ${params.requestedBy}
       )
+      RETURNING id
     `
-    return { success: true }
+    
+    console.log(`[CREATE EDIT REQUEST] Successfully created edit request with ID: ${result[0].id}`)
+    return { success: true, editRequestId: result[0].id }
   } catch (error) {
-    console.error("Error creating time log edit request:", error)
+    console.error("[CREATE EDIT REQUEST] Error creating time log edit request:", error)
     return { success: false, error: "Failed to create edit request" }
   }
 }
@@ -1352,28 +1361,242 @@ export async function createTimeLogEditRequest(params: {
 /**
  * Revert a time log to its original time_in and time_out using the edit request.
  * This should be called when an edit request is reverted to 'pending'.
+ * IMPORTANT: This function NEVER deletes edit requests - only updates the status.
  */
 export async function revertTimeLogToOriginal(editRequestId: number): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log(`[REVERT] Reverting time log to original for edit request: ${editRequestId}`)
+    
     // Get the edit request and its associated log
     const req = await sql`
-      SELECT log_id, original_time_in, original_time_out
+      SELECT log_id, original_time_in, original_time_out, metadata
       FROM time_log_edit_requests
       WHERE id = ${editRequestId}
     `
     if (req.length === 0) {
+      console.error(`[REVERT] Edit request ${editRequestId} not found`)
       return { success: false, error: "Edit request not found" }
     }
-    const { log_id, original_time_in, original_time_out } = req[0]
-    // Update the time log with the original values
-    await sql`
-      UPDATE time_logs
-      SET time_in = ${truncateToMinute(original_time_in)}, time_out = ${truncateToMinute(original_time_out)}, updated_at = NOW()
-      WHERE id = ${log_id}
-    `
+    
+    const { log_id, original_time_in, original_time_out, metadata } = req[0]
+    
+    // Check if this is a continuous session - if so, delegate to the proper handler
+    if (metadata && metadata.isContinuousSession) {
+      console.log(`[REVERT] This is a continuous session edit request - should be handled by revertContinuousEditRequests`)
+      // For continuous sessions, we should not use this function
+      // Instead, the caller should use revertContinuousEditRequests
+      return { success: false, error: "Continuous session edit requests should use revertContinuousEditRequests" }
+    }
+    
+    if (!original_time_in || !original_time_out) {
+      console.error(`[REVERT] No original time data found in edit request ${editRequestId}`)
+      return { success: false, error: "No original time data found in edit request" }
+    }
+
+    // Get user info for proper restoration
+    const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${log_id}`
+    if (logRes.length === 0) {
+      console.error(`[REVERT] Associated time log ${log_id} not found`)
+      return { success: false, error: "Associated time log not found" }
+    }
+    
+    const { user_id: userId, created_at: createdAt } = logRes[0]
+    const dateKey = new Date(original_time_in).toISOString().slice(0, 10)
+    
+    // Calculate original time range for restoration
+    const originalTimeIn = new Date(original_time_in)
+    const originalTimeOut = new Date(original_time_out)
+    originalTimeIn.setSeconds(0, 0)
+    originalTimeOut.setSeconds(0, 0)
+    
+    console.log(`[REVERT] Reverting user ${userId} on date ${dateKey} to original times: ${original_time_in} - ${original_time_out}`)
+
+    await sql.begin(async (tx) => {
+      // First, get all log IDs that will be deleted to handle foreign key constraints
+      const logsToDelete = await tx`
+        SELECT id FROM time_logs 
+        WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+      `
+      const logIdsToDelete = logsToDelete.map(log => log.id)
+      console.log(`[REVERT] Found ${logIdsToDelete.length} logs to delete: ${JSON.stringify(logIdsToDelete)}`)
+      
+      // Create a temporary placeholder log to handle foreign key constraints
+      // This allows us to temporarily point edit requests to it while we delete and recreate logs
+      if (logIdsToDelete.length > 0) {
+        console.log(`[REVERT] Creating temporary placeholder log for foreign key constraint handling`)
+        const placeholderLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(originalTimeIn)}, ${truncateToMinute(originalTimeOut)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        const placeholderLogId = placeholderLogRes[0].id
+        console.log(`[REVERT] Created temporary placeholder log ${placeholderLogId}`)
+        
+        // Update all edit requests that reference logs being deleted to point to the placeholder
+        console.log(`[REVERT] Updating edit requests to reference temporary placeholder log ${placeholderLogId}`)
+        await tx`
+          UPDATE time_log_edit_requests 
+          SET log_id = ${placeholderLogId}
+          WHERE log_id = ANY(${logIdsToDelete})
+        `
+        
+        // Now safely delete the original logs
+        console.log(`[REVERT] Deleting original logs for user ${userId} on date ${dateKey}`)
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey} AND id != ${placeholderLogId}
+        `
+      }
+      
+      // Calculate original duration to determine how to restore
+      const originalTotalHours = (originalTimeOut.getTime() - originalTimeIn.getTime()) / (1000 * 60 * 60)
+      
+      console.log(`[REVERT] Original total hours: ${originalTotalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}, MAX_OVERTIME_HOURS: ${MAX_OVERTIME_HOURS}`)
+      
+      // Restore original log structure based on original duration
+      const newLogIds: number[] = []
+      
+      if (originalTotalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+        // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
+        console.log(`[REVERT] Restoring with extended overtime: ${originalTotalHours} hours > ${DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS} hours`)
+        const regularCutoff = new Date(originalTimeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        const overtimeCutoff = new Date(originalTimeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
+        overtimeCutoff.setSeconds(0, 0)
+
+        // Insert regular log (9 hours)
+        const regularLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(originalTimeIn)}, ${truncateToMinute(regularCutoff)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(regularLogRes[0].id)
+
+        // Insert normal overtime log (3 hours) with pending status (reverted to original state)
+        const overtimeLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
+            'completed', 'overtime', 'pending', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(overtimeLogRes[0].id)
+
+        // Insert extended overtime log (remainder) with pending status
+        const extendedOvertimeLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(originalTimeOut)},
+            'completed', 'extended_overtime', 'pending', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(extendedOvertimeLogRes[0].id)
+      } else if (originalTotalHours > DAILY_REQUIRED_HOURS) {
+        // Regular overtime scenario: regular (9h) + overtime (remainder, up to 3h)
+        console.log(`[REVERT] Restoring with overtime: ${originalTotalHours} hours > ${DAILY_REQUIRED_HOURS} hours`)
+        const regularCutoff = new Date(originalTimeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        regularCutoff.setSeconds(0, 0)
+
+        // Insert regular log
+        const regularLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(originalTimeIn)}, ${truncateToMinute(regularCutoff)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(regularLogRes[0].id)
+
+        // Insert overtime log with pending status (reverted to original state)
+        const overtimeLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(originalTimeOut)},
+            'completed', 'overtime', 'pending', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(overtimeLogRes[0].id)
+      } else {
+        // Regular hours only: restore as single log
+        console.log(`[REVERT] Restoring as single regular log: ${originalTotalHours} hours <= ${DAILY_REQUIRED_HOURS} hours`)
+        const regularLogRes = await tx`
+          INSERT INTO time_logs (
+            user_id, time_in, time_out, status, log_type, created_at, updated_at
+          ) VALUES (
+            ${userId}, ${truncateToMinute(originalTimeIn)}, ${truncateToMinute(originalTimeOut)},
+            'completed', 'regular', ${createdAt}, NOW()
+          )
+          RETURNING id
+        `
+        newLogIds.push(regularLogRes[0].id)
+      }
+      
+      console.log(`[REVERT] Created ${newLogIds.length} new logs: ${JSON.stringify(newLogIds)}`)
+      
+      // Update edit requests to point to the primary new log (regular log) and delete the placeholder
+      // This ensures the edit requests maintain their audit trail references
+      if (newLogIds.length > 0 && logIdsToDelete.length > 0) {
+        // Get the current placeholder log ID that edit requests are pointing to
+        const placeholderQuery = await tx`
+          SELECT log_id FROM time_log_edit_requests 
+          WHERE id = ${editRequestId}
+        `
+        
+        if (placeholderQuery.length > 0) {
+          const placeholderLogId = placeholderQuery[0].log_id
+          console.log(`[REVERT] Found placeholder log ${placeholderLogId}, updating all references to new log ${newLogIds[0]}`)
+          
+          // Update ALL edit requests pointing to the placeholder to point to the new primary log
+          await tx`
+            UPDATE time_log_edit_requests 
+            SET log_id = ${newLogIds[0]}
+            WHERE log_id = ${placeholderLogId}
+          `
+          
+          // Delete the placeholder log now that all references are updated
+          console.log(`[REVERT] Deleting placeholder log ${placeholderLogId}`)
+          await tx`
+            DELETE FROM time_logs WHERE id = ${placeholderLogId}
+          `
+        }
+        
+        // Update the edit request status to pending (reverted state)
+        console.log(`[REVERT] Setting edit request ${editRequestId} status to pending`)
+        await tx`
+          UPDATE time_log_edit_requests
+          SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+          WHERE id = ${editRequestId}
+        `
+      } else {
+        // Fallback: just update status without changing log reference
+        await tx`
+          UPDATE time_log_edit_requests
+          SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+          WHERE id = ${editRequestId}
+        `
+      }
+    })
+    
+    console.log(`[REVERT] Successfully reverted time log for edit request ${editRequestId} to original times`)
     return { success: true }
   } catch (error) {
-    console.error("Error reverting time log to original:", error)
+    console.error(`[REVERT] Error reverting time log to original for edit request ${editRequestId}:`, error)
     return { success: false, error: "Failed to revert time log" }
   }
 }
@@ -1410,14 +1633,6 @@ export async function updateTimeLogEditRequest(
       const userId = log.user_id
       const createdAt = log.created_at
 
-      // Remove all logs for this user on this date (to avoid duplicate durations)
-      const dateKey = new Date(requestedTimeIn).toISOString().slice(0, 10)
-      await sql`
-        DELETE FROM time_logs
-        WHERE user_id = ${userId}
-          AND time_in::date = ${dateKey}
-      `
-
       // Calculate new duration
       const timeIn = new Date(requestedTimeIn)
       const timeOut = new Date(requestedTimeOut)
@@ -1425,64 +1640,144 @@ export async function updateTimeLogEditRequest(
       timeOut.setSeconds(0, 0)
       const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
 
-      // If duration > DAILY_REQUIRED_HOURS, split into regular and overtime
-      if (totalHours > DAILY_REQUIRED_HOURS) {
-        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-        regularCutoff.setSeconds(0, 0)
+      console.log(`Single edit request approval - Total hours: ${totalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}, MAX_OVERTIME_HOURS: ${MAX_OVERTIME_HOURS}`)
 
-        // Insert regular log
-        await sql`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, created_at, updated_at
-          ) VALUES (
-            ${userId},
-            ${truncateToMinute(timeIn)},
-            ${truncateToMinute(regularCutoff)},
-            'completed',
-            'regular',
-            ${createdAt},
-            NOW()
-          )
+      await sql.begin(async (tx) => {
+        // First create the new logs and get their IDs
+        const newLogIds: number[] = []
+
+        // Split into regular, overtime, and potentially extended overtime based on total hours
+        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
+          console.log(`Creating regular + overtime + extended overtime logs for ${totalHours} hours (discarding original overtime if any)`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+          overtimeCutoff.setSeconds(0, 0)
+
+          // Insert regular log (9 hours)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert normal overtime log (3 hours) with automatic approval
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+
+          // Insert extended overtime log (remainder) with automatic approval
+          const extendedOvertimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(extendedOvertimeLogRes[0].id)
+        } else if (totalHours > DAILY_REQUIRED_HOURS) {
+          // Regular overtime scenario: regular (9h) + overtime (remainder, up to 3h)
+          console.log(`Creating regular + overtime logs for ${totalHours} hours (discarding original extended overtime if any)`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+
+          // Insert regular log
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert overtime log with automatic approval since admin approved the edit
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+        } else {
+          // Regular hours only: save as single continuous log (discarding all overtime)
+          console.log(`Creating single regular log for ${totalHours} hours (discarding all overtime)`)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId},
+              ${truncateToMinute(timeIn)},
+              ${truncateToMinute(timeOut)},
+              'completed',
+              'regular',
+              ${createdAt},
+              NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+        }
+
+        // Get all log IDs that will be deleted to handle foreign key constraints
+        const dateKey = new Date(requestedTimeIn).toISOString().slice(0, 10)
+        const logsToDelete = await tx`
+          SELECT id FROM time_logs 
+          WHERE user_id = ${userId} 
+            AND time_in::date = ${dateKey}
         `
-        // Insert overtime log
-        await sql`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
-          ) VALUES (
-            ${userId},
-            ${truncateToMinute(regularCutoff)},
-            ${truncateToMinute(timeOut)},
-            'completed',
-            'overtime',
-            'pending',
-            ${createdAt},
-            NOW()
-          )
+        const logIdsToDelete = logsToDelete.map(log => log.id)
+        console.log(`[APPROVAL] Found ${logIdsToDelete.length} logs to delete: ${JSON.stringify(logIdsToDelete)}`)
+        
+        // Update ALL edit requests that reference these logs to point to the first new log (regular log)
+        // This prevents foreign key constraint violations during deletion
+        if (logIdsToDelete.length > 0 && newLogIds.length > 0) {
+          console.log(`[APPROVAL] Updating all edit requests referencing logs being deleted to point to new log ${newLogIds[0]}`)
+          await tx`
+            UPDATE time_log_edit_requests
+            SET log_id = ${newLogIds[0]}
+            WHERE log_id = ANY(${logIdsToDelete})
+          `
+        }
+
+        // Now safely delete all old logs for this user on this date, excluding the new ones
+        console.log(`[APPROVAL] Deleting old logs for user ${userId} on date ${dateKey}, excluding new logs`)
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId}
+            AND time_in::date = ${dateKey}
+            AND id != ALL(${newLogIds})
         `
-      } else {
-        // Just insert a regular log with the new times
-        await sql`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, created_at, updated_at
-          ) VALUES (
-            ${userId},
-            ${truncateToMinute(timeIn)},
-            ${truncateToMinute(timeOut)},
-            'completed',
-            'regular',
-            ${createdAt},
-            NOW()
-          )
-        `
-      }
+      })
     } else if (action === "reject") {
       // If rejected, do nothing to the time log
     }
 
-    // Update the edit request status
+    // Update the edit request status (map action to correct database status)
+    const dbStatus = action === "reject" ? "rejected" : action === "approve" ? "approved" : action
     await sql`
       UPDATE time_log_edit_requests
-      SET status = ${action}, reviewed_at = NOW()
+      SET status = ${dbStatus}, reviewed_at = NOW()
       WHERE id = ${editRequestId}
     `
     return { success: true }
@@ -1535,6 +1830,8 @@ export async function processContinuousEditRequests(
  */
 async function approveContinuousEditRequests(requestIds: number[]): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log(`Approving continuous edit requests: ${JSON.stringify(requestIds)}`)
+    
     // Get all edit requests
     const requests = await sql`
       SELECT * FROM time_log_edit_requests 
@@ -1542,90 +1839,402 @@ async function approveContinuousEditRequests(requestIds: number[]): Promise<{ su
       ORDER BY id
     `
 
+    console.log(`Found ${requests.length} edit requests`)
+
     if (requests.length === 0) {
       return { success: false, error: "Edit requests not found" }
     }
 
-    // Get the earliest time in and latest time out from the requests
-    const earliestTimeIn = requests[0].requested_time_in
-    const latestTimeOut = requests[requests.length - 1].requested_time_out
+    // Check if this is a continuous session edit request (has metadata)
+    const firstRequest = requests[0]
+    if (firstRequest.metadata && firstRequest.metadata.isContinuousSession) {
+      // Handle continuous session edit request
+      console.log("Processing continuous session edit request")
+      
+      const metadata = firstRequest.metadata
+      const logIds = metadata.allLogIds || []
+      
+      if (logIds.length === 0) {
+        return { success: false, error: "No log IDs found in continuous session metadata" }
+      }
+      
+      const requestedTimeIn = firstRequest.requested_time_in
+      const requestedTimeOut = firstRequest.requested_time_out
+      
+      if (!requestedTimeIn || !requestedTimeOut) {
+        return { success: false, error: "Invalid time range in continuous session request" }
+      }
+      
+      // Get user and date info from the first log in the session
+      const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${logIds[0]}`
+      if (logRes.length === 0) {
+        return { success: false, error: "Associated time log not found" }
+      }
 
-    if (!earliestTimeIn || !latestTimeOut) {
-      return { success: false, error: "Invalid time range in requests" }
-    }
+      const { user_id: userId, created_at: createdAt } = logRes[0]
+      
+      // Calculate new time range and validate it
+      const timeIn = new Date(requestedTimeIn)
+      const timeOut = new Date(requestedTimeOut)
+      timeIn.setSeconds(0, 0)
+      timeOut.setSeconds(0, 0)
+      
+      // Validate time range
+      if (timeOut <= timeIn) {
+        throw new Error("Invalid time range: time out must be after time in")
+      }
+      
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+      
+      // Validate total hours is positive
+      if (totalHours <= 0) {
+        throw new Error("Invalid duration: total hours must be positive")
+      }
+      
+      console.log(`Continuous session - Total hours: ${totalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}`)
 
-    // Get user and date info from first request
-    const firstLogId = requests[0].log_id
-    const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${firstLogId}`
-    if (logRes.length === 0) {
-      return { success: false, error: "Associated time log not found" }
-    }
+      await sql.begin(async (tx) => {
+        // Get all log IDs that will be deleted to handle foreign key constraints
+        const dateKey = new Date(requestedTimeIn).toISOString().slice(0, 10)
+        const logsToDelete = await tx`
+          SELECT id FROM time_logs 
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+        `
+        const logIdsToDelete = logsToDelete.map(log => log.id)
+        console.log(`[CONTINUOUS APPROVAL] Found ${logIdsToDelete.length} logs to delete: ${JSON.stringify(logIdsToDelete)}`)
+        
+        // Create a temporary placeholder log to handle foreign key constraints
+        // This allows us to temporarily point edit requests to it while we delete and recreate logs
+        let placeholderLogId: number | null = null
+        if (logIdsToDelete.length > 0) {
+          console.log(`[CONTINUOUS APPROVAL] Creating temporary placeholder log for foreign key constraint handling`)
+          const placeholderLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          placeholderLogId = placeholderLogRes[0].id
+          console.log(`[CONTINUOUS APPROVAL] Created temporary placeholder log ${placeholderLogId}`)
+          
+          // Update all edit requests that reference logs being deleted to point to the placeholder
+          console.log(`[CONTINUOUS APPROVAL] Updating edit requests to reference temporary placeholder log ${placeholderLogId}`)
+          await tx`
+            UPDATE time_log_edit_requests
+            SET log_id = ${placeholderLogId}
+            WHERE log_id = ANY(${logIdsToDelete})
+          `
+        }
 
-    const { user_id: userId, created_at: createdAt } = logRes[0]
-    const dateKey = new Date(earliestTimeIn).toISOString().slice(0, 10)
+        // Delete ALL logs for this user on the requested edit date (not just the specific log IDs)
+        console.log(`[CONTINUOUS APPROVAL] Deleting original logs for user ${userId} on date ${dateKey}`)
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+            ${placeholderLogId ? sql`AND id != ${placeholderLogId}` : sql``}
+        `
 
-    await sql.begin(async (tx) => {
-      // Delete all existing logs for this user on this date
-      await tx`
-        DELETE FROM time_logs
-        WHERE user_id = ${userId} AND time_in::date = ${dateKey}
-      `
+        // Create new log(s) for the approved continuous session
+        // Split into regular, overtime, and potentially extended overtime based on total hours
+        const newLogIds: number[] = []
+        
+        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
+          console.log(`Splitting continuous session with extended overtime: ${totalHours} hours > ${DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS} hours`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+          overtimeCutoff.setSeconds(0, 0)
 
-      // Calculate total duration and create new logs
+          // Insert regular log (9 hours)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert normal overtime log (3 hours) with automatic approval
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+
+          // Insert extended overtime log (remainder) with automatic approval
+          const extendedOvertimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(extendedOvertimeLogRes[0].id)
+        } else if (totalHours > DAILY_REQUIRED_HOURS) {
+          // Regular overtime scenario: regular (9h) + overtime (remainder, up to 3h)
+          console.log(`Splitting continuous session: ${totalHours} hours > ${DAILY_REQUIRED_HOURS} hours`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+
+          // Insert regular log
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert overtime log with automatic approval since admin approved the edit
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+        } else {
+          // Insert single continuous log for the entire requested duration
+          // This handles cases where user requests exactly 9 hours or less
+          console.log(`Saving as single continuous log: ${totalHours} hours <= ${DAILY_REQUIRED_HOURS} hours`)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+        }
+
+        console.log(`[CONTINUOUS APPROVAL] Created ${newLogIds.length} new logs: ${JSON.stringify(newLogIds)}`)
+        
+        // Update edit requests to point to the primary new log and handle placeholder cleanup
+        if (newLogIds.length > 0) {
+          console.log(`[CONTINUOUS APPROVAL] Updating edit requests to reference primary new log ${newLogIds[0]}`)
+          
+          // Update edit requests to point to the new primary log and set approved status
+          if (placeholderLogId) {
+            console.log(`[CONTINUOUS APPROVAL] Updating edit requests from placeholder ${placeholderLogId} to new log ${newLogIds[0]}`)
+            await tx`
+              UPDATE time_log_edit_requests
+              SET log_id = ${newLogIds[0]}, status = 'approved', reviewed_at = NOW()
+              WHERE log_id = ${placeholderLogId}
+            `
+            
+            // Delete the placeholder log
+            console.log(`[CONTINUOUS APPROVAL] Deleting placeholder log ${placeholderLogId}`)
+            await tx`
+              DELETE FROM time_logs WHERE id = ${placeholderLogId}
+            `
+          } else {
+            // Fallback: update by request IDs if no placeholder was used
+            await tx`
+              UPDATE time_log_edit_requests
+              SET log_id = ${newLogIds[0]}, status = 'approved', reviewed_at = NOW()
+              WHERE id = ANY(${requestIds})
+            `
+          }
+        } else {
+          // Fallback: just update status without log reference if no new logs created
+          await tx`
+            UPDATE time_log_edit_requests
+            SET status = 'approved', reviewed_at = NOW()
+            WHERE id = ANY(${requestIds})
+          `
+        }
+      })
+
+      return { success: true }
+    } else {
+      // Handle legacy multiple edit requests (for backward compatibility)
+      console.log("Processing legacy multiple edit requests")
+      
+      const requestedTimes = requests
+        .map(req => ({
+          timeIn: req.requested_time_in,
+          timeOut: req.requested_time_out
+        }))
+        .filter(times => times.timeIn && times.timeOut)
+
+      console.log(`Valid requested times: ${JSON.stringify(requestedTimes)}`)
+
+      if (requestedTimes.length === 0) {
+        return { success: false, error: "No valid time ranges in requests" }
+      }
+
+      const earliestTimeIn = requestedTimes
+        .reduce((earliest, curr) => 
+          new Date(curr.timeIn!) < new Date(earliest.timeIn!) ? curr : earliest
+        ).timeIn!
+
+      const latestTimeOut = requestedTimes
+        .reduce((latest, curr) => 
+          new Date(curr.timeOut!) > new Date(latest.timeOut!) ? curr : latest
+        ).timeOut!
+
+      console.log(`Legacy mode - Time range: ${earliestTimeIn} to ${latestTimeOut}`)
+
+      // Get user and date info from first request  
+      const firstLogId = requests[0].log_id
+      const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${firstLogId}`
+      if (logRes.length === 0) {
+        return { success: false, error: "Associated time log not found" }
+      }
+
+      const { user_id: userId, created_at: createdAt } = logRes[0]
+
+      // Calculate new time range and validate it
       const timeIn = new Date(earliestTimeIn)
       const timeOut = new Date(latestTimeOut)
       timeIn.setSeconds(0, 0)
       timeOut.setSeconds(0, 0)
-      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
-
-      // Split into regular and overtime if needed
-      if (totalHours > DAILY_REQUIRED_HOURS) {
-        const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
-        regularCutoff.setSeconds(0, 0)
-
-        // Insert regular log
-        await tx`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, created_at, updated_at
-          ) VALUES (
-            ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
-            'completed', 'regular', ${createdAt}, NOW()
-          )
-        `
-
-        // Insert overtime log
-        await tx`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
-          ) VALUES (
-            ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
-            'completed', 'overtime', 'pending', ${createdAt}, NOW()
-          )
-        `
-      } else {
-        // Insert single regular log
-        await tx`
-          INSERT INTO time_logs (
-            user_id, time_in, time_out, status, log_type, created_at, updated_at
-          ) VALUES (
-            ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
-            'completed', 'regular', ${createdAt}, NOW()
-          )
-        `
+      
+      // Validate time range
+      if (timeOut <= timeIn) {
+        throw new Error("Invalid time range: time out must be after time in")
       }
+      
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+      
+      // Validate total hours is positive
+      if (totalHours <= 0) {
+        throw new Error("Invalid duration: total hours must be positive")
+      }
+      
+      console.log(`Legacy mode - Total hours: ${totalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}`)
 
-      // Update all edit requests to approved
-      await tx`
-        UPDATE time_log_edit_requests
-        SET status = 'approved', reviewed_at = NOW()
-        WHERE id = ANY(${requestIds})
-      `
-    })
+      await sql.begin(async (tx) => {
+        // Update edit requests to approved status
+        await tx`
+          UPDATE time_log_edit_requests
+          SET status = 'approved', reviewed_at = NOW()
+          WHERE id = ANY(${requestIds})
+        `
 
-    return { success: true }
+        // Delete ALL logs for this user on the requested edit date (not just the specific log IDs)
+        const dateKey = new Date(earliestTimeIn).toISOString().slice(0, 10)
+        console.log(`Legacy mode - Deleting all logs for user ${userId} on date ${dateKey}`)
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+        `
+
+        // Create new logs with the approved time range
+        // Split into regular, overtime, and potentially extended overtime based on total hours
+        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+          overtimeCutoff.setSeconds(0, 0)
+
+          // Insert regular log (9 hours)
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+          `
+
+          // Insert normal overtime log (3 hours) with automatic approval
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+          `
+
+          // Insert extended overtime log (remainder) with automatic approval
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+            )
+          `
+        } else if (totalHours > DAILY_REQUIRED_HOURS) {
+          // Regular overtime scenario: regular (9h) + overtime (remainder, up to 3h)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+
+          // Insert regular log
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+          `
+
+          // Insert overtime log with automatic approval since admin approved the edit
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+            )
+          `
+        } else {
+          // Insert single continuous log for the entire requested duration
+          // This handles cases where user requests exactly 9 hours or less
+          await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+          `
+        }
+      })
+
+      return { success: true }
+    }
   } catch (error) {
     console.error("Error approving continuous edit requests:", error)
-    return { success: false, error: "Failed to approve continuous edit requests" }
+    
+    // Log more specific error details
+    if (error instanceof Error) {
+      console.error("Error message:", error.message)
+      console.error("Error stack:", error.stack)
+    }
+    
+    // Check for specific database errors
+    if (typeof error === 'object' && error !== null) {
+      console.error("Error details:", JSON.stringify(error, null, 2))
+    }
+    
+    return { success: false, error: `Failed to approve continuous edit requests: ${error instanceof Error ? error.message : 'Unknown error'}` }
   }
 }
 
@@ -1652,12 +2261,13 @@ async function rejectContinuousEditRequests(requestIds: number[]): Promise<{ suc
  */
 async function revertContinuousEditRequests(requestIds: number[]): Promise<{ success: boolean; error?: string }> {
   try {
-    // Get the first request to get log info
+    console.log(`Reverting continuous edit requests: ${JSON.stringify(requestIds)}`)
+    
+    // Get all edit requests
     const requests = await sql`
       SELECT * FROM time_log_edit_requests 
       WHERE id = ANY(${requestIds})
       ORDER BY id
-      LIMIT 1
     `
 
     if (requests.length === 0) {
@@ -1665,38 +2275,279 @@ async function revertContinuousEditRequests(requestIds: number[]): Promise<{ suc
     }
 
     const firstRequest = requests[0]
-    const logRes = await sql`SELECT user_id FROM time_logs WHERE id = ${firstRequest.log_id}`
-    if (logRes.length === 0) {
-      return { success: false, error: "Associated time log not found" }
-    }
-
-    const { user_id: userId } = logRes[0]
-    const dateKey = new Date(firstRequest.original_time_in).toISOString().slice(0, 10)
-
-    await sql.begin(async (tx) => {
-      // Delete current logs for the date
-      await tx`
-        DELETE FROM time_logs
-        WHERE user_id = ${userId} AND time_in::date = ${dateKey}
-      `
-
-      // Restore original logs for each request
-      for (const requestId of requestIds) {
-        const reqResult = await revertTimeLogToOriginal(requestId)
-        if (!reqResult.success) {
-          throw new Error(reqResult.error || "Failed to revert individual request")
-        }
+    
+    // Check if this is a continuous session edit request (has metadata)
+    if (firstRequest.metadata && firstRequest.metadata.isContinuousSession) {
+      console.log("Reverting continuous session edit request")
+      
+      const metadata = firstRequest.metadata
+      const logIds = metadata.allLogIds || []
+      
+      if (logIds.length === 0) {
+        return { success: false, error: "No log IDs found in continuous session metadata" }
+      }
+      
+      // Get the original time range from the edit request
+      const originalTimeIn = firstRequest.original_time_in
+      const originalTimeOut = firstRequest.original_time_out
+      
+      if (!originalTimeIn || !originalTimeOut) {
+        return { success: false, error: "Invalid original time range in continuous session request" }
+      }
+      
+      // Get user and date info from the first log in the session
+      const logRes = await sql`SELECT user_id, created_at FROM time_logs WHERE id = ${logIds[0]}`
+      if (logRes.length === 0) {
+        return { success: false, error: "Associated time log not found" }
       }
 
-      // Update all requests to pending
-      await tx`
-        UPDATE time_log_edit_requests
-        SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
-        WHERE id = ANY(${requestIds})
-      `
-    })
+      const { user_id: userId, created_at: createdAt } = logRes[0]
+      const dateKey = new Date(originalTimeIn).toISOString().slice(0, 10)
+      
+      // Calculate original time range
+      const timeIn = new Date(originalTimeIn)
+      const timeOut = new Date(originalTimeOut)
+      timeIn.setSeconds(0, 0)
+      timeOut.setSeconds(0, 0)
+      
+      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+      
+      console.log(`Reverting to original continuous session - Total hours: ${totalHours}`)
 
-    return { success: true }
+      await sql.begin(async (tx) => {
+        // First, get all log IDs that will be deleted to handle foreign key constraints
+        const logsToDelete = await tx`
+          SELECT id FROM time_logs 
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+        `
+        const logIdsToDelete = logsToDelete.map(log => log.id)
+        console.log(`[CONTINUOUS REVERT] Found ${logIdsToDelete.length} logs to delete: ${JSON.stringify(logIdsToDelete)}`)
+        
+        // Create a temporary placeholder log to handle foreign key constraints
+        // This allows us to temporarily point edit requests to it while we delete and recreate logs
+        let placeholderLogId: number | null = null
+        if (logIdsToDelete.length > 0) {
+          console.log(`[CONTINUOUS REVERT] Creating temporary placeholder log for foreign key constraint handling`)
+          const placeholderLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          placeholderLogId = placeholderLogRes[0].id
+          console.log(`[CONTINUOUS REVERT] Created temporary placeholder log ${placeholderLogId}`)
+          
+          // Update all edit requests that reference logs being deleted to point to the placeholder
+          console.log(`[CONTINUOUS REVERT] Updating edit requests to reference temporary placeholder log ${placeholderLogId}`)
+          await tx`
+            UPDATE time_log_edit_requests 
+            SET log_id = ${placeholderLogId}
+            WHERE log_id = ANY(${logIdsToDelete})
+          `
+        }
+        
+        // Delete all current logs for the date/user (these are the approved/edited logs)
+        console.log(`[CONTINUOUS REVERT] Deleting original logs for user ${userId} on date ${dateKey}`)
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+            ${placeholderLogId ? sql`AND id != ${placeholderLogId}` : sql``}
+        `
+
+        // Restore the original time range, splitting as needed
+        const newLogIds: number[] = []
+        
+        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
+          console.log(`Restoring with extended overtime: ${totalHours} hours > ${DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS} hours`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          const overtimeCutoff = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+          overtimeCutoff.setSeconds(0, 0)
+
+          // Insert regular log (9 hours)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert normal overtime log (3 hours) with pending status (reverted to original state)
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
+              'completed', 'overtime', 'pending', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+
+          // Insert extended overtime log (remainder) with pending status
+          const extendedOvertimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'extended_overtime', 'pending', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(extendedOvertimeLogRes[0].id)
+        } else if (totalHours > DAILY_REQUIRED_HOURS) {
+          // Regular overtime scenario: regular (9h) + overtime (remainder, up to 3h)
+          console.log(`Restoring with overtime: ${totalHours} hours > ${DAILY_REQUIRED_HOURS} hours`)
+          const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+          regularCutoff.setSeconds(0, 0)
+
+          // Insert regular log
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(regularCutoff)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+
+          // Insert overtime log with pending status (reverted to original state)
+          const overtimeLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
+              'completed', 'overtime', 'pending', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(overtimeLogRes[0].id)
+        } else {
+          // Insert single continuous log for the entire original duration
+          console.log(`Restoring as single continuous log: ${totalHours} hours <= ${DAILY_REQUIRED_HOURS} hours`)
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              'completed', 'regular', ${createdAt}, NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+        }
+
+        console.log(`[CONTINUOUS REVERT] Created ${newLogIds.length} new logs: ${JSON.stringify(newLogIds)}`)
+        
+        // Update edit requests to point to the primary new log and handle placeholder cleanup
+        if (newLogIds.length > 0) {
+          console.log(`[CONTINUOUS REVERT] Updating edit requests to reference primary new log ${newLogIds[0]} and set to pending`)
+          
+          // Update edit requests to point to the new primary log and set pending status
+          if (placeholderLogId) {
+            console.log(`[CONTINUOUS REVERT] Updating edit requests from placeholder ${placeholderLogId} to new log ${newLogIds[0]}`)
+            await tx`
+              UPDATE time_log_edit_requests
+              SET log_id = ${newLogIds[0]}, status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+              WHERE log_id = ${placeholderLogId}
+            `
+            
+            // Delete the placeholder log
+            console.log(`[CONTINUOUS REVERT] Deleting placeholder log ${placeholderLogId}`)
+            await tx`
+              DELETE FROM time_logs WHERE id = ${placeholderLogId}
+            `
+          } else {
+            // Fallback: update by request IDs if no placeholder was used
+            await tx`
+              UPDATE time_log_edit_requests
+              SET log_id = ${newLogIds[0]}, status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+              WHERE id = ANY(${requestIds})
+            `
+          }
+        } else {
+          // Fallback: just update status without log reference if no new logs created
+          await tx`
+            UPDATE time_log_edit_requests
+            SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+            WHERE id = ANY(${requestIds})
+          `
+        }
+      })
+
+      return { success: true }
+    } else {
+      // Handle legacy multiple edit requests (for backward compatibility)
+      console.log("Reverting legacy multiple edit requests")
+      
+      const firstLogRes = await sql`SELECT user_id FROM time_logs WHERE id = ${firstRequest.log_id}`
+      if (firstLogRes.length === 0) {
+        return { success: false, error: "Associated time log not found" }
+      }
+
+      const { user_id: userId } = firstLogRes[0]
+      const dateKey = new Date(firstRequest.original_time_in).toISOString().slice(0, 10)
+
+      await sql.begin(async (tx) => {
+        // Delete current logs for the date
+        await tx`
+          DELETE FROM time_logs
+          WHERE user_id = ${userId} AND time_in::date = ${dateKey}
+        `
+
+        // Restore original logs for each request using the existing function
+        for (const request of requests) {
+          const originalTimeIn = request.original_time_in
+          const originalTimeOut = request.original_time_out
+          const logId = request.log_id
+          
+          if (originalTimeIn && originalTimeOut && logId) {
+            // Get the user info for this log
+            const logInfo = await tx`
+              SELECT user_id, status, log_type, created_at 
+              FROM time_logs 
+              WHERE id = ${logId}
+            `
+            
+            if (logInfo.length > 0) {
+              // Re-insert the original log with a new ID
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, log_type, created_at, updated_at
+                ) VALUES (
+                  ${logInfo[0].user_id}, 
+                  ${truncateToMinute(originalTimeIn)}, 
+                  ${truncateToMinute(originalTimeOut)},
+                  ${logInfo[0].status}, 
+                  ${logInfo[0].log_type}, 
+                  ${logInfo[0].created_at}, 
+                  NOW()
+                )
+              `
+            }
+          }
+        }
+
+        // Update all requests to pending (never delete them for audit trail)
+        await tx`
+          UPDATE time_log_edit_requests
+          SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
+          WHERE id = ANY(${requestIds})
+        `
+      })
+
+      return { success: true }
+    }
   } catch (error) {
     console.error("Error reverting continuous edit requests:", error)
     return { success: false, error: "Failed to revert continuous edit requests" }
@@ -1712,7 +2563,7 @@ export async function createContinuousSessionEditRequest(params: {
   requestedBy: number | string
   requestedTimeIn: string
   requestedTimeOut: string
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; error?: string; editRequestId?: number }> {
   try {
     if (params.logIds.length === 0) {
       return { success: false, error: "No log IDs provided" }
@@ -1762,7 +2613,7 @@ export async function createContinuousSessionEditRequest(params: {
       }))
     }
 
-    await sql`
+    const result = await sql`
       INSERT INTO time_log_edit_requests (
         log_id, 
         original_time_in, 
@@ -1783,9 +2634,10 @@ export async function createContinuousSessionEditRequest(params: {
         ${params.requestedBy},
         ${JSON.stringify(sessionMetadata)}
       )
+      RETURNING id
     `
     
-    return { success: true }
+    return { success: true, editRequestId: result[0].id }
   } catch (error) {
     console.error("Error creating continuous session edit request:", error)
     return { success: false, error: "Failed to create continuous session edit request" }
@@ -1795,6 +2647,9 @@ export async function createContinuousSessionEditRequest(params: {
 // Helper to truncate a Date or ISO string to minute precision
 function truncateToMinute(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date
+  if (isNaN(d.getTime())) {
+    throw new Error(`Invalid date: ${date}`)
+  }
   d.setSeconds(0, 0)
   return d.toISOString()
 }

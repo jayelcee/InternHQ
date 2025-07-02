@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS intern_project_assignments (
 
 CREATE TABLE IF NOT EXISTS time_log_edit_requests (
     id SERIAL PRIMARY KEY,
-    log_id INTEGER NOT NULL REFERENCES time_logs(id) ON DELETE CASCADE,
+    log_id INTEGER NOT NULL REFERENCES time_logs(id) ON DELETE RESTRICT,
     original_time_in TIMESTAMP WITH TIME ZONE,
     original_time_out TIMESTAMP WITH TIME ZONE,
     requested_time_in TIMESTAMP WITH TIME ZONE,

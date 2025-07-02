@@ -8,17 +8,18 @@ import { Label } from "@/components/ui/label"
 import { Pencil, Trash2 } from "lucide-react"
 import { TimeLogDisplay } from "@/lib/ui-utils"
 import { processLogsForContinuousEditing } from "@/lib/session-utils"
+import { useAuth } from "@/contexts/auth-context"
 
 interface EditTimeLogDialogProps {
   logs: TimeLogDisplay[]
-  onSave: (logId: number, updates: { time_in?: string; time_out?: string }) => Promise<void>
   onDelete: (logId: number) => Promise<void>
   isLoading: boolean
   isAdmin?: boolean
   isIntern?: boolean
 }
 
-export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin = false }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
+  const { user } = useAuth()
   const [open, setOpen] = useState(false)
   // Store timeIn/timeOut for each session (not individual logs)
   const [sessionTimes, setSessionTimes] = useState<Record<string, { timeIn: string; timeOut: string }>>({})
@@ -84,55 +85,53 @@ export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin =
         const { timeIn, timeOut } = sessionTimes[session.id] || {}
         
         if (session.isContinuousSession && timeIn && timeOut) {
-          // For continuous sessions, calculate new time distribution
-          const newTimeIn = new Date(timeIn)
-          const newTimeOut = new Date(timeOut)
-          const totalDuration = newTimeOut.getTime() - newTimeIn.getTime()
-          
-          if (totalDuration > 0) {
-            // Calculate proportional time distribution for each log in the session
-            const originalDuration = session.latestTimeOut && session.earliestTimeIn 
-              ? new Date(session.latestTimeOut).getTime() - new Date(session.earliestTimeIn).getTime()
-              : totalDuration
+          // For continuous sessions, create a single edit request instead of individual ones
+          if (isIntern) {
+            // For interns, use the continuous session edit request API
+            const logIds = session.logs.map(log => log.id)
+            const requestedTimeIn = new Date(timeIn).toISOString()
+            const requestedTimeOut = new Date(timeOut).toISOString()
             
-            if (originalDuration > 0) {
-              let cumulativeTime = 0
-              
-              for (let i = 0; i < session.logs.length; i++) {
-                const log = session.logs[i]
-                const originalLogDuration = log.time_in && log.time_out 
-                  ? new Date(log.time_out).getTime() - new Date(log.time_in).getTime()
-                  : 0
-                
-                if (originalLogDuration > 0) {
-                  // Calculate proportional duration for this log
-                  const proportion = originalLogDuration / originalDuration
-                  const newLogDuration = totalDuration * proportion
-                  
-                  const logTimeIn = new Date(newTimeIn.getTime() + cumulativeTime)
-                  const logTimeOut = new Date(logTimeIn.getTime() + newLogDuration)
-                  
-                  const updates: { time_in?: string; time_out?: string } = {}
-                  
-                  const originalTimeInStr = log.time_in ? new Date(log.time_in).toISOString().slice(0, 16) : ""
-                  const originalTimeOutStr = log.time_out ? new Date(log.time_out).toISOString().slice(0, 16) : ""
-                  const newTimeInStr = logTimeIn.toISOString().slice(0, 16)
-                  const newTimeOutStr = logTimeOut.toISOString().slice(0, 16)
-                  
-                  if (newTimeInStr !== originalTimeInStr) {
-                    updates.time_in = logTimeIn.toISOString()
-                  }
-                  if (newTimeOutStr !== originalTimeOutStr) {
-                    updates.time_out = logTimeOut.toISOString()
-                  }
-                  
-                  if (Object.keys(updates).length > 0) {
-                    await onSave(log.id, updates)
-                  }
-                  
-                  cumulativeTime += newLogDuration
-                }
-              }
+            const response = await fetch("/api/interns/time-log-edit-session", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                logIds,
+                timeIn: requestedTimeIn,
+                timeOut: requestedTimeOut,
+                userId: user?.id
+              }),
+            })
+            
+            if (!response.ok) {
+              throw new Error("Failed to submit continuous session edit request")
+            }
+          } else {
+            // For admins, use the same continuous session edit request API but with auto-approval
+            const logIds = session.logs.map(log => log.id)
+            const requestedTimeIn = new Date(timeIn).toISOString()
+            const requestedTimeOut = new Date(timeOut).toISOString()
+            
+            const response = await fetch("/api/interns/time-log-edit-session", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                logIds,
+                timeIn: requestedTimeIn,
+                timeOut: requestedTimeOut,
+                userId: user?.id,
+                isAdminEdit: true // Flag to auto-approve
+              }),
+            })
+            
+            if (!response.ok) {
+              throw new Error("Failed to update continuous session")
             }
           }
         } else {
@@ -148,7 +147,25 @@ export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin =
           }
           
           if (Object.keys(updates).length > 0) {
-            await onSave(log.id, updates)
+            // Admin edits now go through the same edit request system but are auto-approved
+            const response = await fetch("/api/interns/time-log-edit", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                logId: log.id,
+                time_in: updates.time_in,
+                time_out: updates.time_out,
+                userId: user?.id,
+                isAdminEdit: isAdmin // Flag to auto-approve if admin
+              }),
+            })
+            
+            if (!response.ok) {
+              throw new Error("Failed to update time log")
+            }
           }
         }
       }
