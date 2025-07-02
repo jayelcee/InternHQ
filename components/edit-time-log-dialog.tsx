@@ -12,14 +12,13 @@ import { useAuth } from "@/contexts/auth-context"
 
 interface EditTimeLogDialogProps {
   logs: TimeLogDisplay[]
-  onSave: (logId: number, updates: { time_in?: string; time_out?: string }) => Promise<void>
   onDelete: (logId: number) => Promise<void>
   isLoading: boolean
   isAdmin?: boolean
   isIntern?: boolean
 }
 
-export function EditTimeLogDialog({ logs, onSave, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   // Store timeIn/timeOut for each session (not individual logs)

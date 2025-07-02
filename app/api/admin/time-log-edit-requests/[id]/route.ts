@@ -8,11 +8,17 @@ export async function PUT(request: NextRequest) {
   const idStr = request.nextUrl.pathname.split("/").pop()
   const id = Number(idStr)
   if (!id) {
+    console.error("[INDIVIDUAL EDIT API] Invalid request ID:", idStr)
     return NextResponse.json({ error: "Invalid request ID" }, { status: 400 })
   }
+  
   try {
-    const { action, reviewedBy } = await request.json()
+    const { action } = await request.json()
+    
+    console.log(`[INDIVIDUAL EDIT API] Processing individual edit request ${id} with action: ${action}`)
+    
     if (!["approve", "reject", "revert"].includes(action)) {
+      console.error("[INDIVIDUAL EDIT API] Invalid action:", action)
       return NextResponse.json({ error: "Invalid action" }, { status: 400 })
     }
     
@@ -21,6 +27,7 @@ export async function PUT(request: NextRequest) {
       SELECT * FROM time_log_edit_requests WHERE id = ${id}
     `
     if (reqRows.length === 0) {
+      console.error(`[INDIVIDUAL EDIT API] Edit request ${id} not found`)
       return NextResponse.json({ error: "Request not found" }, { status: 404 })
     }
     
@@ -28,37 +35,47 @@ export async function PUT(request: NextRequest) {
     
     // Check if this is a continuous session edit request
     if (editReq.metadata && editReq.metadata.isContinuousSession) {
+      console.log(`[INDIVIDUAL EDIT API] Edit request ${id} is a continuous session, delegating to batch handler`)
       // Use the continuous session handler for all actions
       const result = await processContinuousEditRequests([id], action)
       if (!result.success) {
+        console.error(`[INDIVIDUAL EDIT API] Failed to process continuous session ${id}:`, result.error)
         return NextResponse.json({ error: result.error }, { status: 500 })
       }
+      console.log(`[INDIVIDUAL EDIT API] Successfully processed continuous session ${id}`)
     } else {
+      console.log(`[INDIVIDUAL EDIT API] Edit request ${id} is individual, using single edit handlers`)
       // Handle individual/legacy edit requests
       if (action === "approve") {
         // Use the centralized approval logic that handles splitting and overtime properly
         const result = await updateTimeLogEditRequest(id, "approve")
         if (!result.success) {
+          console.error(`[INDIVIDUAL EDIT API] Failed to approve edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
         }
+        console.log(`[INDIVIDUAL EDIT API] Successfully approved edit request ${id}`)
       } else if (action === "reject") {
         // Use the centralized rejection logic
         const result = await updateTimeLogEditRequest(id, "reject")
         if (!result.success) {
+          console.error(`[INDIVIDUAL EDIT API] Failed to reject edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
         }
+        console.log(`[INDIVIDUAL EDIT API] Successfully rejected edit request ${id}`)
       } else if (action === "revert") {
         // Use the revert function that properly handles status updates
         const result = await revertTimeLogToOriginal(id)
         if (!result.success) {
+          console.error(`[INDIVIDUAL EDIT API] Failed to revert edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
         }
+        console.log(`[INDIVIDUAL EDIT API] Successfully reverted edit request ${id}`)
       }
     }
     
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error("Error updating request:", err)
+    console.error(`[INDIVIDUAL EDIT API] Error updating request ${id}:`, err)
     return NextResponse.json({ error: "Failed to update request" }, { status: 500 })
   }
 }

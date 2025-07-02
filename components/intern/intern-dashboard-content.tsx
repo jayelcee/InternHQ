@@ -556,12 +556,6 @@ export function InternDashboardContent() {
   // Calculate total session minutes for today (including active sessions), for use in Today's Progress duration
   const requiredMinutes = Math.round(DAILY_REQUIRED_HOURS * 60)
   const workedMinutes = Math.floor(todaySessionTotalHours * 60)
-  const todaySessionDisplayHours = Math.floor(workedMinutes / 60)
-  const todaySessionDisplayMins = workedMinutes % 60
-  const todaySessionFormattedDuration = formatDuration(
-    todaySessionDisplayHours,
-    todaySessionDisplayMins
-  )
 
   // Calculate total display hours for today (regular + approved overtime only)
   const todayDisplayTotalHours = getTodayDisplayTotalHours(

@@ -110,43 +110,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
   //   return originalBadgeProps
   // }
 
-  const handleTimeLogUpdate = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
-    if (!isAdmin) return
-
-    setIsUpdating(true)
-    try {
-      // Admin edits now go through the same edit request system but are auto-approved
-      const response = await fetch("/api/interns/time-log-edit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          logId,
-          time_in: updates.time_in,
-          time_out: updates.time_out,
-          userId: user?.id,
-          isAdminEdit: true // Flag to auto-approve
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to update time log")
-      }
-
-      if (onTimeLogUpdate) {
-        onTimeLogUpdate()
-      }
-      // Refetch edit requests after time log update
-      fetchEditRequestsData()
-    } catch (error) {
-      console.error("Error updating time log:", error)
-    } finally {
-      setIsUpdating(false)
-    }
-  }
-
   const handleTimeLogDelete = async (logId: number) => {
     if (!isAdmin) return
 
@@ -168,31 +131,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       fetchEditRequestsData()
     } catch (error) {
       console.error("Error deleting time log:", error)
-    } finally {
-      setIsUpdating(false)
-    }
-  }
-
-  const handleEditRequest = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
-    if (!isIntern) return
-    setIsUpdating(true)
-    try {
-      const response = await fetch("/api/interns/time-log-edit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({ logId, ...updates, userId: user?.id }),
-      })
-      if (!response.ok) {
-        throw new Error("Failed to submit edit request")
-      }
-      if (onTimeLogUpdate) onTimeLogUpdate()
-      // Refetch edit requests after submitting edit request
-      fetchEditRequestsData()
-    } catch (error) {
-      console.error("Error submitting edit request:", error)
     } finally {
       setIsUpdating(false)
     }
@@ -555,7 +493,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                           <EditTimeLogDialog
                             key={key}
                             logs={logsForDate}
-                            onSave={isAdmin ? handleTimeLogUpdate : handleEditRequest}
                             onDelete={handleTimeLogDelete}
                             isLoading={isUpdating}
                             isAdmin={isAdmin}

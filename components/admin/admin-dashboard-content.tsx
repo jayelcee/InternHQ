@@ -160,38 +160,6 @@ export function HRAdminDashboard() {
     return () => clearInterval(interval)
   }, [])
 
-  // --- Time log update handler ---
-  const handleTimeLogUpdate = async (logId: number, updates: { time_in?: string; time_out?: string }) => {
-    setIsUpdatingTimeLog(true)
-    try {
-      const response = await fetch(`/api/admin/time-logs/${logId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(updates),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to update time log")
-      }
-
-      // Refresh the data
-      const logsRes = await fetch("/api/time-logs")
-      if (logsRes.ok) {
-        const logsData = await logsRes.json()
-        const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
-        setLogs(logsArray)
-      }
-    } catch (error) {
-      console.error("Error updating time log:", error)
-      // You could add a toast notification here
-    } finally {
-      setIsUpdatingTimeLog(false)
-    }
-  }
-
   // --- Time log delete handler ---
   const handleTimeLogDelete = async (logId: number) => {
     setIsUpdatingTimeLog(true)
@@ -1016,7 +984,6 @@ export function HRAdminDashboard() {
                               <EditTimeLogDialog
                                 key={key}
                                 logs={logsForDate}
-                                onSave={handleTimeLogUpdate}
                                 onDelete={handleTimeLogDelete}
                                 isLoading={isUpdatingTimeLog}
                                 isAdmin={true}
