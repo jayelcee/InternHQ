@@ -1096,7 +1096,7 @@ export function InternDashboardContent() {
               {(() => {
                 const badges = []
                 // Show completed badge if requirement met
-                if (workedMinutes >= requiredMinutes && !isOvertimeIn && !isTimedIn) {
+                if (workedMinutes == requiredMinutes && !isOvertimeIn && !isTimedIn) {
                   badges.push(
                     <Badge key="completed" variant="default" className="bg-green-100 text-green-800 border-green-200">
                       ✅ Daily requirement completed
@@ -1114,17 +1114,115 @@ export function InternDashboardContent() {
                     </Badge>
                   )
                 }
-                // Show calculated overtime badge if session overtime
-                if (workedMinutes > requiredMinutes) {
-                  const overtimeMinutes = workedMinutes - requiredMinutes
-                  const overtimeHours = Math.floor(overtimeMinutes / 60)
-                  const overtimeMins = overtimeMinutes % 60
+                // --- COMBINED REAL-TIME PENDING OVERTIME BADGE ---
+                const todayStr = getTodayDateString()
+                let combinedPendingMs = 0
+                // 1. Add all completed logs with pending overtime
+                allLogs.forEach((log) => {
+                  if (
+                    log.time_in &&
+                    safeGetDateString(log.time_in) === todayStr &&
+                    (log.log_type === "overtime" || log.log_type === "extended_overtime") &&
+                    log.time_out &&
+                    (!log.overtime_status || log.overtime_status === "pending")
+                  ) {
+                    const result = calculateTimeWorked(log.time_in, log.time_out)
+                    combinedPendingMs += result.hoursWorked * 60 * 60 * 1000
+                  }
+                })
+                // 2. Add real-time pending overtime from in-progress overtime/extended overtime session
+                if (isOvertimeIn && overtimeInTimestamp) {
+                  const end = overtimeConfirmationFreezeAt || currentTime
+                  const ms = end.getTime() - overtimeInTimestamp.getTime()
+                  if (ms > 0) combinedPendingMs += ms
+                } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+                  const end = overtimeConfirmationFreezeAt || currentTime
+                  const ms = end.getTime() - extendedOvertimeInTimestamp.getTime()
+                  if (ms > 0) combinedPendingMs += ms
+                }
+                // 3. Add real-time pending overtime from continuous regular session exceeding required hours
+                if (
+                  isTimedIn && timeInTimestamp &&
+                  !isOvertimeIn && !isExtendedOvertimeIn
+                ) {
+                  const end = overtimeConfirmationFreezeAt || currentTime
+                  const ms = end.getTime() - timeInTimestamp.getTime()
+                  // Calculate total worked today including current session
+                  let totalMs = 0
+                  allLogs.forEach((log) => {
+                    if (
+                      log.time_in &&
+                      safeGetDateString(log.time_in) === todayStr &&
+                      (log.log_type === "regular" || !log.log_type) &&
+                      log.time_out
+                    ) {
+                      const result = calculateTimeWorked(log.time_in, log.time_out)
+                      totalMs += result.hoursWorked * 60 * 60 * 1000
+                    }
+                  })
+                  totalMs += ms
+                  const requiredMs = DAILY_REQUIRED_HOURS * 60 * 60 * 1000
+                  if (totalMs > requiredMs) {
+                    const overtimeMs = totalMs - requiredMs
+                    combinedPendingMs += overtimeMs
+                  }
+                }
+                // Only show one badge if any pending overtime exists
+                if (combinedPendingMs > 0) {
+                  const mins = Math.floor(combinedPendingMs / (1000 * 60))
+                  const h = Math.floor(mins / 60)
+                  const m = mins % 60
                   badges.push(
-                    <Badge key="session-overtime" variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">
-                      🔄 {formatDuration(overtimeHours, overtimeMins)} Session Overtime
+                    <Badge key="pending-overtime-combined" variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">
+                      ⏳ {formatDuration(h, m)} Pending Overtime
                     </Badge>
                   )
                 }
+                // --- OVERTIME STATUS BADGES ---
+                let approvedMs = 0, rejectedMs = 0
+                allLogs.forEach((log) => {
+                  if (
+                    log.time_in &&
+                    safeGetDateString(log.time_in) === todayStr &&
+                    (log.log_type === "overtime" || log.log_type === "extended_overtime") &&
+                    log.time_out
+                  ) {
+                    const result = calculateTimeWorked(log.time_in, log.time_out)
+                    const ms = result.hoursWorked * 60 * 60 * 1000
+                    if (log.overtime_status === "approved") approvedMs += ms
+                    else if (log.overtime_status === "rejected") rejectedMs += ms
+                  }
+                })
+                // Convert ms to hours/minutes for status badges
+                const statusBadges = [
+                  {
+                    key: "approved-overtime",
+                    ms: approvedMs,
+                    label: "Approved Overtime",
+                    icon: "✔️",
+                    className: "bg-purple-100 text-purple-800 border-purple-200"
+                  },
+                  {
+                    key: "rejected-overtime",
+                    ms: rejectedMs,
+                    label: "Rejected Overtime",
+                    icon: "❌",
+                    className: "bg-gray-100 text-gray-800 border-gray-200"
+                  }
+                ]
+                statusBadges.forEach(({ key, ms, label, icon, className }) => {
+                  if (ms > 0) {
+                    const mins = Math.floor(ms / (1000 * 60))
+                    const h = Math.floor(mins / 60)
+                    const m = mins % 60
+                    badges.push(
+                      <Badge key={key} variant="secondary" className={className}>
+                        {icon} {formatDuration(h, m)} {label}
+                      </Badge>
+                    )
+                  }
+                })
+
                 return badges.length > 0 ? (
                   <div className="mt-3 flex flex-wrap justify-center gap-1">
                     {badges}
