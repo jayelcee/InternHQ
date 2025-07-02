@@ -12,7 +12,7 @@
  */
 
 import { TimeLogDisplay } from "@/lib/ui-utils"
-import { calculateTimeWorked, DAILY_REQUIRED_HOURS, truncateTo2Decimals } from "@/lib/time-utils"
+import { calculateTimeWorked, DAILY_REQUIRED_HOURS, truncateTo2Decimals, calculateAccurateSessionDuration, calculateRawSessionDuration, formatAccurateHours } from "@/lib/time-utils"
 
 export interface ProcessedSession {
   logs: TimeLogDisplay[]
@@ -665,4 +665,67 @@ function createEditRequestSession(requests: Array<{
     internName,
     allRequestIds
   }
+}
+
+/**
+ * Creates real-time duration badges for regular and overtime hours
+ * Matches the styling used in DTR components
+ */
+export function createDurationBadges(
+  sessions: ProcessedSession[],
+  currentTime: Date = new Date(),
+  type: "regular" | "overtime" = "regular"
+): Array<{ className: string; text: string; variant: "outline" }> {
+  let previousRegularHours = 0
+  
+  return sessions.map((session) => {
+    if (type === "regular") {
+      const accurateCalc = calculateAccurateSessionDuration(
+        session.logs,
+        currentTime,
+        previousRegularHours
+      )
+      
+      const displayText = formatAccurateHours(accurateCalc.regularHours)
+      const className = accurateCalc.regularHours > 0 ? 
+        "bg-blue-100 text-blue-700 border-blue-300" : 
+        "bg-gray-100 text-gray-700 border-gray-300"
+      
+      previousRegularHours += accurateCalc.regularHours
+      
+      return {
+        className,
+        text: displayText,
+        variant: "outline" as const
+      }
+    } else {
+      // Overtime badges
+      const rawCalc = calculateRawSessionDuration(
+        session.logs,
+        currentTime,
+        previousRegularHours
+      )
+      
+      const displayText = formatAccurateHours(rawCalc.overtimeHours)
+      let className = "bg-gray-100 text-gray-700 border-gray-300"
+      
+      if (rawCalc.overtimeHours > 0) {
+        if (rawCalc.overtimeStatus === "approved") {
+          className = "bg-purple-100 text-purple-700 border-purple-300"
+        } else if (rawCalc.overtimeStatus === "rejected") {
+          className = "bg-gray-100 text-gray-700 border-gray-300"
+        } else {
+          className = "bg-yellow-100 text-yellow-700 border-yellow-300"
+        }
+      }
+      
+      previousRegularHours += rawCalc.regularHours
+      
+      return {
+        className,
+        text: displayText,
+        variant: "outline" as const
+      }
+    }
+  })
 }

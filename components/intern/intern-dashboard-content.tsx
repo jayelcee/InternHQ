@@ -1048,9 +1048,9 @@ export function InternDashboardContent() {
               overtimeInTimestamp={overtimeInTimestamp}
               isExtendedOvertimeIn={isExtendedOvertimeIn}
               extendedOvertimeInTimestamp={extendedOvertimeInTimestamp}
-              todayTotalHours={todayProgress.regularHours}
+              todayTotalHours={todayProgress.regularHours + todayProgress.approvedOvertimeHours + todayProgress.pendingOvertimeHours}
               hasReachedDailyRequirement={todayProgress.regularHours >= DAILY_REQUIRED_HOURS}
-              hasReachedOvertimeLimit={todayProgress.regularHours >= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS}
+              hasReachedOvertimeLimit={(todayProgress.regularHours + todayProgress.approvedOvertimeHours) >= (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS)}
             />
           </CardContent>
         </Card>

@@ -15,9 +15,9 @@ import { format } from "date-fns"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { DailyTimeRecord } from "@/components/intern/intern-dtr"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
-import { calculateTimeStatistics, getLocalDateString, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
+import { calculateTimeStatistics, getLocalDateString } from "@/lib/time-utils"
 import { formatLogDate, groupLogsByDate, TimeLogDisplay, useSortDirection } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
+import { processTimeLogSessions, getTimeBadgeProps, createDurationBadges } from "@/lib/session-utils"
 
 /**
  * Types for intern logs and intern records
@@ -27,6 +27,8 @@ type TodayLog = {
   timeOut: string | null
   status: string
   label: string
+  logType?: string | null
+  overtimeStatus?: string | null
 }
 
 type InternRecord = {
@@ -711,10 +713,14 @@ export function HRAdminDashboard() {
                           </TableCell>
                           {/* Today's Regular Shift duration */}
                           <TableCell>
-                            <span className="font-mono font-semibold">
+                            <div className="flex flex-col gap-1">
                               {(() => {
                                 if (!intern.todayLogs || intern.todayLogs.length === 0) {
-                                  return "0h 00m"
+                                  return (
+                                    <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
+                                      0h 00m
+                                    </Badge>
+                                  )
                                 }
                                 
                                 // Convert TodayLog to TimeLogDisplay format
@@ -724,36 +730,37 @@ export function HRAdminDashboard() {
                                   time_out: log.timeOut,
                                   status: log.timeOut ? 'completed' as const : 'pending' as const,
                                   user_id: intern.id,
-                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  log_type: (log.logType === 'overtime' || log.logType === 'extended_overtime') 
+                                    ? log.logType as 'overtime' | 'extended_overtime'
+                                    : 'regular' as const,
+                                  overtime_status: (log.overtimeStatus === 'pending' || log.overtimeStatus === 'approved' || log.overtimeStatus === 'rejected')
+                                    ? log.overtimeStatus as 'pending' | 'approved' | 'rejected'
+                                    : undefined,
                                   created_at: log.timeIn || new Date().toISOString(),
                                   updated_at: log.timeOut || new Date().toISOString()
                                 }))
                                 
-                                // Calculate accurate regular hours
-                                let totalRegularHours = 0
-                                let previousRegularHours = 0
-                                
                                 const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
-                                sessions.forEach(session => {
-                                  const accurateCalc = calculateAccurateSessionDuration(
-                                    session.logs,
-                                    currentTime,
-                                    previousRegularHours
-                                  )
-                                  totalRegularHours += accurateCalc.regularHours
-                                  previousRegularHours += accurateCalc.regularHours
-                                })
+                                const durationBadges = createDurationBadges(sessions, currentTime, "regular")
                                 
-                                return formatAccurateHours(totalRegularHours)
+                                return durationBadges.map((badge, i) => (
+                                  <Badge key={i} variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                ))
                               })()}
-                            </span>
+                            </div>
                           </TableCell>
                           {/* Today's Overtime duration */}
                           <TableCell>
-                            <span className="font-mono font-semibold">
+                            <div className="flex flex-col gap-1">
                               {(() => {
                                 if (!intern.todayLogs || intern.todayLogs.length === 0) {
-                                  return "0h 00m"
+                                  return (
+                                    <Badge variant="outline" className="bg-gray-100 text-gray-700 border-gray-300">
+                                      0h 00m
+                                    </Badge>
+                                  )
                                 }
                                 
                                 // Convert TodayLog to TimeLogDisplay format
@@ -763,49 +770,26 @@ export function HRAdminDashboard() {
                                   time_out: log.timeOut,
                                   status: log.timeOut ? 'completed' as const : 'pending' as const,
                                   user_id: intern.id,
-                                  log_type: log.label?.includes('overtime') ? 'overtime' as const : 'regular' as const,
+                                  log_type: (log.logType === 'overtime' || log.logType === 'extended_overtime') 
+                                    ? log.logType as 'overtime' | 'extended_overtime'
+                                    : 'regular' as const,
+                                  overtime_status: (log.overtimeStatus === 'pending' || log.overtimeStatus === 'approved' || log.overtimeStatus === 'rejected')
+                                    ? log.overtimeStatus as 'pending' | 'approved' | 'rejected'
+                                    : undefined,
                                   created_at: log.timeIn || new Date().toISOString(),
                                   updated_at: log.timeOut || new Date().toISOString()
                                 }))
                                 
-                                // Calculate raw overtime hours for display (shows actual time worked)
-                                let totalOvertimeHours = 0
-                                let previousRegularHours = 0
-                                
                                 const { sessions } = processTimeLogSessions(timeLogDisplays, currentTime)
-                                sessions.forEach(session => {
-                                  const rawCalc = calculateRawSessionDuration(
-                                    session.logs,
-                                    currentTime,
-                                    previousRegularHours
-                                  )
-                                  totalOvertimeHours += rawCalc.overtimeHours
-                                  previousRegularHours += rawCalc.regularHours
-                                })
+                                const durationBadges = createDurationBadges(sessions, currentTime, "overtime")
                                 
-                                // Apply styling based on overall overtime status
-                                const hasApprovedOvertime = sessions.some(s => s.overtimeStatus === "approved")
-                                const hasRejectedOvertime = sessions.some(s => s.overtimeStatus === "rejected") 
-                                const hasPendingOvertime = sessions.some(s => s.overtimeStatus === "pending" || s.overtimeStatus === "none")
-                                
-                                let className = "font-mono font-semibold"
-                                if (totalOvertimeHours > 0) {
-                                  if (hasApprovedOvertime) {
-                                    className += " text-purple-700"
-                                  } else if (hasRejectedOvertime) {
-                                    className += " text-gray-500"
-                                  } else if (hasPendingOvertime) {
-                                    className += " text-yellow-700"
-                                  }
-                                }
-                                
-                                return (
-                                  <span className={className}>
-                                    {formatAccurateHours(totalOvertimeHours)}
-                                  </span>
-                                )
+                                return durationBadges.map((badge, i) => (
+                                  <Badge key={i} variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                ))
                               })()}
-                            </span>
+                            </div>
                           </TableCell>
                           {/* Internship progress bar */}
                           <TableCell>
@@ -1004,109 +988,26 @@ export function HRAdminDashboard() {
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                let previousRegularHours = 0
-                                return sessions.map((session, i) => {
-                                  // Use accurate calculation instead of truncated session-utils
-                                  const accurateCalc = calculateAccurateSessionDuration(
-                                    session.logs,
-                                    new Date(),
-                                    previousRegularHours
-                                  )
-                                  
-                                  const displayText = formatAccurateHours(accurateCalc.regularHours)
-                                  const badgeProps = {
-                                    variant: "outline" as const,
-                                    className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
-                                    text: displayText
-                                  }
-                                  
-                                  previousRegularHours += accurateCalc.regularHours
-                                  
-                                  return (
-                                    <Badge
-                                      key={i}
-                                      variant={badgeProps.variant}
-                                      className={badgeProps.className}
-                                    >
-                                      {badgeProps.text}
-                                    </Badge>
-                                  )
-                                })
-                              })()}
-                              {sessions.length > 1 &&
-                                sessions.some(session => !session.isOvertimeSession) &&
-                                sessions.filter(session => !session.isOvertimeSession).length > 1 && (
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-blue-200 text-blue-800 border-blue-400 font-medium"
-                                  >
-                                    Total: {formatAccurateHours(
-                                      sessions.reduce((total, session, i) => {
-                                        const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                          sum + calculateAccurateSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                        return total + calculateAccurateSessionDuration(session.logs, new Date(), prevHours).regularHours
-                                      }, 0)
-                                    )}
+                                const durationBadges = createDurationBadges(sessions, new Date(), "regular")
+                                return durationBadges.map((badge, i) => (
+                                  <Badge key={i} variant={badge.variant} className={badge.className}>
+                                    {badge.text}
                                   </Badge>
-                                )}
+                                ))
+                              })()}
                             </div>
                           </TableCell>
                           {/* Overtime - Show per session with accurate calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                let previousRegularHours = 0
-                                return sessions.map((session, i) => {
-                                  // Use raw calculation for overtime display (shows actual time worked)
-                                  const rawCalc = calculateRawSessionDuration(
-                                    session.logs,
-                                    new Date(),
-                                    previousRegularHours
-                                  )
-                                  
-                                  const displayText = formatAccurateHours(rawCalc.overtimeHours)
-                                  const badgeProps = {
-                                    variant: "outline" as const,
-                                    className: rawCalc.overtimeHours > 0 ? 
-                                      (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
-                                       rawCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
-                                       "bg-yellow-100 text-yellow-700 border-yellow-300") :
-                                      "bg-gray-100 text-gray-700 border-gray-300",
-                                    text: displayText
-                                  }
-                                  
-                                  // Update previousRegularHours for next iteration using RAW hours for display consistency
-                                  previousRegularHours += rawCalc.regularHours
-                                  
-                                  return (
-                                    <Badge
-                                      key={i}
-                                      variant={badgeProps.variant}
-                                      className={badgeProps.className}
-                                    >
-                                      {badgeProps.text}
-                                    </Badge>
-                                  )
-                                })
+                                const durationBadges = createDurationBadges(sessions, new Date(), "overtime")
+                                return durationBadges.map((badge, i) => (
+                                  <Badge key={i} variant={badge.variant} className={badge.className}>
+                                    {badge.text}
+                                  </Badge>
+                                ))
                               })()}
-                              
-                              {/* Show overtime total if multiple sessions with overtime */}
-                              {sessions.length > 1 && 
-                               sessions.some(s => s.isOvertimeSession || 
-                                 calculateRawSessionDuration(s.logs, new Date(), 0).overtimeHours > 0) && (
-                                <Badge 
-                                  variant="outline" 
-                                  className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
-                                >
-                                  Total: {formatAccurateHours(
-                                    sessions.reduce((total, session, i) => {
-                                      const prevHours = sessions.slice(0, i).reduce((sum, prevSession) => 
-                                        sum + calculateRawSessionDuration(prevSession.logs, new Date(), 0).regularHours, 0)
-                                      return total + calculateRawSessionDuration(session.logs, new Date(), prevHours).overtimeHours
-                                    }, 0)
-                                  )}
-                                </Badge>
-                              )}
                             </div>
                           </TableCell>
                           {/* Actions: Only one pencil per date, pass all logs for the date */}

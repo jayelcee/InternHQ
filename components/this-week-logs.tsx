@@ -201,23 +201,6 @@ export function ThisWeekLogs({
                               )
                             })
                           })()}
-                          
-                          {/* Show total if multiple non-overtime sessions */}
-                          {sessionData.sessions.length > 1 && 
-                           sessionData.sessions.filter(s => !s.isOvertimeSession).length > 1 && (
-                            <Badge 
-                              variant="outline" 
-                              className="bg-blue-200 text-blue-800 border-blue-400 font-medium"
-                            >
-                              Total: {formatAccurateHours(
-                                sessionData.sessions.reduce((total, session, i) => {
-                                  const prevHours = sessionData.sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateAccurateSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
-                                  return total + calculateAccurateSessionDuration(session.logs, freezeAt || currentTime, prevHours).regularHours
-                                }, 0)
-                              )}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -257,24 +240,6 @@ export function ThisWeekLogs({
                               )
                             })
                           })()}
-                          
-                          {/* Show overtime total if multiple sessions with overtime */}
-                          {sessionData.sessions.length > 1 && 
-                           sessionData.sessions.some(s => s.isOvertimeSession || 
-                             calculateRawSessionDuration(s.logs, freezeAt || currentTime, 0).overtimeHours > 0) && (
-                            <Badge 
-                              variant="outline" 
-                              className="bg-purple-200 text-purple-800 border-purple-400 font-medium"
-                            >
-                              Total: {formatAccurateHours(
-                                sessionData.sessions.reduce((total, session, i) => {
-                                  const prevHours = sessionData.sessions.slice(0, i).reduce((sum, prevSession) => 
-                                    sum + calculateRawSessionDuration(prevSession.logs, freezeAt || currentTime, 0).regularHours, 0)
-                                  return total + calculateRawSessionDuration(session.logs, freezeAt || currentTime, prevHours).overtimeHours
-                                }, 0)
-                              )}
-                            </Badge>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>

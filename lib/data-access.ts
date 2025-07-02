@@ -260,14 +260,29 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
     
     // Handle based on the log type
     if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
-      // For overtime and extended overtime logs, just complete them as-is
-      await sql`
-        UPDATE time_logs
-        SET time_out = ${truncateToMinute(timeOut)}, 
-            status = 'completed',
-            updated_at = NOW()
-        WHERE id = ${log.id}
-      `
+      // For overtime and extended overtime logs
+      if (discardOvertime) {
+        // User wants to discard the overtime session - delete the log entirely
+        console.log(`Discarding separate ${log.log_type} session by deleting log ${log.id}`)
+        
+        await sql`
+          DELETE FROM time_logs
+          WHERE id = ${log.id}
+        `
+        
+        return { success: true }
+      } else {
+        // Complete the overtime/extended overtime session normally
+        await sql`
+          UPDATE time_logs
+          SET time_out = ${truncateToMinute(timeOut)}, 
+              status = 'completed',
+              updated_at = NOW()
+          WHERE id = ${log.id}
+        `
+        
+        return { success: true }
+      }
     } else {
       // For regular logs
       if (discardOvertime) {
@@ -771,6 +786,8 @@ export async function getAllInterns() {
     time_in: Date | null
     time_out: Date | null
     status: string
+    log_type: string | null
+    overtime_status: string | null
   }
 
   const interns = await Promise.all(result.map(async (row) => {
@@ -790,7 +807,7 @@ export async function getAllInterns() {
 
     // Get all today's logs
     const todayLogRes = await sql<TimeLogRow[]>`
-      SELECT time_in, time_out, status
+      SELECT time_in, time_out, status, log_type, overtime_status
       FROM time_logs
       WHERE user_id = ${row.id} AND time_in::date = ${today}
       ORDER BY time_in ASC
@@ -801,6 +818,8 @@ export async function getAllInterns() {
       timeIn: log.time_in,
       timeOut: log.time_out,
       status: log.status,
+      logType: log.log_type,
+      overtimeStatus: log.overtime_status,
       label: log.time_in && log.time_out
         ? `Clocked in at ${new Date(log.time_in!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}, Clocked out at ${new Date(log.time_out!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
         : log.time_in

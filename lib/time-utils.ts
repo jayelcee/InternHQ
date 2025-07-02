@@ -723,7 +723,39 @@ export function calculateTodayProgressAccurate(
     if (sessionDuration > 0) {
       // Cap at 24 hours for safety
       const cappedDuration = Math.min(sessionDuration, 24 * 60 * 60 * 1000)
-      regularMs += cappedDuration
+      
+      // For continuous sessions, we need to split regular and overtime portions
+      // Calculate how much regular time is available after previous sessions
+      const availableRegularMs = Math.max(0, (DAILY_REQUIRED_HOURS * 60 * 60 * 1000) - regularMs)
+      
+      if (cappedDuration <= availableRegularMs) {
+        // Entire session is regular time
+        regularMs += cappedDuration
+      } else {
+        // Session spans into overtime
+        regularMs += availableRegularMs
+        const overtimeMs = cappedDuration - availableRegularMs
+        // Active session overtime is always pending
+        pendingOvertimeMs += overtimeMs
+      }
+    }
+  }
+
+  // Add active overtime session time
+  if (isOvertimeIn && overtimeInTimestamp) {
+    const sessionDuration = currentTime.getTime() - overtimeInTimestamp.getTime()
+    if (sessionDuration > 0) {
+      const cappedDuration = Math.min(sessionDuration, 24 * 60 * 60 * 1000)
+      pendingOvertimeMs += cappedDuration
+    }
+  }
+
+  // Add active extended overtime session time
+  if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
+    const sessionDuration = currentTime.getTime() - extendedOvertimeInTimestamp.getTime()
+    if (sessionDuration > 0) {
+      const cappedDuration = Math.min(sessionDuration, 24 * 60 * 60 * 1000)
+      pendingOvertimeMs += cappedDuration
     }
   }
 
