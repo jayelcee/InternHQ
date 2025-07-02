@@ -726,7 +726,6 @@ export function calculateTodayProgressAccurate(
       
       // For continuous sessions, we need to split regular and overtime portions
       // Calculate how much regular time is available after previous sessions
-      const currentRegularHours = regularMs / (1000 * 60 * 60)
       const availableRegularMs = Math.max(0, (DAILY_REQUIRED_HOURS * 60 * 60 * 1000) - regularMs)
       
       if (cappedDuration <= availableRegularMs) {
