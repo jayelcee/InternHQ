@@ -93,6 +93,8 @@ export function HRAdminDashboard() {
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
   // Sort state management - centralized
   const { sortDirection, setSortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
+  // Add state for controlling edit actions column visibility
+  const [showEditActions, setShowEditActions] = useState(false)
 
   const [interns, setInterns] = useState<InternRecord[]>([])
   const [logs, setLogs] = useState<TimeLog[]>([])
@@ -821,7 +823,7 @@ export function HRAdminDashboard() {
                     Showing {groupedLogsForDTR.length} of {groupedLogsForDTR.length} time records
                   </p>
                 </div>
-                <div>
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -829,6 +831,26 @@ export function HRAdminDashboard() {
                   >
                     {sortButtonText}
                   </Button>
+                  {/* Add toggle for edit actions column - following intern DTR pattern */}
+                  {!showEditActions ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowEditActions(true)}
+                      type="button"
+                    >
+                      Edit Logs
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowEditActions(false)}
+                      type="button"
+                    >
+                      Cancel
+                    </Button>
+                  )}
                 </div>
               </div>
             </CardHeader>
@@ -843,7 +865,7 @@ export function HRAdminDashboard() {
                       <TableHead>Time Out</TableHead>
                       <TableHead>Regular Shift</TableHead>
                       <TableHead>Overtime</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      {showEditActions && <TableHead className="text-right">Actions</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -979,18 +1001,20 @@ export function HRAdminDashboard() {
                             </div>
                           </TableCell>
                           {/* Actions: Only one pencil per date, pass all logs for the date */}
-                          <TableCell className="text-right">
-                            <div className="flex flex-col gap-1 items-end">
-                              <EditTimeLogDialog
-                                key={key}
-                                logs={logsForDate}
-                                onDelete={handleTimeLogDelete}
-                                isLoading={isUpdatingTimeLog}
-                                isAdmin={true}
-                                isIntern={false}
-                              />
-                            </div>
-                          </TableCell>
+                          {showEditActions && (
+                            <TableCell className="text-right">
+                              <div className="flex flex-col gap-1 items-end">
+                                <EditTimeLogDialog
+                                  key={key}
+                                  logs={logsForDate}
+                                  onDelete={handleTimeLogDelete}
+                                  isLoading={isUpdatingTimeLog}
+                                  isAdmin={true}
+                                  isIntern={false}
+                                />
+                              </div>
+                            </TableCell>
+                          )}
                         </TableRow>
                       )
                     })}

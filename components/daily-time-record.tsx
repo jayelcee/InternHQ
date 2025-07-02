@@ -269,7 +269,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 {migrationLoading ? 'Processing...' : `Split ${migrationStatus.count} Long Logs`}
               </Button>
             )}
-            {isIntern && (
+            {(isIntern || isAdmin) && (
               !showActions ? (
                 <Button
                   variant="outline"
@@ -277,7 +277,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                   onClick={() => setShowActions(true)}
                   type="button"
                 >
-                  Request Edit
+                  {isIntern ? "Request Edit" : "Edit Log"}
                 </Button>
               ) : (
                 <Button
@@ -303,7 +303,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 <TableHead>Time Out</TableHead>
                 <TableHead>Regular Shift</TableHead>
                 <TableHead>Overtime</TableHead>
-                {(isAdmin || (isIntern && showActions)) && (
+                {((isAdmin && showActions) || (isIntern && showActions)) && (
                   <TableHead className="text-right">Actions</TableHead>
                 )}
               </TableRow>
@@ -488,7 +488,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       </TableCell>
                       
                       {/* Actions Column */}
-                      {(isAdmin || (isIntern && showActions)) && (
+                      {((isAdmin && showActions) || (isIntern && showActions)) && (
                         <TableCell className="text-right">
                           <EditTimeLogDialog
                             key={key}
