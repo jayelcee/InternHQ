@@ -115,13 +115,20 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
 
     setIsUpdating(true)
     try {
-      const response = await fetch(`/api/admin/time-logs/${logId}`, {
-        method: "PUT",
+      // Admin edits now go through the same edit request system but are auto-approved
+      const response = await fetch("/api/interns/time-log-edit", {
+        method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         credentials: "include",
-        body: JSON.stringify(updates),
+        body: JSON.stringify({
+          logId,
+          time_in: updates.time_in,
+          time_out: updates.time_out,
+          userId: user?.id,
+          isAdminEdit: true // Flag to auto-approve
+        }),
       })
 
       if (!response.ok) {

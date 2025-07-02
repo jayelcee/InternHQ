@@ -643,10 +643,30 @@ function createEditRequestSession(requests: Array<{
   internName: string
   allRequestIds: number[]
 } {
-  const originalTimeIn = requests[0]?.originalTimeIn || null
-  const originalTimeOut = requests[requests.length - 1]?.originalTimeOut || null
-  const requestedTimeIn = requests[0]?.requestedTimeIn || null
-  const requestedTimeOut = requests[requests.length - 1]?.requestedTimeOut || null
+  // Find the actual earliest and latest times, not just array positions
+  const originalTimeIn = requests
+    .filter(req => req.originalTimeIn)
+    .reduce((earliest, curr) => 
+      new Date(curr.originalTimeIn!) < new Date(earliest.originalTimeIn!) ? curr : earliest
+    )?.originalTimeIn || null
+    
+  const originalTimeOut = requests
+    .filter(req => req.originalTimeOut)
+    .reduce((latest, curr) => 
+      new Date(curr.originalTimeOut!) > new Date(latest.originalTimeOut!) ? curr : latest
+    )?.originalTimeOut || null
+    
+  const requestedTimeIn = requests
+    .filter(req => req.requestedTimeIn)
+    .reduce((earliest, curr) => 
+      new Date(curr.requestedTimeIn!) < new Date(earliest.requestedTimeIn!) ? curr : earliest
+    )?.requestedTimeIn || null
+    
+  const requestedTimeOut = requests
+    .filter(req => req.requestedTimeOut)
+    .reduce((latest, curr) => 
+      new Date(curr.requestedTimeOut!) > new Date(latest.requestedTimeOut!) ? curr : latest
+    )?.requestedTimeOut || null
   
   // Session status is based on the first request's status (all should be the same for continuous sessions)
   const status = requests[0]?.status || "pending"
