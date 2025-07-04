@@ -121,55 +121,83 @@ export function calculateInternshipProgress(
       )
     : logs
 
-  // Sum all durations using truncation, then convert sum to hours
-  let totalDurationMs = 0
-
+  // Group logs by date to handle overtime properly
+  const logsByDate: {[date: string]: typeof filteredLogs} = {}
+  
   filteredLogs.forEach(log => {
     // Handle both naming conventions: time_in/time_out and timeIn/timeOut
-    let timeIn = log.time_in || log.timeIn
-    let timeOut = log.time_out || log.timeOut
-
-    // Apply edit request changes if there are pending/approved edit requests
-    if (editRequests && log.id) {
-      const editRequest = editRequests.find(req => req.logId === log.id)
-      if (editRequest) {
-        if (editRequest.status === "approved") {
-          // Use the approved edited times
-          timeIn = editRequest.requestedTimeIn || timeIn
-          timeOut = editRequest.requestedTimeOut || timeOut
-        } else if (editRequest.status === "pending") {
-          // For pending requests, use original times for progress calculation
-          // (don't count optimistically)
-          // timeIn and timeOut remain as original
-        }
-        // For rejected edit requests, use original times (no change needed)
+    const timeIn = log.time_in || log.timeIn
+    
+    if (timeIn) {
+      const dateStr = extractDateString(timeIn)
+      if (!logsByDate[dateStr]) {
+        logsByDate[dateStr] = []
       }
+      logsByDate[dateStr].push(log)
     }
-
-    // Only count completed logs with both times
-    if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
-      // Handle overtime logs based on approval status
-      if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
-        // Only count overtime if approved
-        if (log.overtime_status !== 'approved') {
-          return // Skip pending or rejected overtime
-        }
-      }
-
-      const inDate = new Date(timeIn)
-      const outDate = new Date(timeOut)
-      const diffMs = outDate.getTime() - inDate.getTime()
+  })
+  
+  // Process each day separately to correctly handle overtime
+  let totalHours = 0
+  
+  Object.values(logsByDate).forEach(dailyLogs => {
+    let dailyRegularHours = 0
+    let dailyOvertimeHours = 0
+    
+    dailyLogs.forEach(log => {
+      // Handle both naming conventions: time_in/time_out and timeIn/timeOut
+      let timeIn = log.time_in || log.timeIn
+      let timeOut = log.time_out || log.timeOut
       
-      if (diffMs > 0) {
-        // Truncate seconds from individual durations before adding
-        const truncatedMs = Math.floor(diffMs / (1000 * 60)) * (1000 * 60)
-        totalDurationMs += truncatedMs
+      // Apply edit request changes if there are pending/approved edit requests
+      if (editRequests && log.id) {
+        const editRequest = editRequests.find(req => req.logId === log.id)
+        if (editRequest) {
+          if (editRequest.status === "approved") {
+            // Use the approved edited times
+            timeIn = editRequest.requestedTimeIn || timeIn
+            timeOut = editRequest.requestedTimeOut || timeOut
+          } else if (editRequest.status === "pending") {
+            // For pending requests, use original times for progress calculation
+            // (don't count optimistically)
+            // timeIn and timeOut remain as original
+          }
+          // For rejected edit requests, use original times (no change needed)
+        }
       }
-    }
+      
+      // Only count completed logs with both times
+      if (timeIn && timeOut && (!log.status || log.status === 'completed')) {
+        const inDate = new Date(timeIn)
+        const outDate = new Date(timeOut)
+        const diffMs = outDate.getTime() - inDate.getTime()
+        
+        if (diffMs > 0) {
+          // Truncate seconds from individual durations before adding
+          const truncatedMs = Math.floor(diffMs / (1000 * 60)) * (1000 * 60)
+          const hoursWorked = truncatedMs / (1000 * 60 * 60)
+          
+          if (log.log_type === 'overtime' || log.log_type === 'extended_overtime') {
+            // Only count overtime if approved
+            if (log.overtime_status === 'approved') {
+              dailyOvertimeHours += hoursWorked
+            }
+          } else {
+            // Regular hours - cap at daily required hours
+            dailyRegularHours += hoursWorked
+          }
+        }
+      }
+    })
+    
+    // Cap regular hours at daily requirement
+    const cappedRegularHours = Math.min(dailyRegularHours, DAILY_REQUIRED_HOURS)
+    
+    // Add to total (regular + approved overtime)
+    totalHours += cappedRegularHours + dailyOvertimeHours
   })
 
   // Convert total duration to hours and truncate to 2 decimals
-  const totalHours = totalDurationMs / (1000 * 60 * 60)
   return Number(truncateTo2Decimals(totalHours))
 }
 

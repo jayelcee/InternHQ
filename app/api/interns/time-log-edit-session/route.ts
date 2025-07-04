@@ -29,10 +29,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[CONTINUOUS SESSION API] Successfully created continuous session edit request ${result.editRequestId}`)
 
-    // If this is an admin edit, auto-approve it immediately
+    // If this is an admin edit, auto-approve it immediately with the admin as both requester and reviewer
     if (isAdminEdit && result.editRequestId) {
-      console.log(`[CONTINUOUS SESSION API] Auto-approving admin continuous session edit ${result.editRequestId}`)
-      const approvalResult = await processContinuousEditRequests([result.editRequestId], "approve")
+      console.log(`[CONTINUOUS SESSION API] Auto-approving admin continuous session edit ${result.editRequestId} with admin ${userId} as reviewer`)
+      // Pass the admin's userId as reviewerId to ensure they are recorded as the approver
+      const approvalResult = await processContinuousEditRequests([result.editRequestId], "approve", Number(userId))
       if (!approvalResult.success) {
         console.error("[CONTINUOUS SESSION API] Failed to auto-approve admin continuous session edit:", approvalResult.error)
         return NextResponse.json({ error: approvalResult.error || "Failed to auto-approve admin edit" }, { status: 500 })

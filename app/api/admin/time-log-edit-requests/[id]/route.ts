@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from "next/server"
 import { sql } from "@/lib/database"
 import { revertTimeLogToOriginal, updateTimeLogEditRequest, processContinuousEditRequests } from "@/lib/data-access"
+import { verifyToken } from "@/lib/auth"
 
 // PUT /api/admin/time-log-edit-requests/[id]
 export async function PUT(request: NextRequest) {
+  // Get current user from token - FIXED: Need to check both "token" and "auth-token" cookies
+  const token = request.cookies.get("token")?.value || request.cookies.get("auth-token")?.value
+  let currentUserId: number | undefined
+  
+  console.log(`[INDIVIDUAL EDIT API] Token from cookie:`, token ? "Token exists" : "No token")
+  
+  if (token) {
+    const verification = await verifyToken(token)
+    console.log(`[INDIVIDUAL EDIT API] Token verification:`, JSON.stringify(verification))
+    
+    if (verification.valid && verification.userId) {
+      currentUserId = verification.userId
+      console.log(`[INDIVIDUAL EDIT API] Current user ID set to:`, currentUserId)
+    } else {
+      console.log(`[INDIVIDUAL EDIT API] Invalid token or missing userId`)
+    }
+  } else {
+    console.log(`[INDIVIDUAL EDIT API] No token found in request cookies`)
+  }
   // Extract id from the dynamic route using nextUrl
   const idStr = request.nextUrl.pathname.split("/").pop()
   const id = Number(idStr)
@@ -15,7 +35,7 @@ export async function PUT(request: NextRequest) {
   try {
     const { action } = await request.json()
     
-    console.log(`[INDIVIDUAL EDIT API] Processing individual edit request ${id} with action: ${action}`)
+    console.log(`[INDIVIDUAL EDIT API] Processing individual edit request ${id} with action: ${action}, reviewerId: ${currentUserId}`)
     
     if (!["approve", "reject", "revert"].includes(action)) {
       console.error("[INDIVIDUAL EDIT API] Invalid action:", action)
@@ -35,9 +55,9 @@ export async function PUT(request: NextRequest) {
     
     // Check if this is a continuous session edit request
     if (editReq.metadata && editReq.metadata.isContinuousSession) {
-      console.log(`[INDIVIDUAL EDIT API] Edit request ${id} is a continuous session, delegating to batch handler`)
+      console.log(`[INDIVIDUAL EDIT API] Edit request ${id} is a continuous session, delegating to batch handler with reviewerId: ${currentUserId}`)
       // Use the continuous session handler for all actions
-      const result = await processContinuousEditRequests([id], action)
+      const result = await processContinuousEditRequests([id], action, currentUserId)
       if (!result.success) {
         console.error(`[INDIVIDUAL EDIT API] Failed to process continuous session ${id}:`, result.error)
         return NextResponse.json({ error: result.error }, { status: 500 })
@@ -48,7 +68,8 @@ export async function PUT(request: NextRequest) {
       // Handle individual/legacy edit requests
       if (action === "approve") {
         // Use the centralized approval logic that handles splitting and overtime properly
-        const result = await updateTimeLogEditRequest(id, "approve")
+        console.log(`[INDIVIDUAL EDIT API] Approving edit request ${id} with reviewer ID: ${currentUserId}`)
+        const result = await updateTimeLogEditRequest(id, "approve", currentUserId)
         if (!result.success) {
           console.error(`[INDIVIDUAL EDIT API] Failed to approve edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
@@ -56,7 +77,8 @@ export async function PUT(request: NextRequest) {
         console.log(`[INDIVIDUAL EDIT API] Successfully approved edit request ${id}`)
       } else if (action === "reject") {
         // Use the centralized rejection logic
-        const result = await updateTimeLogEditRequest(id, "reject")
+        console.log(`[INDIVIDUAL EDIT API] Rejecting edit request ${id} with reviewer ID: ${currentUserId}`)
+        const result = await updateTimeLogEditRequest(id, "reject", currentUserId)
         if (!result.success) {
           console.error(`[INDIVIDUAL EDIT API] Failed to reject edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
@@ -64,7 +86,8 @@ export async function PUT(request: NextRequest) {
         console.log(`[INDIVIDUAL EDIT API] Successfully rejected edit request ${id}`)
       } else if (action === "revert") {
         // Use the revert function that properly handles status updates
-        const result = await revertTimeLogToOriginal(id)
+        console.log(`[INDIVIDUAL EDIT API] Reverting individual edit request ${id}`)
+        const result = await revertTimeLogToOriginal(id, currentUserId)
         if (!result.success) {
           console.error(`[INDIVIDUAL EDIT API] Failed to revert edit request ${id}:`, result.error)
           return NextResponse.json({ error: result.error }, { status: 500 })
@@ -98,19 +121,64 @@ export async function POST(request: NextRequest) {
   if (!id) {
     return NextResponse.json({ error: "Invalid request ID" }, { status: 400 })
   }
+  
+  // Get current user from token for reviewer ID
+  const token = request.cookies.get("token")?.value || request.cookies.get("auth-token")?.value
+  let reviewerId: number | undefined
+
+  if (token) {
+    const verification = await verifyToken(token)
+    if (verification.valid && verification.userId) {
+      reviewerId = verification.userId
+    }
+  }
+  
   try {
-    const result = await revertTimeLogToOriginal(id)
+    const result = await revertTimeLogToOriginal(id, reviewerId)
     if (!result.success) {
       return NextResponse.json({ error: result.error || "Failed to revert time log" }, { status: 500 })
     }
-    await sql`
-      UPDATE time_log_edit_requests
-      SET status = 'pending', reviewed_at = NULL, reviewed_by = NULL
-      WHERE id = ${id}
-    `
+    // Status update is handled by revertTimeLogToOriginal function
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error("Error reverting time log:", err)
     return NextResponse.json({ error: "Failed to revert time log" }, { status: 500 })
+  }
+}
+
+// DELETE /api/admin/time-log-edit-requests/[id]
+export async function DELETE(request: NextRequest) {
+  // Get current user from token - check both token names
+  const token = request.cookies.get("token")?.value || request.cookies.get("auth-token")?.value
+
+  if (token) {
+    const verification = await verifyToken(token)
+    if (!verification.valid || !verification.userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+  } else {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  // Extract id from the dynamic route using nextUrl
+  const idStr = request.nextUrl.pathname.split("/").pop()
+  const id = Number(idStr)
+  if (!id) {
+    return NextResponse.json({ error: "Invalid request ID" }, { status: 400 })
+  }
+
+  try {
+    // Delete the edit request
+    const result = await sql`
+      DELETE FROM time_log_edit_requests WHERE id = ${id}
+      RETURNING id
+    `
+    if (result.length === 0) {
+      return NextResponse.json({ error: "Request not found or already deleted" }, { status: 404 })
+    }
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error("Error deleting edit request:", err)
+    return NextResponse.json({ error: "Failed to delete edit request" }, { status: 500 })
   }
 }

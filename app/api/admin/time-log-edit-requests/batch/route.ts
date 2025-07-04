@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { processContinuousEditRequests } from "@/lib/data-access"
+import { verifyToken } from "@/lib/auth"
 
 // POST /api/admin/time-log-edit-requests/batch
 export async function POST(request: NextRequest) {
   try {
+    // Get current user from token
+    const token = request.cookies.get("token")?.value
+    let currentUserId: number | undefined
+    if (token) {
+      const verification = await verifyToken(token)
+      if (verification.valid && verification.userId) {
+        currentUserId = verification.userId
+      }
+    }
+
     const { requestIds, action } = await request.json()
     
     console.log(`[BATCH API] Processing batch edit requests: action=${action}, requestIds=${JSON.stringify(requestIds)}`)
@@ -18,7 +29,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 })
     }
     
-    const result = await processContinuousEditRequests(requestIds, action)
+    const result = await processContinuousEditRequests(requestIds, action, currentUserId)
     
     if (!result.success) {
       console.error(`[BATCH API] Batch processing failed: ${result.error}`)

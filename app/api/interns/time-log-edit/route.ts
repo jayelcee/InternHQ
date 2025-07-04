@@ -29,10 +29,11 @@ export async function POST(request: NextRequest) {
     
     console.log(`[INTERN EDIT API] Successfully created edit request ${result.editRequestId}`)
     
-    // If this is an admin edit, auto-approve it immediately
+    // If this is an admin edit, auto-approve it immediately with the admin as both requester and reviewer
     if (isAdminEdit && result.editRequestId) {
-      console.log(`[INTERN EDIT API] Auto-approving admin edit request ${result.editRequestId}`)
-      const approvalResult = await updateTimeLogEditRequest(result.editRequestId, "approve")
+      console.log(`[INTERN EDIT API] Auto-approving admin edit request ${result.editRequestId} with admin ${userId} as reviewer`)
+      // Pass the admin's userId as reviewerId to ensure they are recorded as the approver
+      const approvalResult = await updateTimeLogEditRequest(result.editRequestId, "approve", Number(userId))
       if (!approvalResult.success) {
         console.error("[INTERN EDIT API] Failed to auto-approve admin edit:", approvalResult.error)
         return NextResponse.json({ error: approvalResult.error || "Failed to auto-approve admin edit" }, { status: 500 })
