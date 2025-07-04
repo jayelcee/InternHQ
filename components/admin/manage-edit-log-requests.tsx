@@ -44,13 +44,16 @@ export function EditLogRequestsAdmin() {
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
 
-  // --- Summary stats for cards ---
+  // Summary statistics for edit log requests
   const stats = {
     pending: requests.filter(r => r.status === "pending").length,
     approved: requests.filter(r => r.status === "approved").length,
     rejected: requests.filter(r => r.status === "rejected").length,
   }
 
+  /**
+   * Fetches all edit log requests from the API and updates state.
+   */
   const fetchRequests = async () => {
     setLoading(true)
     setError(null)
@@ -59,13 +62,6 @@ export function EditLogRequestsAdmin() {
       if (!res.ok) throw new Error("Failed to fetch edit requests")
       const data = await res.json()
       const requests = Array.isArray(data) ? data : data.requests
-      
-      // Debug: Log the first request to see what fields we're getting
-      if (requests.length > 0) {
-        console.log("[FRONTEND DEBUG] First request data:", requests[0])
-        console.log("[FRONTEND DEBUG] Fields available:", Object.keys(requests[0]))
-      }
-      
       setRequests(requests)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to load requests"
@@ -79,17 +75,17 @@ export function EditLogRequestsAdmin() {
     fetchRequests()
   }, [])
 
+  /**
+   * Handles actions (approve, reject, revert, delete) on an edit log request.
+   * @param sessionId - The ID of the edit log request
+   * @param action - The action to perform (approve, reject, revert, delete)
+   */
   const handleAction = async (sessionId: string, action: "approve" | "reject" | "revert" | "delete") => {
     const session = requests.find(s => s.id === Number(sessionId))
     if (!session) return
-
-    setActionLoading(session.id) // Use request ID for loading state
-    console.log(`[FRONTEND] Performing ${action} action on edit request ${sessionId}`)
-    
-    try {
-      // For single requests, use existing individual API
-      if (action === "revert") {
-        console.log(`[FRONTEND] Sending revert request for edit request ${sessionId}`)
+    setActionLoading(session.id)
+    if (action === "revert") {
+      try {
         const res = await fetch(`/api/admin/time-log-edit-requests/${session.id}/revert`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -99,24 +95,22 @@ export function EditLogRequestsAdmin() {
             updateReferences: true
           }),
         })
-        if (!res.ok) {
-          console.error(`[FRONTEND] Failed to revert request ${sessionId}:`, await res.text())
-          throw new Error("Failed to revert request")
-        }
-        console.log(`[FRONTEND] Successfully sent revert request for ${sessionId}`)
-      } else if (action === "delete") {
-        console.log(`[FRONTEND] Sending delete request for edit request ${sessionId}`)
+        if (!res.ok) throw new Error("Failed to revert request")
+      } catch (error) {
+        console.error("Error reverting request:", error)
+      }
+    } else if (action === "delete") {
+      try {
         const res = await fetch(`/api/admin/time-log-edit-requests/${session.id}`, {
           method: "DELETE",
           credentials: "include",
         })
-        if (!res.ok) {
-          console.error(`[FRONTEND] Failed to delete request ${sessionId}:`, await res.text())
-          throw new Error("Failed to delete request")
-        }
-        console.log(`[FRONTEND] Successfully deleted request ${sessionId}`)
-      } else {
-        console.log(`[FRONTEND] Sending ${action} request for edit request ${sessionId}`)
+        if (!res.ok) throw new Error("Failed to delete request")
+      } catch (error) {
+        console.error("Error deleting request:", error)
+      }
+    } else {
+      try {
         const res = await fetch(`/api/admin/time-log-edit-requests/${session.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -127,27 +121,20 @@ export function EditLogRequestsAdmin() {
             updateReferences: true
           }),
         })
-        if (!res.ok) {
-          console.error(`[FRONTEND] Failed to ${action} request ${sessionId}:`, await res.text())
-          throw new Error(`Failed to update request with ${action}`)
-        }
-        console.log(`[FRONTEND] Successfully sent ${action} request for ${sessionId}`)
+        if (!res.ok) throw new Error(`Failed to update request with ${action}`)
+      } catch (error) {
+        console.error(`Error performing ${action} on request:`, error)
       }
-      await fetchRequests()
-    } catch (error) {
-      console.error("Error performing action:", error)
-      // Optionally show toast
-    } finally {
-      setActionLoading(null)
     }
+    await fetchRequests()
+    setActionLoading(null)
   }
 
-  // Get unique departments from requests
   const departments = Array.from(
     new Set(requests.map(r => r.department || ""))
   ).filter(Boolean)
 
-  // Filtered requests based on search, status, department, and date
+  // Filters requests based on search, status, department, and date
   const filteredRequests = requests.filter(req => {
     const matchesSearch =
       req.internName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -175,7 +162,7 @@ export function EditLogRequestsAdmin() {
 
   return (
     <>
-      {/* Summary Cards */}
+      {/* Summary cards for edit log request statuses Pending, Approved, Rejected */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -208,14 +195,14 @@ export function EditLogRequestsAdmin() {
           </CardContent>
         </Card>
       </div>
-      {/* Filter & Search Card */}
+
+      {/* Filter and search controls for edit log requests */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="text-lg">Filters & Search</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
-            {/* Search input */}
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -228,7 +215,6 @@ export function EditLogRequestsAdmin() {
                 />
               </div>
             </div>
-            {/* Department filter */}
             <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
               <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="All Departments" />
@@ -240,7 +226,6 @@ export function EditLogRequestsAdmin() {
                 ))}
               </SelectContent>
             </Select>
-            {/* Status filter */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="All Status" />
@@ -252,7 +237,6 @@ export function EditLogRequestsAdmin() {
                 <SelectItem value="rejected">Rejected</SelectItem>
               </SelectContent>
             </Select>
-            {/* Date filter */}
             <Popover>
               <PopoverTrigger asChild>
                 <Button
@@ -286,6 +270,8 @@ export function EditLogRequestsAdmin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Main table for displaying edit log requests */}
       <Card>
         <CardHeader>
           <CardTitle>Edit Log Requests</CardTitle>
@@ -316,43 +302,15 @@ export function EditLogRequestsAdmin() {
                 {filteredRequests.map((req) => {
                   const dateStr = req.originalTimeIn || req.requestedTimeIn
                   const date = dateStr ? new Date(dateStr) : null
-
-                  // --- Ensure reviewedBy is set for direct admin edits ---
                   let reviewedBy = req.reviewedBy;
                   let isDirectEdit = false;
-                  
-                  // Debug logging for this specific request
-                  if (req.id === 34 || req.userRole === "admin") {
-                    console.log(`[FRONTEND DEBUG] Request ${req.id}:`, {
-                      userRole: req.userRole,
-                      status: req.status,
-                      requestedById: req.requestedById,
-                      reviewedById: req.reviewedById,
-                      requestedBy: req.requestedBy,
-                      reviewedBy: req.reviewedBy,
-                      raw_reviewed_by: req.raw_reviewed_by,
-                      'requestedById === reviewedById': req.requestedById === req.reviewedById,
-                      'requestedBy === reviewedBy': req.requestedBy === req.reviewedBy
-                    })
-                  }
-                  
-                  // Check if this is a direct admin edit
-                  // A direct admin edit is when an admin requests and reviews their own edit
-                  // Note: userRole might be "intern" even for admin edits, so we check regardless of userRole
                   if (req.status === "approved") {
-                    // Primary check: Compare requester and reviewer IDs
                     if (req.requestedById && req.reviewedById && req.requestedById === req.reviewedById) {
                       isDirectEdit = true;
-                      console.log(`[FRONTEND DEBUG] Direct admin edit detected (ID match): ${req.requestedById} === ${req.reviewedById}`)
-                    }
-                    // Secondary check: Compare requester and reviewer names
-                    else if (req.requestedBy && req.reviewedBy && req.requestedBy === req.reviewedBy) {
+                    } else if (req.requestedBy && req.reviewedBy && req.requestedBy === req.reviewedBy) {
                       isDirectEdit = true;
-                      console.log(`[FRONTEND DEBUG] Direct admin edit detected (name match): ${req.requestedBy} === ${req.reviewedBy}`)
                     }
                   }
-                  
-                  // Fallback: If it has a review timestamp but no reviewer AND it's approved, it's likely a direct admin edit
                   if (req.status === "approved" && !reviewedBy && req.reviewedAt) {
                     if (req.requestedBy) {
                       reviewedBy = req.requestedBy;
@@ -361,17 +319,10 @@ export function EditLogRequestsAdmin() {
                       reviewedBy = "System";
                       isDirectEdit = true;
                     }
-                  }
-                  // Additional check for when userRole is admin but no reviewedBy exists
-                  else if (req.status === "approved" && !reviewedBy && req.userRole === "admin" && req.requestedBy) {
+                  } else if (req.status === "approved" && !reviewedBy && req.userRole === "admin" && req.requestedBy) {
                     reviewedBy = req.requestedBy;
                     isDirectEdit = true;
                   }
-                  
-                  if (req.id === 34 || req.userRole === "admin") {
-                    console.log(`[FRONTEND DEBUG] Final result for request ${req.id}: isDirectEdit = ${isDirectEdit}`)
-                  }
-
                   return (
                     <TableRow key={req.id}>
                       <TableCell>
