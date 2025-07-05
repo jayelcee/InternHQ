@@ -7,6 +7,7 @@ import { InternProfile } from "./intern-profile"
 import { DashboardHeader } from "./intern-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
 import { DailyTimeRecord } from "./intern-dtr"
+import { InternshipCompletion } from "./internship-completion"
 
 export function InternDashboard() {
   const { user } = useAuth()
@@ -22,6 +23,8 @@ export function InternDashboard() {
         return <InternProfile />
       case "dtr":
         return <DailyTimeRecord />
+      case "completion":
+        return <InternshipCompletion />
       default:
         return <InternDashboardContent />
     }
@@ -36,6 +39,7 @@ export function InternDashboard() {
           { key: "dashboard", label: "Dashboard" },
           { key: "dtr", label: "Daily Time Record" },
           { key: "profile", label: "Profile" },
+          { key: "completion", label: "Completion" },
         ]}
       />
       <div className="md:pl-64">

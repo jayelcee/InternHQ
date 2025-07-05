@@ -15,7 +15,7 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { calculateTimeStatistics, calculateTimeWorked } from "@/lib/time-utils"
+import { calculateTimeWorked, calculateInternshipProgress } from "@/lib/time-utils"
 
 /**
  * InternProfile component displays and manages intern profile information.
@@ -168,7 +168,7 @@ export function InternProfile({
           zipCode: data.profile?.zip_code || "",
           dateOfBirth: data.profile?.date_of_birth || "",
           bio: data.profile?.bio || "",
-          school: data.internship?.school?.name || data.internship?.school_name || "",
+          school: data.internship?.school?.name || "",
           degree: data.profile?.degree || "",
           gpa: data.profile?.gpa?.toString() || "",
           graduationDate: data.profile?.graduation_date || "",
@@ -178,17 +178,17 @@ export function InternProfile({
           emergencyContactName: data.profile?.emergency_contact_name || "",
           emergencyContactRelation: data.profile?.emergency_contact_relation || "",
           emergencyContactPhone: data.profile?.emergency_contact_phone || "",
-          department: data.internship?.department?.name || data.internship?.department_name || "",
-          departmentId: data.internship?.department_id || "",
-          schoolId: data.internship?.school_id || "",
+          department: data.internship?.department?.name || "",
+          departmentId: data.internship?.department_id?.toString() || "",
+          schoolId: data.internship?.school_id?.toString() || "",
           supervisor: data.internship?.supervisor_name || "",
-          supervisorId: data.internship?.supervisor_id || "",
+          supervisorId: data.internship?.supervisor_id?.toString() || "",
           startDate: data.internship?.start_date || "",
           endDate: data.internship?.end_date || "",
           requiredHours: data.internship?.required_hours || 0,
           completedHours: Number(data.completedHours) || 0,
           internshipStatus: data.internship?.status || "",
-          internshipId: data.internship?.id || "",
+          internshipId: data.internship?.id?.toString() || "",
           todayStatus: data.todayStatus || "",
           projects: data.projects || [],
         })
@@ -208,18 +208,40 @@ export function InternProfile({
       try {
         const url = internId ? `/api/time-logs?userId=${internId}` : "/api/time-logs"
         const res = await fetch(url)
+        if (!res.ok) {
+          throw new Error("Failed to fetch time logs")
+        }
         const data = await res.json()
+        
+        // Handle both array and object responses
         const logsArr: LogEntry[] = (Array.isArray(data) ? data : data.logs || []).map((log: Record<string, unknown>) => {
           const time_in = (log.time_in as string) || (log.timeIn as string) || null
           const time_out = (log.time_out as string) || (log.timeOut as string) || null
           let hoursWorked = 0
+          
           if (time_in && time_out) {
-            const result = calculateTimeWorked(time_in, time_out)
-            hoursWorked = result.hoursWorked
+            try {
+              const result = calculateTimeWorked(time_in, time_out)
+              hoursWorked = result.hoursWorked
+            } catch (error) {
+              console.warn("Error calculating hours for log:", log.id, error)
+            }
           }
-          return { ...log, time_in, time_out, hoursWorked }
+          
+          return { 
+            ...log, 
+            id: Number(log.id), 
+            time_in, 
+            time_out, 
+            hoursWorked,
+            status: log.status as string || "pending"
+          }
         })
+        
         setLogs(logsArr)
+      } catch (error) {
+        console.error("Error fetching time logs:", error)
+        setLogs([])
       } finally {
         setLogsLoading(false)
       }
@@ -230,17 +252,30 @@ export function InternProfile({
   // Fetch supervisors for dropdown
   useEffect(() => {
     if (!isEditing) return
-    fetch("/api/supervisors")
-      .then(res => res.json())
-      .then((data: Supervisor[]) => {
+    
+    const fetchSupervisors = async () => {
+      try {
+        const res = await fetch("/api/supervisors")
+        if (!res.ok) {
+          throw new Error("Failed to fetch supervisors")
+        }
+        const data: Supervisor[] = await res.json()
+        
         setSupervisors(
           data.map((sup) => ({
             id: sup.id,
-            name: `${sup.first_name ?? ""} ${sup.last_name ?? ""}`.trim(),
+            name: sup.name || `${sup.first_name || ""} ${sup.last_name || ""}`.trim(),
+            first_name: sup.first_name,
+            last_name: sup.last_name
           }))
         )
-      })
-      .catch(() => setSupervisors([]))
+      } catch (error) {
+        console.error("Error fetching supervisors:", error)
+        setSupervisors([])
+      }
+    }
+    
+    fetchSupervisors()
   }, [isEditing])
 
   // Helper for formatting date input value as yyyy-MM-dd or empty string
@@ -259,23 +294,24 @@ export function InternProfile({
 
   useEffect(() => {
     const updateStats = async () => {
-      if (logsLoading || !profileData || !logs.length) {
+      if (logsLoading || !profileData) {
         setTimeStats({ 
           completedHours: profileData?.completedHours || 0, 
-          progressPercentage: 0 
+          progressPercentage: profileData?.requiredHours ? 
+            ((profileData.completedHours || 0) / profileData.requiredHours) * 100 : 0
         })
         return
       }
       
       const requiredHours = profileData.requiredHours || 0
-      const stats = await calculateTimeStatistics(logs, currentInternId, {
-        includeEditRequests: true,
-        requiredHours
-      })
+      
+      // Use the centralized function to calculate hours
+      const totalHours = calculateInternshipProgress(logs, currentInternId)
+      const progressPercentage = requiredHours > 0 ? (totalHours / requiredHours) * 100 : 0
       
       setTimeStats({
-        completedHours: stats.internshipProgress,
-        progressPercentage: stats.progressPercentage
+        completedHours: totalHours,
+        progressPercentage: Math.min(progressPercentage, 100)
       })
     }
     
@@ -287,7 +323,7 @@ export function InternProfile({
   const progressPercentage = timeStats.progressPercentage
 
   // Handle input changes for profile fields
-  const handleInputChange = (field: keyof ProfileData, value: string | string[]) => {
+  const handleInputChange = (field: keyof ProfileData, value: string | string[] | number) => {
     setProfileData((prev) =>
       prev
         ? {
@@ -300,24 +336,53 @@ export function InternProfile({
 
   // Save profile changes
   const handleSave = async () => {
-    setIsEditing(false)
+    if (!profileData) return
+    
     setLoading(true)
     setError(null)
+    
     try {
       // Save profile data first
       console.log("Saving profile data:", profileData)
+      
+      const profileUpdateData = {
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        email: profileData.email,
+        phone: profileData.phone,
+        address: profileData.address,
+        city: profileData.city,
+        country: profileData.country,
+        zipCode: profileData.zipCode,
+        dateOfBirth: profileData.dateOfBirth,
+        bio: profileData.bio,
+        degree: profileData.degree,
+        gpa: profileData.gpa ? parseFloat(profileData.gpa) : undefined,
+        graduationDate: profileData.graduationDate,
+        skills: profileData.skills,
+        interests: profileData.interests,
+        languages: profileData.languages,
+        emergencyContactName: profileData.emergencyContactName,
+        emergencyContactRelation: profileData.emergencyContactRelation,
+        emergencyContactPhone: profileData.emergencyContactPhone,
+        startDate: profileData.startDate,
+        endDate: profileData.endDate,
+        requiredHours: profileData.requiredHours ? Number(profileData.requiredHours) : undefined,
+        supervisorId: profileData.supervisorId ? Number(profileData.supervisorId) : undefined,
+      }
+      
       const res = await fetch(`/api/profile${internId ? `?userId=${internId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profileData),
+        body: JSON.stringify(profileUpdateData),
       })
       
       if (!res.ok) {
         const errorData = await res.json()
-        throw new Error(`Failed to save profile: ${errorData.error || res.statusText}`)
+        throw new Error(errorData.error || `Failed to save profile: ${res.statusText}`)
       }
 
-      // Save work schedule
+      // Save work schedule if available
       if (workSchedule) {
         const scheduleRes = await fetch("/api/user/schedule", {
           method: "POST",
@@ -327,15 +392,21 @@ export function InternProfile({
         
         if (!scheduleRes.ok) {
           const errorData = await scheduleRes.json()
-          throw new Error(`Failed to save work schedule: ${errorData.error || scheduleRes.statusText}`)
+          console.warn("Failed to save work schedule:", errorData.error)
+          // Don't throw here - profile was saved successfully
         }
       }
 
-      await refreshUser()
+      // Refresh user data
+      if (refreshUser) {
+        await refreshUser()
+      }
+      
+      setIsEditing(false)
       alert("Profile saved successfully!")
     } catch (err) {
+      console.error("Error saving profile:", err)
       setError((err as Error).message || "Failed to save profile")
-      setIsEditing(true) // Re-enable editing on error
     } finally {
       setLoading(false)
     }
@@ -354,11 +425,39 @@ export function InternProfile({
   }
 
   if (!user) return null
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading profile...</div>
-  if (error) return <div className="p-8 text-center text-red-500">{error}</div>
-  if (!profileData) return null
+  
+  if (loading) {
+    return (
+      <div className="p-8 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-gray-500">Loading profile...</p>
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="p-8 text-center">
+        <div className="text-red-500 mb-4">
+          <p className="font-medium">Error loading profile</p>
+          <p className="text-sm">{error}</p>
+        </div>
+        <Button onClick={() => window.location.reload()}>
+          Try Again
+        </Button>
+      </div>
+    )
+  }
+  
+  if (!profileData) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-gray-500">Profile not found</p>
+      </div>
+    )
+  }
 
-  const initials = `${profileData.firstName[0] ?? ""}${profileData.lastName[0] ?? ""}`.toUpperCase()
+  const initials = `${profileData.firstName?.[0] || ""}${profileData.lastName?.[0] || ""}`.toUpperCase() || "??"
 
   return (
     <div className="space-y-6">
@@ -367,6 +466,30 @@ export function InternProfile({
           ← Back to Dashboard
         </Button>
       )}
+      
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <X className="h-5 w-5 text-red-400" />
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-red-800">Error</p>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            <div className="ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setError(null)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Profile Header Card */}
       <Card>
         <CardContent className="p-6">
@@ -751,8 +874,8 @@ export function InternProfile({
                       id="requiredHours"
                       type="number"
                       min={0}
-                      value={Number(profileData.requiredHours).toFixed(0)}
-                      onChange={(e) => handleInputChange("requiredHours", e.target.value)}
+                      value={profileData.requiredHours || ""}
+                      onChange={(e) => handleInputChange("requiredHours", e.target.value ? Number(e.target.value) : 0)}
                       disabled={!isEditing}
                       placeholder="Required Hours"
                     />
@@ -916,7 +1039,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-gray-500 hover:text-gray-700"
                             onClick={() => {
-                              const newSkills = [...profileData.skills]
+                              const newSkills = [...(profileData.skills || [])]
                               newSkills.splice(index, 1)
                               handleInputChange("skills", newSkills)
                             }}
@@ -937,7 +1060,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("skills", [...profileData.skills, input.value.trim()])
+                                  handleInputChange("skills", [...(profileData.skills || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -947,8 +1070,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newSkill") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("skills", [...profileData.skills, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("skills", [...(profileData.skills || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}
@@ -972,7 +1095,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-gray-500 hover:text-gray-700"
                             onClick={() => {
-                              const newInterests = [...profileData.interests]
+                              const newInterests = [...(profileData.interests || [])]
                               newInterests.splice(index, 1)
                               handleInputChange("interests", newInterests)
                             }}
@@ -993,7 +1116,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("interests", [...profileData.interests, input.value.trim()])
+                                  handleInputChange("interests", [...(profileData.interests || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -1003,8 +1126,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newInterest") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("interests", [...profileData.interests, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("interests", [...(profileData.interests || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}
@@ -1027,7 +1150,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-blue-600 hover:text-blue-800"
                             onClick={() => {
-                              const newLanguages = [...profileData.languages]
+                              const newLanguages = [...(profileData.languages || [])]
                               newLanguages.splice(index, 1)
                               handleInputChange("languages", newLanguages)
                             }}
@@ -1048,7 +1171,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("languages", [...profileData.languages, input.value.trim()])
+                                  handleInputChange("languages", [...(profileData.languages || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -1058,8 +1181,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newLanguage") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("languages", [...profileData.languages, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("languages", [...(profileData.languages || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}

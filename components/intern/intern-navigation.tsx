@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Clock, User, LayoutDashboard, Menu } from "lucide-react"
+import { Clock, User, LayoutDashboard, Menu, Award } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { cn } from "@/lib/utils"
@@ -17,6 +17,7 @@ const tabIcons: Record<string, React.ReactNode> = {
   dashboard: <LayoutDashboard className="w-4 h-4 mr-2" />,
   dtr: <Clock className="w-4 h-4 mr-2" />,
   profile: <User className="w-4 h-4 mr-2" />,
+  completion: <Award className="w-4 h-4 mr-2" />,
 }
 
 export function InternNavigation({ activeTab, onTabChange, tabs }: InternNavigationProps) {

@@ -8,6 +8,7 @@ import { AdminNavigation } from "./admin-navigation"
 import { AdminDashboardHeader } from "./admin-dashboard-header"
 import { useAuth } from "@/contexts/auth-context"
 import { EditLogRequestsAdmin } from "./manage-edit-log-requests"
+import { ManageCompletionRequests } from "./manage-completion-requests"
 
 export function AdminDashboard() {
   const { user } = useAuth()
@@ -25,6 +26,8 @@ export function AdminDashboard() {
         return <OvertimeLogsDashboard />
       case "edit-log-requests":
         return <EditLogRequestsAdmin />
+      case "completion-requests":
+        return <ManageCompletionRequests />
       default:
         return <HRAdminDashboard />
     }

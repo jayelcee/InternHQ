@@ -129,11 +129,16 @@ CREATE TABLE IF NOT EXISTS internship_programs (
     
     -- Program details
     required_hours INTEGER NOT NULL,
-    status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'suspended')),
+    status VARCHAR(50) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'suspended', 'pending_completion')),
     
     -- Program timeline
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
+    
+    -- Completion tracking
+    completion_requested_at TIMESTAMP WITH TIME ZONE,
+    completion_approved_at TIMESTAMP WITH TIME ZONE,
+    completion_approved_by INTEGER REFERENCES users(id),
     
     -- Audit timestamps
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -251,6 +256,99 @@ CREATE TABLE IF NOT EXISTS time_log_edit_requests (
     metadata JSONB DEFAULT NULL
 );
 
+-- INTERNSHIP COMPLETION REQUESTS TABLE
+-- Tracks requests for internship completion approval
+CREATE TABLE IF NOT EXISTS internship_completion_requests (
+    -- Primary key
+    id SERIAL PRIMARY KEY,
+    
+    -- Foreign key relationships
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    internship_program_id INTEGER NOT NULL REFERENCES internship_programs(id) ON DELETE CASCADE,
+    
+    -- Request details
+    total_hours_completed DECIMAL(10,2) NOT NULL,
+    completion_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    
+    -- Approval workflow
+    reviewed_by INTEGER REFERENCES users(id),
+    reviewed_at TIMESTAMP WITH TIME ZONE,
+    admin_notes TEXT,
+    
+    -- Audit timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Ensure only one pending request per internship program
+    UNIQUE(internship_program_id, status) DEFERRABLE INITIALLY DEFERRED
+);
+
+-- OFFICIAL DTR DOCUMENTS TABLE
+-- Stores official DTR documents issued by admin
+CREATE TABLE IF NOT EXISTS official_dtr_documents (
+    -- Primary key
+    id SERIAL PRIMARY KEY,
+    
+    -- Foreign key relationships
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    internship_program_id INTEGER NOT NULL REFERENCES internship_programs(id) ON DELETE CASCADE,
+    completion_request_id INTEGER NOT NULL REFERENCES internship_completion_requests(id) ON DELETE CASCADE,
+    
+    -- Document details
+    document_number VARCHAR(50) NOT NULL UNIQUE,
+    total_hours DECIMAL(10,2) NOT NULL,
+    regular_hours DECIMAL(10,2) NOT NULL,
+    overtime_hours DECIMAL(10,2) NOT NULL,
+    
+    -- Period covered
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    
+    -- Signing details
+    issued_by INTEGER NOT NULL REFERENCES users(id),
+    issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    admin_signature_name VARCHAR(255) NOT NULL,
+    admin_title VARCHAR(255) NOT NULL,
+    
+    -- Document metadata
+    document_hash VARCHAR(64), -- For document integrity verification
+    file_path VARCHAR(500), -- Path to generated PDF file
+    
+    -- Audit timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- COMPLETION CERTIFICATES TABLE
+-- Stores completion certificates issued by admin
+CREATE TABLE IF NOT EXISTS completion_certificates (
+    -- Primary key
+    id SERIAL PRIMARY KEY,
+    
+    -- Foreign key relationships
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    internship_program_id INTEGER NOT NULL REFERENCES internship_programs(id) ON DELETE CASCADE,
+    completion_request_id INTEGER NOT NULL REFERENCES internship_completion_requests(id) ON DELETE CASCADE,
+    
+    -- Certificate details
+    certificate_number VARCHAR(50) NOT NULL UNIQUE,
+    completion_date DATE NOT NULL,
+    total_hours_completed DECIMAL(10,2) NOT NULL,
+    
+    -- Signing details
+    issued_by INTEGER NOT NULL REFERENCES users(id),
+    issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    admin_signature_name VARCHAR(255) NOT NULL,
+    admin_title VARCHAR(255) NOT NULL,
+    
+    -- Certificate metadata
+    certificate_hash VARCHAR(64), -- For certificate integrity verification
+    file_path VARCHAR(500), -- Path to generated PDF file
+    
+    -- Audit timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ================================================================
 -- CONSTRAINTS AND INDEXES
 -- ================================================================
@@ -291,6 +389,22 @@ CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 
 CREATE INDEX IF NOT EXISTS idx_time_log_edit_requests_metadata 
 ON time_log_edit_requests USING GIN (metadata);
+
+-- Completion request indexes
+CREATE INDEX IF NOT EXISTS idx_internship_completion_requests_user_id ON internship_completion_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_internship_completion_requests_program_id ON internship_completion_requests(internship_program_id);
+CREATE INDEX IF NOT EXISTS idx_internship_completion_requests_status ON internship_completion_requests(status);
+
+-- Official DTR document indexes
+CREATE INDEX IF NOT EXISTS idx_official_dtr_documents_user_id ON official_dtr_documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_official_dtr_documents_program_id ON official_dtr_documents(internship_program_id);
+CREATE INDEX IF NOT EXISTS idx_official_dtr_documents_number ON official_dtr_documents(document_number);
+
+-- Completion certificate indexes
+CREATE INDEX IF NOT EXISTS idx_completion_certificates_user_id ON completion_certificates(user_id);
+CREATE INDEX IF NOT EXISTS idx_completion_certificates_program_id ON completion_certificates(internship_program_id);
+CREATE INDEX IF NOT EXISTS idx_completion_certificates_number ON completion_certificates(certificate_number);
+
 -- ================================================================
 -- TRIGGERS AND FUNCTIONS
 -- ================================================================
@@ -332,8 +446,13 @@ CREATE TRIGGER update_intern_project_assignments_updated_at
     BEFORE UPDATE ON intern_project_assignments 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_internship_completion_requests_updated_at 
+    BEFORE UPDATE ON internship_completion_requests 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================
 -- SCHEMA VALIDATION
+-- ================================================================
 -- ================================================================
 
 -- Add any additional constraints or validation rules here
