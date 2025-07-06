@@ -69,7 +69,7 @@ interface DTRContent {
     date: string
     timeIn: string
     timeOut: string
-    logType: string
+    logType: "regular" | "overtime" | "extended_overtime"
     status: string
     overtimeStatus: string | null
   }[]
@@ -224,8 +224,8 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
 
         // Download the PDF
         const fileName = type === 'dtr' 
-          ? `DTR-${(content as DTRContent).documentNumber || 'document'}-${bestSize.name}.pdf`
-          : `Certificate-${(content as CertificateContent).certificateNumber || 'document'}-${bestSize.name}.pdf`
+          ? `${(content as DTRContent).documentNumber || 'document'}.pdf`
+          : `${(content as CertificateContent).certificateNumber || 'document'}.pdf`
         
         pdf.save(fileName)
         
@@ -257,7 +257,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         id: index + 1, // Generate an ID
         time_in: timeInDate.toISOString(), // ISO string for calculations
         time_out: timeOutDate.toISOString(), // ISO string for calculations
-        log_type: log.logType as "regular" | "overtime",
+        log_type: log.logType as "regular" | "overtime" | "extended_overtime",
         status: log.status as "pending" | "completed",
         overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
         user_id: 1, // Default user ID
@@ -284,7 +284,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
           if (log.logType === "regular") {
             // Add all regular hours directly
             totalRegularHours += durationHours
-          } else if (log.logType === "overtime" && log.overtimeStatus === "approved") {
+          } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
             // Only add approved overtime hours
             totalApprovedOvertimeHours += durationHours
           }
@@ -604,11 +604,6 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
   }
 
   const generateCertificateHTML = (content: CertificateContent): string => {
-    // Safely handle numeric values that might be strings
-    const totalHoursCompleted = typeof content.totalHoursCompleted === 'number' 
-      ? content.totalHoursCompleted 
-      : parseFloat(String(content.totalHoursCompleted)) || 0
-    
     const requiredHours = typeof content.requiredHours === 'number' 
       ? content.requiredHours 
       : parseFloat(String(content.requiredHours)) || 0
@@ -652,7 +647,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         <style>
           @page { size: letter; margin: 0.75in; }
           body { 
-            font-family: Georgia, serif; 
+            font-family: Arial, serif; 
             margin: 0; 
             padding: 40px; 
             text-align: center; 
@@ -788,8 +783,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
           <DialogTitle className="flex items-center justify-between">
             {type === 'dtr' ? 'Official Daily Time Record' : 'Certificate of Completion'}
             <Button onClick={handleDownload} size="sm">
-              <Download className="w-4 h-4 mr-2" />
-              Download PDF
+              <Download className="w-4 h-4" />
             </Button>
           </DialogTitle>
         </DialogHeader>
@@ -828,7 +822,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
       id: index + 1, // Generate an ID
       time_in: timeInString, // ISO string for calculations
       time_out: timeOutString, // ISO string for calculations
-      log_type: log.logType as "regular" | "overtime",
+      log_type: log.logType as "regular" | "overtime" | "extended_overtime",
       status: log.status as "pending" | "completed",
       overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
       user_id: 1, // Default user ID
@@ -865,7 +859,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
       if (log.logType === "regular") {
         // Add all regular hours directly
         totalRegularHours += durationHours
-      } else if (log.logType === "overtime" && log.overtimeStatus === "approved") {
+      } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
         // Only add approved overtime hours
         totalApprovedOvertimeHours += durationHours
       }
@@ -1153,7 +1147,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                         id: index + 1,
                         time_in: timeInString,
                         time_out: timeOutString,
-                        log_type: log.logType as "regular" | "overtime",
+                        log_type: log.logType as "regular" | "overtime" | "extended_overtime",
                         status: log.status as "pending" | "completed",
                         overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
                         user_id: 1,
@@ -1267,11 +1261,6 @@ function DTRPreview({ content }: { content: DTRContent }) {
 }
 
 function CertificatePreview({ content }: { content: CertificateContent }) {
-  // Safely handle numeric values that might be strings
-  const totalHoursCompleted = typeof content.totalHoursCompleted === 'number' 
-    ? content.totalHoursCompleted 
-    : parseFloat(String(content.totalHoursCompleted)) || 0
-  
   const requiredHours = typeof content.requiredHours === 'number' 
     ? content.requiredHours 
     : parseFloat(String(content.requiredHours)) || 0
@@ -1311,6 +1300,7 @@ function CertificatePreview({ content }: { content: CertificateContent }) {
     <div className="bg-white text-center p-16 min-h-[800px] flex flex-col justify-between">
       <div className="flex-shrink-0">
         <div className="mb-10 h-32 flex items-center justify-center">
+          {/* eslint-disable-next-line @next/next/no-img-element  */}
           <img 
             src="/cybersoft%20logo.png"
             alt="Cybersoft Logo" 

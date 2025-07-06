@@ -17,7 +17,9 @@ export async function GET(request: NextRequest) {
     }
 
     const logTypeParam = request.nextUrl.searchParams.get("logType")
-    const logType = logTypeParam === "overtime" ? "overtime" : logTypeParam === "regular" ? "regular" : null
+    const logType = logTypeParam === "overtime" ? "overtime" : 
+                   logTypeParam === "extended_overtime" ? "extended_overtime" : 
+                   logTypeParam === "regular" ? "regular" : null
     const userIdParam = request.nextUrl.searchParams.get("userId")
 
     if (role === "admin") {

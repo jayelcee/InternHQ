@@ -17,7 +17,9 @@ export async function GET(request: NextRequest) {
     }
 
     const logTypeParam = request.nextUrl.searchParams.get("logType")
-    const logType = logTypeParam === "overtime" ? "overtime" : "regular"
+    const logType = logTypeParam === "overtime" ? "overtime" : 
+                   logTypeParam === "extended_overtime" ? "extended_overtime" : 
+                   "regular"
 
     const timeLog = await getTodayTimeLog(String(userId), logType)
 

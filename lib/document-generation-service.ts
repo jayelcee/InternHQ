@@ -12,7 +12,7 @@ interface TimeLogEntry {
   date: string
   timeIn: string
   timeOut: string
-  logType: string
+  logType: "regular" | "overtime" | "extended_overtime"
   status: string
   overtimeStatus: string | null
 }
@@ -85,7 +85,7 @@ export class DocumentGenerationService {
         id: index + 1,
         time_in: timeInDate.toISOString(),
         time_out: timeOutDate.toISOString(),
-        log_type: log.logType as "regular" | "overtime",
+        log_type: log.logType as "regular" | "overtime" | "extended_overtime",
         status: log.status as "pending" | "completed",
         overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
         user_id: 1,
@@ -127,7 +127,7 @@ export class DocumentGenerationService {
         
         if (log.logType === "regular") {
           totalRegularHours += durationHours
-        } else if (log.logType === "overtime" && log.overtimeStatus === "approved") {
+        } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
           totalApprovedOvertimeHours += durationHours
         }
       } catch (error) {
@@ -612,11 +612,6 @@ export class DocumentGenerationService {
    * Generates certificate HTML using the exact same format as DocumentViewer
    */
   private static getCertificateTemplate(content: CertificateContent): string {
-    // Safely handle numeric values that might be strings
-    const totalHours = typeof content.totalHoursCompleted === 'number' 
-      ? content.totalHoursCompleted 
-      : parseFloat(String(content.totalHoursCompleted)) || 0
-    
     const requiredHours = typeof content.requiredHours === 'number' 
       ? content.requiredHours 
       : parseFloat(String(content.requiredHours)) || 0
@@ -660,7 +655,7 @@ export class DocumentGenerationService {
         <style>
           @page { size: letter; margin: 0.75in; }
           body { 
-            font-family: Georgia, serif; 
+            font-family: Arial, serif; 
             margin: 0; 
             padding: 40px; 
             text-align: center; 

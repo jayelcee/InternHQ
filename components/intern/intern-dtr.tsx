@@ -65,7 +65,7 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
           id: log.id as number,
           time_in: timeIn,
           time_out: timeOut,
-          log_type: (log.log_type as "regular" | "overtime") ?? "regular",
+          log_type: (log.log_type as "regular" | "overtime" | "extended_overtime") ?? "regular",
           status: (log.status as "pending" | "completed") ?? "completed",
           overtime_status: (log.overtime_status as "pending" | "approved" | "rejected") ?? undefined,
           user_id: userId,

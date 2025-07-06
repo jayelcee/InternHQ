@@ -154,12 +154,12 @@ export function formatLogDate(dateStr: string): string {
  */
 export function getTimeBadgeConfig(
   time: string,
-  logType: "regular" | "overtime" = "regular",
+  logType: "regular" | "overtime" | "extended_overtime" = "regular",
   variant: "in" | "out" | "active" = "in"
 ) {
   let classes = ""
   
-  if (logType === "overtime") {
+  if (logType === "overtime" || logType === "extended_overtime") {
     classes = "bg-purple-50 text-purple-700 border-purple-300"
   } else {
     switch (variant) {

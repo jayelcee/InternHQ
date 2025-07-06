@@ -26,6 +26,8 @@ export interface CompletionRequestData {
   degree?: string
   school_name?: string
   department_name?: string
+  has_dtr?: boolean
+  has_certificate?: boolean
 }
 
 export interface DocumentContent {
@@ -107,7 +109,10 @@ export class CompletionService {
              u.first_name, u.last_name, u.email,
              up.degree,
              s.name as school_name,
-             d.name as department_name
+             d.name as department_name,
+             -- Check for existing documents
+             (SELECT COUNT(*) > 0 FROM official_dtr_documents WHERE completion_request_id = cr.id) as has_dtr,
+             (SELECT COUNT(*) > 0 FROM completion_certificates WHERE completion_request_id = cr.id) as has_certificate
       FROM internship_completion_requests cr
       JOIN internship_programs ip ON cr.internship_program_id = ip.id
       JOIN users u ON cr.user_id = u.id
@@ -117,7 +122,14 @@ export class CompletionService {
       WHERE cr.id = ${id}
     `
     
-    return result[0] as CompletionRequestData || null
+    if (result.length === 0) return null
+    
+    const request = result[0]
+    return {
+      ...request,
+      has_dtr: Boolean(request.has_dtr),
+      has_certificate: Boolean(request.has_certificate)
+    } as CompletionRequestData
   }
 
   /**
@@ -149,7 +161,10 @@ export class CompletionService {
                s.name as school_name,
                d.name as department_name,
                reviewer.first_name as reviewer_first_name,
-               reviewer.last_name as reviewer_last_name
+               reviewer.last_name as reviewer_last_name,
+               -- Check for existing documents
+               (SELECT COUNT(*) > 0 FROM official_dtr_documents WHERE completion_request_id = cr.id) as has_dtr,
+               (SELECT COUNT(*) > 0 FROM completion_certificates WHERE completion_request_id = cr.id) as has_certificate
         FROM internship_completion_requests cr
         JOIN internship_programs ip ON cr.internship_program_id = ip.id
         JOIN users u ON cr.user_id = u.id
@@ -169,7 +184,9 @@ export class CompletionService {
         total_hours_completed: Number(row.total_hours_completed),
         required_hours: Number(row.required_hours),
         user_id: Number(row.user_id),
-        internship_program_id: Number(row.internship_program_id)
+        internship_program_id: Number(row.internship_program_id),
+        has_dtr: Boolean(row.has_dtr),
+        has_certificate: Boolean(row.has_certificate)
       })) as CompletionRequestData[]
       
       console.log('📊 Formatted result:', formattedResult.length, 'completion requests')
@@ -345,7 +362,14 @@ export class CompletionService {
       )
 
       // Generate document number
-      const documentNumber = `DTR-${new Date().getFullYear()}-${String(request.user_id).padStart(4, '0')}-${Date.now().toString().slice(-6)}`
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const formattedDate = `${yyyy}${mm}${dd}`;
+      const userIdStr = String(request.user_id).padStart(2, '0').slice(-2);
+      const lastName = (request.last_name || 'USER').toUpperCase();
+      const documentNumber = `DTR-${lastName}-${formattedDate}-${userIdStr}`;
 
       // Create DTR document
       const dtrDocument = await sql`
@@ -413,7 +437,14 @@ export class CompletionService {
       }
 
       // Generate certificate number
-      const certificateNumber = `CERT-${new Date().getFullYear()}-${String(request.user_id).padStart(4, '0')}-${Date.now().toString().slice(-6)}`
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const formattedDate = `${yyyy}${mm}${dd}`;
+      const userIdStr = String(request.user_id).padStart(2, '0').slice(-2);
+      const lastName = (request.last_name || 'USER').toUpperCase();
+      const certificateNumber = `CERT-${lastName}-${formattedDate}-${userIdStr}`;
 
       // Create certificate
       const certificate = await sql`
@@ -603,18 +634,32 @@ export class CompletionService {
       if (!request || (request.status !== 'approved' && request.status !== 'rejected')) {
         return { success: false, error: 'Request not found or not processed' }
       }
+      
+      // Delete any associated documents first
+      await sql`
+        DELETE FROM official_dtr_documents 
+        WHERE completion_request_id = ${requestId}
+      `
+      
+      await sql`
+        DELETE FROM completion_certificates 
+        WHERE completion_request_id = ${requestId}
+      `
+      
       // Set status to pending, clear reviewed_by and reviewed_at
       await sql`
         UPDATE internship_completion_requests
         SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, admin_notes = NULL
         WHERE id = ${requestId}
       `
+      
       // Optionally reset internship_program status if needed
       await sql`
         UPDATE internship_programs
         SET status = 'active', completion_approved_at = NULL, completion_approved_by = NULL, completion_requested_at = NULL
         WHERE id = ${request.internship_program_id}
       `
+      
       return { success: true }
     } catch (error) {
       console.error('Error reverting completion request:', error)
@@ -632,16 +677,30 @@ export class CompletionService {
       if (!request) {
         return { success: false, error: 'Request not found' }
       }
+      
+      // Delete any associated documents first
+      await sql`
+        DELETE FROM official_dtr_documents 
+        WHERE completion_request_id = ${requestId}
+      `
+      
+      await sql`
+        DELETE FROM completion_certificates 
+        WHERE completion_request_id = ${requestId}
+      `
+      
       // Delete the request
       await sql`
         DELETE FROM internship_completion_requests WHERE id = ${requestId}
       `
+      
       // Optionally reset internship_program status if needed
       await sql`
         UPDATE internship_programs
         SET status = 'active', completion_approved_at = NULL, completion_approved_by = NULL, completion_requested_at = NULL
         WHERE id = ${request.internship_program_id}
       `
+      
       return { success: true }
     } catch (error) {
       console.error('Error deleting completion request:', error)

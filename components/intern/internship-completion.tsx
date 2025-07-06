@@ -47,7 +47,7 @@ interface TimeLogEntry {
   date: string
   timeIn: string
   timeOut: string
-  logType: string
+  logType: "regular" | "overtime" | "extended_overtime"
   status: string
   overtimeStatus: string | null
 }
@@ -67,7 +67,7 @@ interface DTRDocumentContent {
     date: string
     timeIn: string
     timeOut: string
-    logType: string
+    logType: "regular" | "overtime" | "extended_overtime"
     status: string
     overtimeStatus: string | null
   }[]
@@ -339,8 +339,8 @@ export function InternshipCompletion() {
 
         // Download the PDF
         const fileName = type === 'dtr' 
-          ? `DTR-${documentData.document_number}-${bestSize.name}.pdf`
-          : `Certificate-${documentData.document_number}-${bestSize.name}.pdf`
+          ? `${documentData.document_number}.pdf`
+          : `${documentData.document_number}.pdf`
         
         pdf.save(fileName)
         
@@ -362,7 +362,6 @@ export function InternshipCompletion() {
     )
   }
 
-  const canRequestCompletion = timeStats.progressPercentage >= 100 && !completionRequest
   const hasApprovedRequest = completionRequest?.status === 'approved'
   const dtrDocument = documents.find(doc => doc.type === 'dtr')
   const certificateDocument = documents.find(doc => doc.type === 'certificate')
@@ -430,29 +429,29 @@ export function InternshipCompletion() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span>Submitted:</span>
-                    <Badge className="bg-blue-100 text-blue-800 border-blue-300 font-medium px-2 py-1 rounded-md">
-                      {new Date(completionRequest.created_at).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-300 font-medium rounded-md">
+                      {new Date(completionRequest.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </Badge>
                   </div>
                   {completionRequest.reviewed_at && (
                     <div className="flex items-center justify-between">
                       <span>Reviewed:</span>
-                      <Badge className="bg-green-100 text-green-800 border-green-300 font-medium px-2 py-1 rounded-md">
-                        {new Date(completionRequest.reviewed_at).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      <Badge className="bg-green-100 text-green-800 border-green-300 font-medium rounded-md">
+                        {new Date(completionRequest.reviewed_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </Badge>
                     </div>
                   )}
                   {completionRequest.admin_notes && (
                     <div className="flex items-center justify-between">
                       <span>Admin Note:</span>
-                      <Badge className="bg-gray-100 text-gray-800 border-gray-300 font-medium px-2 py-1 rounded-md max-w-xs whitespace-pre-line break-words">
+                      <Badge className="bg-gray-100 text-gray-800 border-gray-300 font-medium rounded-md max-w-xs whitespace-pre-line break-words">
                         {completionRequest.admin_notes}
                       </Badge>
                     </div>
                   )}
                   <div className="flex items-center justify-between">
                     <span className="font-medium">Hours Completed:</span>
-                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-bold px-2 py-1 rounded-md">
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-bold rounded-md">
                       {(parseFloat(String(completionRequest.total_hours_completed)) || 0).toFixed(2)}h
                     </Badge>
                   </div>
@@ -576,7 +575,7 @@ export function InternshipCompletion() {
                       </div>
                       <div className="text-sm text-gray-600">
                         <p>Document No: {dtrDocument.document_number}</p>
-                        <p>Generated: {new Date(dtrDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        <p>Generated: {new Date(dtrDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                         <p>Signed by: {dtrDocument.admin_signature_name}</p>
                       </div>
                       <div className="flex gap-2">
@@ -606,7 +605,7 @@ export function InternshipCompletion() {
                       </div>
                       <div className="text-sm text-gray-600">
                         <p>Certificate No: {certificateDocument.document_number}</p>
-                        <p>Generated: {new Date(certificateDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                        <p>Generated: {new Date(certificateDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                         <p>Signed by: {certificateDocument.admin_signature_name}</p>
                       </div>
                       <div className="flex gap-2">

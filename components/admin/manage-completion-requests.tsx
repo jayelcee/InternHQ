@@ -9,7 +9,6 @@ import { useAuth } from "@/contexts/auth-context"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { 
@@ -35,9 +34,7 @@ import {
   Clock, 
   FileText, 
   Award,
-  User,
   Calendar,
-  GraduationCap,
   RotateCcw,
   Trash2
 } from "lucide-react"
@@ -70,6 +67,8 @@ interface CompletionRequest {
   department_name?: string
   reviewer_first_name?: string
   reviewer_last_name?: string
+  has_dtr?: boolean
+  has_certificate?: boolean
 }
 
 export function ManageCompletionRequests() {
@@ -173,19 +172,6 @@ export function ManageCompletionRequests() {
     }
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <Clock className="w-4 h-4 text-yellow-600" />
-      case 'approved':
-        return <CheckCircle className="w-4 h-4 text-green-600" />
-      case 'rejected':
-        return <XCircle className="w-4 h-4 text-red-600" />
-      default:
-        return null
-    }
-  }
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -198,8 +184,6 @@ export function ManageCompletionRequests() {
         return null
     }
   }
-
-  const pendingRequests = completionRequests.filter(req => req.status === 'pending')
 
   const openActionDialog = (id: number, type: 'approve' | 'reject') => {
     setActionRequestId(id)
@@ -409,7 +393,7 @@ export function ManageCompletionRequests() {
                               {reviewedBy}
                               {request.reviewed_at && (
                                 <div className="text-xs text-gray-400">
-                                  {format(new Date(request.reviewed_at), "m/d/yyyy")}
+                                  {format(new Date(request.reviewed_at), "M/d/yyyy")}
                                 </div>
                               )}
                             </div>
@@ -452,7 +436,12 @@ export function ManageCompletionRequests() {
                           ) : (
                             <div className="flex gap-2 justify-end items-center">
                               {request.status === 'approved' && (
-                                <DocumentActions requestId={request.id} />
+                                <DocumentActions 
+                                  requestId={request.id}
+                                  has_dtr={request.has_dtr}
+                                  has_certificate={request.has_certificate}
+                                  onDocumentGenerated={() => fetchCompletionRequests()}
+                                />
                               )}
                               <Button
                                 size="sm"
@@ -536,7 +525,14 @@ export function ManageCompletionRequests() {
   )
 }
 
-function DocumentActions({ requestId }: { requestId: number }) {
+interface DocumentActionsProps {
+  requestId: number
+  has_dtr?: boolean
+  has_certificate?: boolean
+  onDocumentGenerated?: () => void
+}
+
+function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenerated }: DocumentActionsProps) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [showDocumentDialog, setShowDocumentDialog] = useState(false)
   const [adminSignature, setAdminSignature] = useState('')
@@ -567,6 +563,8 @@ function DocumentActions({ requestId }: { requestId: number }) {
         setShowDocumentDialog(false)
         setAdminSignature('')
         setAdminTitle('')
+        // Refresh parent component to update button states
+        onDocumentGenerated?.()
       } else {
         const error = await response.json()
         alert(error.error || `Failed to generate ${type}`)
@@ -615,19 +613,21 @@ function DocumentActions({ requestId }: { requestId: number }) {
           <div className="flex gap-2">
             <Button
               onClick={() => generateDocument('dtr')}
-              disabled={isGenerating}
+              disabled={isGenerating || has_dtr}
               className="flex-1"
+              title={has_dtr ? "DTR already exists" : "Generate DTR"}
             >
               <FileText className="w-4 h-4 mr-2" />
-              {isGenerating ? 'Generating...' : 'Generate DTR'}
+              {isGenerating ? 'Generating...' : has_dtr ? 'DTR Generated' : 'Generate DTR'}
             </Button>
             <Button
               onClick={() => generateDocument('certificate')}
-              disabled={isGenerating}
+              disabled={isGenerating || has_certificate}
               className="flex-1"
+              title={has_certificate ? "Certificate already exists" : "Generate Certificate"}
             >
               <Award className="w-4 h-4 mr-2" />
-              {isGenerating ? 'Generating...' : 'Generate Certificate'}
+              {isGenerating ? 'Generating...' : has_certificate ? 'Certificate Generated' : 'Generate Certificate'}
             </Button>
           </div>
         </div>

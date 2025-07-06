@@ -633,7 +633,7 @@ export function InternDashboardContent() {
               log.time_out === null &&
               log.time_in &&
               safeGetDateString(log.time_in as string) === todayStr &&
-              log.log_type === "overtime"
+              (log.log_type === "overtime" || log.log_type === "extended_overtime")
             )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
           if (activeOvertimeLog) {

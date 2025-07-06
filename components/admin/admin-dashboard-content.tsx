@@ -654,17 +654,17 @@ export function HRAdminDashboard() {
                                     displaySessions.push(
                                       <span key={i} className="flex items-center gap-2">
                                         {session.timeIn && showTimeIn && (
-                                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                                          <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
                                             In: {new Date(session.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                           </Badge>
                                         )}
                                         {session.timeOut && showTimeOut && (
-                                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                                          <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
                                             Out: {new Date(session.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                           </Badge>
                                         )}
                                         {session.isActive && (
-                                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                          <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-300">
                                             In Progress
                                           </Badge>
                                         )}
