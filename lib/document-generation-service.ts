@@ -429,8 +429,7 @@ export class DocumentGenerationService {
             </div>
             <div class="card-content">
               <div class="text-center">
-                <p class="text-gray-600 mb-4">This document has been officially verified and approved by:</p>
-                <div class="signature-line mb-2"></div>
+                <p class="text-gray-600 mb-4">This document has been officially verified and approved by:</p><br>
                 <p class="font-medium" style="font-size: 18px;">${content.adminSignature}</p>
                 <p class="text-gray-600">${content.adminTitle}</p>
                 <p class="text-gray-600 mt-4">

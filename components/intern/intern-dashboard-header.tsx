@@ -26,6 +26,10 @@ const tabTitles: Record<string, { title: string; description: string }> = {
     title: "Daily Time Record",
     description: "Review your attendance and working hours.",
   },
+  completion: {
+    title: "Internship Completion",
+    description: "Request your Certificate of Completion and official DTR.",
+  },
   profile: {
     title: "My Profile",
     description: "Manage your personal and contact information.",

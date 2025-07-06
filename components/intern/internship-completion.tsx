@@ -369,160 +369,185 @@ export function InternshipCompletion() {
 
   return (
     <div className="space-y-6">
-      {/* Progress Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Award className="w-5 h-5" />
-            Internship Completion
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="font-medium">Internship Progress</span>
-              <span className="text-2xl font-bold text-blue-600">
-                {timeStats.progressPercentage.toFixed(1)}%
-              </span>
-            </div>
-            
-            <Progress value={timeStats.progressPercentage} className="h-3" />
-            
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>
-                {timeStats.internshipProgress.toFixed(1)}h completed
-              </span>
-              <span>
-                {user?.internship?.required_hours || 0}h required
-              </span>
-            </div>
-
-            {timeStats.progressPercentage >= 100 && (
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span className="font-medium">Requirements completed!</span>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Completion Request Status */}
-      {completionRequest && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {getStatusIcon(completionRequest.status)}
-              Completion Request Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span>Status:</span>
-                {getStatusBadge(completionRequest.status)}
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <span>Submitted:</span>
-                <span>{new Date(completionRequest.created_at).toLocaleDateString()}</span>
-              </div>
-
-              {completionRequest.reviewed_at && (
-                <div className="flex items-center justify-between">
-                  <span>Reviewed:</span>
-                  <span>{new Date(completionRequest.reviewed_at).toLocaleDateString()}</span>
+      {/* Progress Overview + Completion Request Status/Request/Encouragement side by side */}
+      <div className="flex flex-col md:flex-row gap-6">
+        {/* Progress Overview (always left) */}
+        <div className="flex-1 flex">
+          <Card className="w-full flex flex-col h-full flex-grow">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Award className="w-5 h-5" />
+                Internship Completion
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col justify-between">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">Internship Progress</span>
+                  <span className="text-2xl font-bold text-blue-600">
+                    {timeStats.progressPercentage.toFixed(1)}%
+                  </span>
                 </div>
-              )}
-
-              {completionRequest.admin_notes && (
-                <div className="space-y-2">
-                  <span className="font-medium">Admin Notes:</span>
-                  <div className="bg-gray-50 p-3 rounded-lg text-sm">
-                    {completionRequest.admin_notes}
+                <Progress value={timeStats.progressPercentage} className="h-3" />
+                <div className="flex justify-between font-medium text-gray-600">
+                  <span>
+                    {timeStats.internshipProgress.toFixed(2)}h completed
+                  </span>
+                  <span>
+                    {user?.internship?.required_hours || 0}h required
+                  </span>
+                </div>
+                {timeStats.progressPercentage >= 100 ? (
+                  <Badge className="bg-green-100 text-green-800 border-green-300 mt-6 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium">Required hours reached!</span>
+                  </Badge>
+                ) : (
+                  <Badge className="bg-red-100 text-red-800 border-red-300 mt-6 flex items-center gap-2">
+                    <XCircle className="w-4 h-4" />
+                    <span className="font-medium">Render more time to complete.</span>
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        {/* Right card: status/request/encouragement */}
+        <div className="flex-1 flex">
+          {completionRequest ? (
+            <Card className="w-full flex flex-col h-full flex-grow">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  {getStatusIcon(completionRequest.status)}
+                  Completion Request Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col justify-between">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span>Status:</span>
+                    {getStatusBadge(completionRequest.status)}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Submitted:</span>
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-300 font-medium px-2 py-1 rounded-md">
+                      {new Date(completionRequest.created_at).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </Badge>
+                  </div>
+                  {completionRequest.reviewed_at && (
+                    <div className="flex items-center justify-between">
+                      <span>Reviewed:</span>
+                      <Badge className="bg-green-100 text-green-800 border-green-300 font-medium px-2 py-1 rounded-md">
+                        {new Date(completionRequest.reviewed_at).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </Badge>
+                    </div>
+                  )}
+                  {completionRequest.admin_notes && (
+                    <div className="flex items-center justify-between">
+                      <span>Admin Note:</span>
+                      <Badge className="bg-gray-100 text-gray-800 border-gray-300 font-medium px-2 py-1 rounded-md max-w-xs whitespace-pre-line break-words">
+                        {completionRequest.admin_notes}
+                      </Badge>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">Hours Completed:</span>
+                    <Badge className="bg-blue-50 text-blue-700 border-blue-200 font-bold px-2 py-1 rounded-md">
+                      {(parseFloat(String(completionRequest.total_hours_completed)) || 0).toFixed(2)}h
+                    </Badge>
                   </div>
                 </div>
-              )}
-
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Hours Completed:</span> {(parseFloat(String(completionRequest.total_hours_completed)) || 0).toFixed(1)}h
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Request Completion Button */}
-      {canRequestCompletion && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Send className="w-5 h-5" />
-              Request Completion
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                <span>You have completed all required hours!</span>
-              </div>
-              
-              <p className="text-sm text-gray-600">
-                Submit a completion request to have your internship reviewed and approved by an administrator.
-              </p>
-
-              <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-                <DialogTrigger asChild>
-                  <Button className="w-full">
-                    <Send className="w-4 h-4 mr-2" />
-                    Submit Completion Request
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Confirm Completion Request</DialogTitle>
-                    <DialogDescription>
-                      Are you sure you want to submit your internship completion request?
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <div className="flex items-center gap-2 text-blue-800">
-                        <AlertCircle className="w-4 h-4" />
-                        <span className="font-medium">Summary</span>
-                      </div>
-                      <div className="mt-2 text-sm text-blue-700">
-                        <p>Hours Completed: {timeStats.internshipProgress.toFixed(1)}h</p>
-                        <p>Required Hours: {user?.internship?.required_hours || 0}h</p>
-                        <p>Progress: {timeStats.progressPercentage.toFixed(1)}%</p>
-                      </div>
+              </CardContent>
+            </Card>
+          ) : timeStats.progressPercentage >= 100 ? (
+            <Card className="w-full flex flex-col h-full flex-grow">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="w-5 h-5" />
+                  Request Completion
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col justify-between">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-center gap-2 text-green-600">
+                    <CheckCircle className="w-4 h-4" />
+                    <span>You have completed all required hours!</span>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Once submitted, an administrator will review your request. You will be notified of the decision.
+                  <p className="text-sm text-center text-gray-600">
+                    Submit a completion request to have your internship reviewed and approved by the HR Manager. Once approved, you will receive your official Daily Time Record (DTR) and Certificate of Completion.
+                  </p>
+                  <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+                    <DialogTrigger asChild>
+                      <Button className="w-full mt-4">
+                        <Send className="w-4 h-4 mr-2" />
+                        Submit Completion Request
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Confirm Completion Request</DialogTitle>
+                        <DialogDescription>
+                          Are you sure you want to submit your internship completion request?
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="bg-blue-50 p-4 rounded-lg">
+                          <div className="flex items-center gap-2 text-blue-800">
+                            <AlertCircle className="w-4 h-4" />
+                            <span className="font-medium">Summary</span>
+                          </div>
+                          <div className="mt-2 text-sm text-blue-700">
+                            <p>Hours Completed: {timeStats.internshipProgress.toFixed(2)}h</p>
+                            <p>Required Hours: {user?.internship?.required_hours || 0}h</p>
+                            <p>Progress: {timeStats.progressPercentage.toFixed(0)}%</p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          Once submitted, the HR Manager will review your request. You will see the real-time status and official internship completion documents here.
+                        </p>
+                      </div>
+                      <DialogFooter>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setShowConfirmDialog(false)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button 
+                          onClick={submitCompletionRequest}
+                          disabled={submitting}
+                        >
+                          {submitting ? 'Submitting...' : 'Submit Request'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="w-full flex flex-col h-full flex-grow">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="w-5 h-5" />
+                  Complete Your Internship
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 flex flex-col justify-center">
+                <div className="text-center py-4 space-y-4">
+                  <div className="text-gray-500">
+                    <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>Continue working to complete your internship requirements.</p>
+                    <p className="text-sm mb-2">
+                      You need {((user?.internship?.required_hours || 0) - timeStats.internshipProgress).toFixed(1)} more hours.
                     </p>
                   </div>
-                  <DialogFooter>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => setShowConfirmDialog(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button 
-                      onClick={submitCompletionRequest}
-                      disabled={submitting}
-                    >
-                      {submitting ? 'Submitting...' : 'Submit Request'}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
       {/* Generated Documents */}
       {hasApprovedRequest && (
         <Card>
@@ -537,8 +562,8 @@ export function InternshipCompletion() {
               {documents.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Documents are being generated...</p>
-                  <p className="text-sm">Please check back later or contact your administrator.</p>
+                  <p>No documents have been generated yet.</p>
+                  <p className="text-sm">Please check back later or contact your manager.</p>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2">
@@ -551,7 +576,7 @@ export function InternshipCompletion() {
                       </div>
                       <div className="text-sm text-gray-600">
                         <p>Document No: {dtrDocument.document_number}</p>
-                        <p>Generated: {new Date(dtrDocument.created_at).toLocaleDateString()}</p>
+                        <p>Generated: {new Date(dtrDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                         <p>Signed by: {dtrDocument.admin_signature_name}</p>
                       </div>
                       <div className="flex gap-2">
@@ -581,7 +606,7 @@ export function InternshipCompletion() {
                       </div>
                       <div className="text-sm text-gray-600">
                         <p>Certificate No: {certificateDocument.document_number}</p>
-                        <p>Generated: {new Date(certificateDocument.created_at).toLocaleDateString()}</p>
+                        <p>Generated: {new Date(certificateDocument.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                         <p>Signed by: {certificateDocument.admin_signature_name}</p>
                       </div>
                       <div className="flex gap-2">
@@ -603,29 +628,6 @@ export function InternshipCompletion() {
                   )}
                 </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Progress Not Complete */}
-      {!canRequestCompletion && !completionRequest && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5" />
-              Complete Your Internship
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-8 space-y-4">
-              <div className="text-gray-500">
-                <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p>Continue working to complete your internship requirements.</p>
-                <p className="text-sm">
-                  You need {((user?.internship?.required_hours || 0) - timeStats.internshipProgress).toFixed(1)} more hours.
-                </p>
-              </div>
             </div>
           </CardContent>
         </Card>

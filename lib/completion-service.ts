@@ -592,4 +592,60 @@ export class CompletionService {
       return { request: null, documents: [] }
     }
   }
+
+  /**
+   * Reverts a processed completion request to pending (admin only)
+   */
+  static async revertCompletionRequest(requestId: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Only allow revert if status is approved or rejected
+      const request = await this.getCompletionRequestById(requestId)
+      if (!request || (request.status !== 'approved' && request.status !== 'rejected')) {
+        return { success: false, error: 'Request not found or not processed' }
+      }
+      // Set status to pending, clear reviewed_by and reviewed_at
+      await sql`
+        UPDATE internship_completion_requests
+        SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, admin_notes = NULL
+        WHERE id = ${requestId}
+      `
+      // Optionally reset internship_program status if needed
+      await sql`
+        UPDATE internship_programs
+        SET status = 'active', completion_approved_at = NULL, completion_approved_by = NULL, completion_requested_at = NULL
+        WHERE id = ${request.internship_program_id}
+      `
+      return { success: true }
+    } catch (error) {
+      console.error('Error reverting completion request:', error)
+      return { success: false, error: 'Failed to revert request' }
+    }
+  }
+
+  /**
+   * Deletes a completion request (admin only)
+   */
+  static async deleteCompletionRequest(requestId: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Check if request exists
+      const request = await this.getCompletionRequestById(requestId)
+      if (!request) {
+        return { success: false, error: 'Request not found' }
+      }
+      // Delete the request
+      await sql`
+        DELETE FROM internship_completion_requests WHERE id = ${requestId}
+      `
+      // Optionally reset internship_program status if needed
+      await sql`
+        UPDATE internship_programs
+        SET status = 'active', completion_approved_at = NULL, completion_approved_by = NULL, completion_requested_at = NULL
+        WHERE id = ${request.internship_program_id}
+      `
+      return { success: true }
+    } catch (error) {
+      console.error('Error deleting completion request:', error)
+      return { success: false, error: 'Failed to delete request' }
+    }
+  }
 }

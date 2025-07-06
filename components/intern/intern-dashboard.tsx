@@ -19,12 +19,12 @@ export function InternDashboard() {
     switch (activeTab) {
       case "dashboard":
         return <InternDashboardContent />
-      case "profile":
-        return <InternProfile />
       case "dtr":
         return <DailyTimeRecord />
       case "completion":
         return <InternshipCompletion />
+      case "profile":
+        return <InternProfile />
       default:
         return <InternDashboardContent />
     }
@@ -38,8 +38,8 @@ export function InternDashboard() {
         tabs={[
           { key: "dashboard", label: "Dashboard" },
           { key: "dtr", label: "Daily Time Record" },
-          { key: "profile", label: "Profile" },
           { key: "completion", label: "Completion" },
+          { key: "profile", label: "Profile" },
         ]}
       />
       <div className="md:pl-64">
