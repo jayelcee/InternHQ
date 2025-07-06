@@ -84,10 +84,12 @@ export function ManageInternsDashboard() {
     email: "",
     password: "intern123",
     school: "",
+    degree: "",
     department: "",
     requiredHours: "",
     startDate: "",
     endDate: "",
+    workSchedule: "none",
   })
 
   /**
@@ -177,7 +179,7 @@ export function ManageInternsDashboard() {
   const handleAddIntern = async () => {
     try {
       setIsLoading(true)
-      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.department) {
+      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.degree || !newIntern.department) {
         toast({
           title: "Error",
           description: "Please fill all required fields",
@@ -202,10 +204,12 @@ export function ManageInternsDashboard() {
         email: "",
         password: "intern123",
         school: "",
+        degree: "",
         department: "",
         requiredHours: "",
         startDate: "",
         endDate: "",
+        workSchedule: "none",
       })
       fetchAll()
     } catch {
@@ -394,7 +398,7 @@ export function ManageInternsDashboard() {
 
       {/* Add Intern Dialog */}
       <Dialog open={isAddInternDialogOpen} onOpenChange={setIsAddInternDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Add New Intern</DialogTitle>
             <DialogDescription>Create a new intern account and set up their internship details.</DialogDescription>
@@ -434,7 +438,7 @@ export function ManageInternsDashboard() {
                 value={newIntern.email}
                 onChange={(e) => setNewIntern({ ...newIntern, email: e.target.value })}
                 className="col-span-3"
-                placeholder="email@example.com"
+                placeholder="first.last@cybersoftbpo.com"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -446,7 +450,19 @@ export function ManageInternsDashboard() {
                 value={newIntern.school}
                 onChange={(e) => setNewIntern({ ...newIntern, school: e.target.value })}
                 className="col-span-3"
-                placeholder="University name"
+                placeholder="University/College Name"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="degree" className="text-left">
+                Degree
+              </Label>
+              <Input
+                id="degree"
+                value={newIntern.degree}
+                onChange={(e) => setNewIntern({ ...newIntern, degree: e.target.value })}
+                className="col-span-3"
+                placeholder="Degree Program (e.g. Computer Science)"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -481,6 +497,7 @@ export function ManageInternsDashboard() {
                   setNewIntern({ ...newIntern, requiredHours: e.target.value })
                 }
                 className="col-span-3"
+                placeholder="Hours required (e.g. 520)"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -507,6 +524,27 @@ export function ManageInternsDashboard() {
                 className="col-span-3"
               />
             </div>
+            {/* <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="workSchedule" className="text-left">
+                Work Schedule
+              </Label>
+              <Select
+                value={newIntern.workSchedule}
+                onValueChange={(value) => setNewIntern({ ...newIntern, workSchedule: value })}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select work schedule" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No specific schedule</SelectItem>
+                  <SelectItem value="Monday-Friday, 9AM-6PM">Monday-Friday, 9AM-6PM</SelectItem>
+                  <SelectItem value="Monday-Friday, 8AM-5PM">Monday-Friday, 8AM-5PM</SelectItem>
+                  <SelectItem value="Monday-Friday, 10AM-7PM">Monday-Friday, 10AM-7PM</SelectItem>
+                  <SelectItem value="Monday-Saturday, 9AM-6PM">Monday-Saturday, 9AM-6PM</SelectItem>
+                  <SelectItem value="Flexible hours">Flexible hours</SelectItem>
+                </SelectContent>
+              </Select>
+            </div> */}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setIsAddInternDialogOpen(false)}>

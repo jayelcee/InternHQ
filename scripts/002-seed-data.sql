@@ -5,10 +5,24 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- USERS
-INSERT INTO users (email, password_hash, first_name, last_name, role) VALUES
-    ('rhea.masiglat@cybersoftbpo.com', crypt('admin123', gen_salt('bf')), 'Rhea', 'Masiglat', 'admin'),
-    ('jasmine.camasura@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jasmine', 'Camasura', 'intern'),
-    ('jireh.sodsod@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jireh Walter', 'Sodsod', 'intern')
+INSERT INTO users (email, password_hash, first_name, last_name, role, work_schedule) VALUES
+    ('rhea.masiglat@cybersoftbpo.com', crypt('admin123', gen_salt('bf')), 'Rhea', 'Masiglat', 'admin', NULL),
+    ('jasmine.camasura@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jasmine', 'Camasura', 'intern', 
+     jsonb_build_object(
+        'monday',    jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'tuesday',   jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'wednesday', jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'thursday',  jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'friday',    jsonb_build_object('start', '09:00', 'end', '18:00')
+     )),
+    ('jireh.sodsod@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Jireh Walter', 'Sodsod', 'intern',
+     jsonb_build_object(
+        'monday',    jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'tuesday',   jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'wednesday', jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'thursday',  jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'friday',    jsonb_build_object('start', '09:00', 'end', '18:00')
+     ))
 ON CONFLICT (email) DO NOTHING;
 
 -- SCHOOLS
@@ -51,6 +65,18 @@ INSERT INTO internship_programs (user_id, school_id, department_id, supervisor_i
      (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'),
      480, '2025-05-01', '2025-07-25', 'active')
 ON CONFLICT DO NOTHING;
+
+-- USER PROFILES
+INSERT INTO user_profiles (user_id, degree, phone, bio) VALUES
+    ((SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com'),
+     'Bachelor of Science in Computer Science',
+     '+63-912-345-6789',
+     'Computer Science student with a passion for web development and software engineering.'),
+    ((SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
+     'Bachelor of Science in Information Technology',
+     '+63-923-456-7890',
+     'IT student focused on database management and system optimization.')
+ON CONFLICT (user_id) DO NOTHING;
 
 -- PROJECT ASSIGNMENTS
 INSERT INTO intern_project_assignments (user_id, project_id, assigned_date, role) VALUES
@@ -108,20 +134,6 @@ FROM (VALUES
     ('2025-06-23', '09:00:00', '18:00:00'),
     ('2025-06-24', '09:00:00', '18:00:00')
 ) AS logs(date_value, time_in, time_out);
-
--- WORK SCHEDULES (9AM-6PM, Mon-Fri)
-UPDATE users 
-SET work_schedule = jsonb_build_object(
-    'monday',    jsonb_build_object('start', '09:00', 'end', '18:00'),
-    'tuesday',   jsonb_build_object('start', '09:00', 'end', '18:00'),
-    'wednesday', jsonb_build_object('start', '09:00', 'end', '18:00'),
-    'thursday',  jsonb_build_object('start', '09:00', 'end', '18:00'),
-    'friday',    jsonb_build_object('start', '09:00', 'end', '18:00')
-)
-WHERE email IN (
-    'jasmine.camasura@cybersoftbpo.com',
-    'jireh.sodsod@cybersoftbpo.com'
-) AND role = 'intern';
 
 -- OVERTIME STATUS
 UPDATE time_logs 

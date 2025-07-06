@@ -978,15 +978,64 @@ export async function createIntern(data: {
   email: string
   password?: string
   school: string
+  degree: string
   department: string
   requiredHours: number
   startDate: string
   endDate: string
+  workSchedule?: string
 }) {
   try {
     const first_name = data.firstName.trim()
     const last_name = data.lastName.trim()
     const password = data.password || "intern123"
+
+    // Convert work schedule to JSONB format for common schedules
+    let workScheduleJson = null
+    if (data.workSchedule && data.workSchedule !== "none") {
+      switch (data.workSchedule) {
+        case "Monday-Friday, 9AM-6PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "09:00", end: "18:00" },
+            tuesday: { start: "09:00", end: "18:00" },
+            wednesday: { start: "09:00", end: "18:00" },
+            thursday: { start: "09:00", end: "18:00" },
+            friday: { start: "09:00", end: "18:00" }
+          })
+          break
+        case "Monday-Friday, 8AM-5PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "08:00", end: "17:00" },
+            tuesday: { start: "08:00", end: "17:00" },
+            wednesday: { start: "08:00", end: "17:00" },
+            thursday: { start: "08:00", end: "17:00" },
+            friday: { start: "08:00", end: "17:00" }
+          })
+          break
+        case "Monday-Friday, 10AM-7PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "10:00", end: "19:00" },
+            tuesday: { start: "10:00", end: "19:00" },
+            wednesday: { start: "10:00", end: "19:00" },
+            thursday: { start: "10:00", end: "19:00" },
+            friday: { start: "10:00", end: "19:00" }
+          })
+          break
+        case "Monday-Saturday, 9AM-6PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "09:00", end: "18:00" },
+            tuesday: { start: "09:00", end: "18:00" },
+            wednesday: { start: "09:00", end: "18:00" },
+            thursday: { start: "09:00", end: "18:00" },
+            friday: { start: "09:00", end: "18:00" },
+            saturday: { start: "09:00", end: "18:00" }
+          })
+          break
+        default:
+          // For other schedules, just store as a simple string description
+          workScheduleJson = JSON.stringify({ description: data.workSchedule })
+      }
+    }
 
     // Check for existing user
     const existing = await sql`SELECT id FROM users WHERE email = ${data.email}`
@@ -1020,13 +1069,14 @@ export async function createIntern(data: {
 
     // Create user account
     const userRes = await sql`
-      INSERT INTO users (email, password_hash, first_name, last_name, role)
+      INSERT INTO users (email, password_hash, first_name, last_name, role, work_schedule)
       VALUES (
         ${data.email},
         crypt(${password}, gen_salt('bf')),
         ${first_name},
         ${last_name},
-        'intern'
+        'intern',
+        ${workScheduleJson}
       )
       RETURNING id
     `
@@ -1044,6 +1094,12 @@ export async function createIntern(data: {
         ${data.startDate ?? ""},
         ${data.endDate ?? ""}
       )
+    `
+
+    // Create user profile with degree
+    await sql`
+      INSERT INTO user_profiles (user_id, degree)
+      VALUES (${userId}, ${data.degree})
     `
 
     return { success: true, intern: { id: userId, email: data.email, first_name, last_name } }
