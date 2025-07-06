@@ -472,7 +472,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
  * @param logType Optional filter by log type (regular, overtime, or null for all)
  * @returns Array of time logs ordered by time_in descending
  */
-export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | null = null): Promise<TimeLog[]> {
+export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | "extended_overtime" | null = null): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
     const res = logType
@@ -505,7 +505,7 @@ export async function getTimeLogsForUser(userId: string, logType: "regular" | "o
  * @param logType The type of log to retrieve (regular or overtime)
  * @returns The most recent time log for today or null if none found
  */
-export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" = "regular"): Promise<TimeLog | null> {
+export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" | "extended_overtime" = "regular"): Promise<TimeLog | null> {
   try {
     const userIdNum = Number(userId)
     const today = new Date().toISOString().split("T")[0]

@@ -496,6 +496,13 @@ export async function fetchEditRequests(internId?: string | number): Promise<Arr
   requestedTimeIn?: string | null
   requestedTimeOut?: string | null
 }>> {
+  // Check if we're in a server environment (Node.js) vs browser
+  if (typeof window === 'undefined') {
+    // Server-side: skip fetching edit requests for now, return empty array
+    console.log('Server-side execution: skipping edit requests fetch')
+    return []
+  }
+
   try {
     const url = internId 
       ? `/api/admin/time-log-edit-requests?internId=${internId}`

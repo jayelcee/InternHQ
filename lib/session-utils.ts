@@ -338,7 +338,7 @@ export function getTimeBadgeProps(
  */
 export function getDurationBadgeProps(
   hours: number,
-  type: "regular" | "overtime" = "regular",
+  type: "regular" | "overtime" | "extended_overtime" = "regular",
   overtimeStatus?: "pending" | "approved" | "rejected" | "none"
 ): BadgeProps {
   const displayHours = Math.floor(hours)
@@ -353,7 +353,7 @@ export function getDurationBadgeProps(
     }
   }
 
-  if (type === "overtime") {
+  if (type === "overtime" || type === "extended_overtime") {
     if (overtimeStatus === "approved") {
       return {
         className: "bg-purple-100 text-purple-700 border-purple-300",
@@ -386,7 +386,7 @@ export function getDurationBadgeProps(
 /**
  * Gets total badge properties for summary display
  */
-export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" = "regular"): BadgeProps {
+export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" | "extended_overtime" = "regular"): BadgeProps {
   const text = `${truncateTo2Decimals(hours)}h`
   
   if (hours === 0) {
@@ -397,7 +397,7 @@ export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" =
     }
   }
 
-  if (type === "overtime") {
+  if (type === "overtime" || type === "extended_overtime") {
     return {
       className: "bg-purple-200 text-purple-800 border-purple-400 font-medium",
       text,
