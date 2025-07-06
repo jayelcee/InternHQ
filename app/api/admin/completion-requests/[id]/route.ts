@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/auth'
-import { sql } from '@/lib/database'
+import { CompletionService } from '@/lib/completion-service'
 
 export async function POST(
   request: NextRequest,
@@ -26,67 +26,20 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
 
-    // Get the completion request
-    const completionRequest = await sql`
-      SELECT cr.*, ip.user_id as intern_id, ip.id as internship_program_id
-      FROM internship_completion_requests cr
-      JOIN internship_programs ip ON cr.internship_program_id = ip.id
-      WHERE cr.id = ${id} AND cr.status = 'pending'
-    `
+    const result = await CompletionService.processCompletionRequest(
+      parseInt(id),
+      action as 'approve' | 'reject',
+      userId,
+      admin_notes
+    )
 
-    if (completionRequest.length === 0) {
-      return NextResponse.json({ error: 'Completion request not found or already processed' }, { status: 404 })
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 })
     }
 
-    const request_data = completionRequest[0]
-
-    if (action === 'approve') {
-      // Update completion request status
-      await sql`
-        UPDATE internship_completion_requests 
-        SET status = 'approved', 
-            reviewed_by = ${userId}, 
-            reviewed_at = ${new Date()}, 
-            admin_notes = ${admin_notes || null}
-        WHERE id = ${id}
-      `
-
-      // Update internship program status
-      await sql`
-        UPDATE internship_programs 
-        SET status = 'completed', 
-            completion_approved_at = ${new Date()},
-            completion_approved_by = ${userId}
-        WHERE id = ${request_data.internship_program_id}
-      `
-
-      return NextResponse.json({
-        message: 'Completion request approved successfully'
-      })
-
-    } else if (action === 'reject') {
-      // Update completion request status
-      await sql`
-        UPDATE internship_completion_requests 
-        SET status = 'rejected', 
-            reviewed_by = ${userId}, 
-            reviewed_at = ${new Date()}, 
-            admin_notes = ${admin_notes || null}
-        WHERE id = ${id}
-      `
-
-      // Reset internship program status to active
-      await sql`
-        UPDATE internship_programs 
-        SET status = 'active', 
-            completion_requested_at = null
-        WHERE id = ${request_data.internship_program_id}
-      `
-
-      return NextResponse.json({
-        message: 'Completion request rejected successfully'
-      })
-    }
+    return NextResponse.json({
+      message: `Completion request ${action}d successfully`
+    })
 
   } catch (error) {
     console.error('Error processing completion request:', error)

@@ -1,3 +1,7 @@
+/**
+ * Document viewer component for displaying and generating DTR and Certificate documents
+ * Handles PDF generation and document formatting
+ */
 "use client"
 
 import { useState, useEffect } from "react"
@@ -10,21 +14,21 @@ import {
   DialogTrigger 
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Download, FileText, Award, GraduationCap } from "lucide-react"
+import { Download, FileText, Award } from "lucide-react"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate, sortGroupedLogsByDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration, extractDateString, calculateTimeStatistics, truncateTo2Decimals } from "@/lib/time-utils"
+import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration, truncateTo2Decimals } from "@/lib/time-utils"
 
-// Helper function to safely parse date and time strings
+/**
+ * Safely parse date and time strings into a Date object
+ */
 function parseDateTime(dateStr: string, timeStr: string): Date {
   try {
-    // Handle different date formats
     const date = new Date(dateStr)
     if (isNaN(date.getTime())) {
       throw new Error('Invalid date')
     }
     
-    // Parse time string (e.g., "9:00 AM" or "9:00am")
     const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)/i)
     if (!timeMatch) {
       throw new Error('Invalid time format')
@@ -34,21 +38,18 @@ function parseDateTime(dateStr: string, timeStr: string): Date {
     const minutes = parseInt(timeMatch[2], 10)
     const ampm = timeMatch[3].toUpperCase()
     
-    // Convert to 24-hour format
     if (ampm === 'PM' && hours !== 12) {
       hours += 12
     } else if (ampm === 'AM' && hours === 12) {
       hours = 0
     }
     
-    // Create new date with the parsed time
     const result = new Date(date)
     result.setHours(hours, minutes, 0, 0)
     
     return result
   } catch (error) {
     console.error('Error parsing date/time:', { dateStr, timeStr, error })
-    // Return current date as fallback
     return new Date()
   }
 }
@@ -81,6 +82,7 @@ interface DTRContent {
 interface CertificateContent {
   certificateNumber: string
   internName: string
+  degree: string
   school: string
   department: string
   periodStart: string
@@ -163,7 +165,6 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         // Auto-calculate optimal paper size based on content
         const contentWidth = canvas.width
         const contentHeight = canvas.height
-        const aspectRatio = contentWidth / contentHeight
         
         // Define paper size options (all in mm)
         const paperSizes = {
@@ -178,13 +179,11 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         let bestSize = paperSizes.a4
         let bestFit = 0
         
-        for (const [key, size] of Object.entries(paperSizes)) {
-          // Calculate how well the content fits (prioritize fitting width)
-          const widthRatio = size.width / (contentWidth / 3.78) // Convert pixels to mm roughly
+        for (const [, size] of Object.entries(paperSizes)) {
+          const widthRatio = size.width / (contentWidth / 3.78)
           const heightRatio = size.height / (contentHeight / 3.78)
           const minRatio = Math.min(widthRatio, heightRatio)
           
-          // Prefer sizes that can fit the content without too much scaling
           if (minRatio > bestFit && minRatio >= 0.8) {
             bestFit = minRatio
             bestSize = size
@@ -195,8 +194,6 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         if (type === 'dtr' && bestSize.name === 'A4') {
           bestSize = paperSizes.tabloid
         }
-        
-        console.log(`Using ${bestSize.name} paper size for ${type} document`)
 
         // Create PDF with optimal paper size
         const pdf = new jsPDF({
@@ -227,8 +224,8 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
 
         // Download the PDF
         const fileName = type === 'dtr' 
-          ? `DTR-${(content as any).documentNumber || 'document'}-${bestSize.name}.pdf`
-          : `Certificate-${(content as any).certificateNumber || 'document'}-${bestSize.name}.pdf`
+          ? `DTR-${(content as DTRContent).documentNumber || 'document'}-${bestSize.name}.pdf`
+          : `Certificate-${(content as CertificateContent).certificateNumber || 'document'}-${bestSize.name}.pdf`
         
         pdf.save(fileName)
         
@@ -243,8 +240,12 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
   }
 
   const generateDTRHTML = (content: DTRContent): string => {
-    const completedHours = Math.min(content.totalHours, content.requiredHours)
-    const progressPercentage = (completedHours / content.requiredHours) * 100
+    // Safely handle numeric values that might be strings
+    const totalHours = typeof content.totalHours === 'number' ? content.totalHours : parseFloat(String(content.totalHours)) || 0
+    const requiredHours = typeof content.requiredHours === 'number' ? content.requiredHours : parseFloat(String(content.requiredHours)) || 0
+    
+    const completedHours = Math.min(totalHours, requiredHours)
+    const progressPercentage = requiredHours > 0 ? (completedHours / requiredHours) * 100 : 0
     
     // Transform timeLogsDetails to TimeLogDisplay format for session processing
     const transformedLogs: TimeLogDisplay[] = content.timeLogsDetails.map((log, index) => {
@@ -397,10 +398,10 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <span class="font-medium">Completed</span>
                   <span class="font-medium">
-                    ${completedHours.toFixed(2)}h / ${content.requiredHours}h
-                    ${content.totalHours > content.requiredHours ? 
+                    ${completedHours.toFixed(2)}h / ${requiredHours}h
+                    ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(content.totalHours - content.requiredHours).toFixed(2)}h overtime)
+                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
                       </span>` : ''
                     }
                   </span>
@@ -471,7 +472,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                             
                             <td>
                               <div style="display: flex; flex-direction: column; gap: 4px;">
-                                ${sessions.map((session, i) => {
+                                ${sessions.map((session) => {
                                   if (!session.timeIn) return ''
                                   const badgeProps = getTimeBadgeProps(
                                     session.timeIn,
@@ -487,7 +488,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                             
                             <td>
                               <div style="display: flex; flex-direction: column; gap: 4px;">
-                                ${sessions.map((session, i) => {
+                                ${sessions.map((session) => {
                                   const badgeProps = session.isActive
                                     ? getTimeBadgeProps(null, session.sessionType, "active")
                                     : getTimeBadgeProps(
@@ -506,7 +507,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                               <div style="display: flex; flex-direction: column; gap: 4px;">
                                 ${(() => {
                                   let previousRegularHours = 0
-                                  return sessions.map((session, i) => {
+                                  return sessions.map((session) => {
                                     const accurateCalc = calculateAccurateSessionDuration(
                                       session.logs,
                                       new Date(),
@@ -528,7 +529,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                               <div style="display: flex; flex-direction: column; gap: 4px;">
                                 ${(() => {
                                   let previousRegularHours = 0
-                                  return sessions.map((session, i) => {
+                                  return sessions.map((session) => {
                                     const rawCalc = calculateRawSessionDuration(
                                       session.logs,
                                       new Date(),
@@ -588,7 +589,6 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
             <div class="card-content">
               <div class="text-center">
                 <p class="text-gray-600 mb-4">This document has been officially verified and approved by:</p>
-                <div class="signature-line mb-2"></div>
                 <p class="font-medium" style="font-size: 18px;">${content.adminSignature}</p>
                 <p class="text-gray-600">${content.adminTitle}</p>
                 <p class="text-gray-600 mt-4">
@@ -604,54 +604,167 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
   }
 
   const generateCertificateHTML = (content: CertificateContent): string => {
+    // Safely handle numeric values that might be strings
+    const totalHoursCompleted = typeof content.totalHoursCompleted === 'number' 
+      ? content.totalHoursCompleted 
+      : parseFloat(String(content.totalHoursCompleted)) || 0
+    
+    const requiredHours = typeof content.requiredHours === 'number' 
+      ? content.requiredHours 
+      : parseFloat(String(content.requiredHours)) || 0
+
+    // Format the issue date as "6th day of July 2025"
+    const formatIssueDate = (dateStr: string): string => {
+      const date = new Date(dateStr)
+      const day = date.getDate()
+      const month = date.toLocaleDateString('en-US', { month: 'long' })
+      const year = date.getFullYear()
+      
+      // Add ordinal suffix to day
+      const getDayWithSuffix = (day: number): string => {
+        if (day >= 11 && day <= 13) return `${day}th`
+        switch (day % 10) {
+          case 1: return `${day}st`
+          case 2: return `${day}nd`
+          case 3: return `${day}rd`
+          default: return `${day}th`
+        }
+      }
+      
+      return `${getDayWithSuffix(day)} day of ${month} ${year}`
+    }
+
+    // Format date in user-friendly format (e.g., "January 15, 2025")
+    const formatUserFriendlyDate = (dateStr: string): string => {
+      const date = new Date(dateStr)
+      return date.toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      })
+    }
+
     return `
       <!DOCTYPE html>
       <html>
       <head>
         <title>Certificate of Completion</title>
         <style>
-          body { font-family: Georgia, serif; margin: 20px; text-align: center; }
-          .certificate { border: 5px solid #000; padding: 40px; margin: 20px; }
-          .header { font-size: 24px; font-weight: bold; margin-bottom: 20px; }
-          .title { font-size: 32px; font-weight: bold; color: #000080; margin-bottom: 30px; }
-          .content { font-size: 18px; line-height: 1.6; margin-bottom: 30px; }
-          .intern-name { font-size: 28px; font-weight: bold; color: #000080; margin: 20px 0; }
-          .details { font-size: 16px; margin-bottom: 20px; }
-          .signature-section { margin-top: 50px; }
-          .signature-line { border-bottom: 2px solid #000; width: 300px; margin: 0 auto; }
+          @page { size: letter; margin: 0.75in; }
+          body { 
+            font-family: Georgia, serif; 
+            margin: 0; 
+            padding: 40px; 
+            text-align: center; 
+            line-height: 1.8;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+          }
+          .certificate { 
+            padding: 60px 40px; 
+            background: white; 
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+          }
+          .logo { 
+            margin-bottom: 40px; 
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .logo img { 
+            max-height: 100px; 
+            width: auto; 
+          }
+          .title { 
+            font-size: 42px; 
+            font-weight: bold; 
+            color: #1e40af; 
+            margin-bottom: 50px; 
+            text-decoration: underline;
+            letter-spacing: 2px;
+          }
+          .content { 
+            font-size: 22px; 
+            line-height: 2; 
+            margin-bottom: 60px; 
+            text-align: justify;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+          .content p { 
+            margin-bottom: 24px; 
+          }
+          .intern-name { 
+            font-size: 32px; 
+            font-weight: bold; 
+            color: #1e40af; 
+            text-decoration: underline;
+            margin: 0 4px;
+            display: inline;
+          }
+          .signature-section { 
+            margin-top: 80px; 
+            text-align: left;
+            font-size: 20px;
+          }
+          .signature-line { 
+            border-bottom: 2px solid #000; 
+            width: 300px; 
+            margin: 30px 0 20px 0; 
+          }
+          .certified-by { 
+            font-size: 18px; 
+            margin-bottom: 30px; 
+            font-weight: bold;
+          }
+          .signature-name { 
+            font-size: 20px; 
+            font-weight: bold; 
+            margin-bottom: 5px;
+          }
+          .signature-title { 
+            font-size: 18px; 
+            color: #666;
+          }
+          .date-signed { 
+            font-size: 18px; 
+            margin-bottom: 40px; 
+            font-weight: bold;
+          }
         </style>
       </head>
       <body>
         <div class="certificate">
-          <div class="header">InternHQ</div>
-          <div class="title">CERTIFICATE OF COMPLETION</div>
-          <div class="content">
-            This is to certify that
-            <div class="intern-name">${content.internName}</div>
-            has successfully completed the internship program at<br>
-            <strong>${content.department}</strong><br>
-            from <strong>${new Date(content.periodStart).toLocaleDateString()}</strong> 
-            to <strong>${new Date(content.periodEnd).toLocaleDateString()}</strong>
+          <div class="logo">
+            <img src="/cybersoft%20logo.png" alt="Cybersoft Logo" style="max-height: 100px; width: auto;" />
           </div>
           
-          <div class="details">
-            <p><strong>Total Hours Completed:</strong> ${content.totalHoursCompleted.toFixed(2)} hours</p>
-            <p><strong>Required Hours:</strong> ${content.requiredHours} hours</p>
-            <p><strong>Institution:</strong> ${content.school}</p>
-            <p><strong>Completion Date:</strong> ${new Date(content.completionDate).toLocaleDateString()}</p>
+          <div class="title">Certificate of Completion</div>
+          
+          <div class="content">
+            <p>
+              This is to certify that <span class="intern-name">${content.internName}</span>, <strong>${content.degree || 'Unknown'}</strong> student from <strong>${content.school}</strong>, has satisfactorily completed <strong>${requiredHours.toFixed(0)} hours</strong> of On-The-Job Training in this company, and has been assigned to the <strong>${content.department}</strong> Department from <strong>${formatUserFriendlyDate(content.periodStart)}</strong> until <strong>${formatUserFriendlyDate(content.periodEnd)}</strong>.
+            </p>
+            <p>
+              This certification is issued upon the request of the above mentioned name for whatever legal purpose it may serve them best.
+            </p>
+            <p>
+              Signed this <strong>${formatIssueDate(new Date().toISOString())}</strong>.
+            </p>            
           </div>
           
           <div class="signature-section">
-            <p><strong>Issued by:</strong></p>
-            <div class="signature-line"></div>
-            <p style="margin-top: 10px;">
-              <strong>${content.adminSignature}</strong><br>
-              ${content.adminTitle}
-            </p>
-            <p style="margin-top: 30px;">
-              Certificate No: ${content.certificateNumber}<br>
-              Date Issued: ${content.issueDate}
-            </p>
+            <div class="certified-by">Certified by:</div>
+            <div class="signature-name">${content.adminSignature}</div>
+            <div class="signature-title">${content.adminTitle}</div>
           </div>
         </div>
       </body>
@@ -695,8 +808,12 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
 }
 
 function DTRPreview({ content }: { content: DTRContent }) {
-  const completedHours = Math.min(content.totalHours, content.requiredHours)
-  const progressPercentage = (completedHours / content.requiredHours) * 100
+  // Safely handle numeric values that might be strings
+  const totalHours = typeof content.totalHours === 'number' ? content.totalHours : parseFloat(String(content.totalHours)) || 0
+  const requiredHours = typeof content.requiredHours === 'number' ? content.requiredHours : parseFloat(String(content.requiredHours)) || 0
+  
+  const completedHours = Math.min(totalHours, requiredHours)
+  const progressPercentage = requiredHours > 0 ? (completedHours / requiredHours) * 100 : 0
 
   // Transform timeLogsDetails to TimeLogDisplay format for session processing
   const transformedLogs: TimeLogDisplay[] = content.timeLogsDetails.map((log, index) => {
@@ -760,7 +877,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
       approvedOvertimeHours: Number(truncateTo2Decimals(totalApprovedOvertimeHours)),
       totalHoursRendered: Number(truncateTo2Decimals(totalRegularHours + totalApprovedOvertimeHours))
     })
-  }, [content.timeLogsDetails, content.requiredHours])
+  }, [content.timeLogsDetails, requiredHours, transformedLogs.length])
 
   return (
     <div className="bg-white">
@@ -811,10 +928,10 @@ function DTRPreview({ content }: { content: DTRContent }) {
               <div className="flex justify-between items-center mb-1">
                 <span className="font-medium text-base">Completed</span>
                 <span className="font-medium text-base">
-                  {completedHours.toFixed(2)}h / {content.requiredHours}h
-                  {content.totalHours > content.requiredHours && (
+                  {completedHours.toFixed(2)}h / {requiredHours}h
+                  {totalHours > requiredHours && (
                     <span className="text-yellow-600 ml-2 text-sm">
-                      (+{(content.totalHours - content.requiredHours).toFixed(2)}h overtime)
+                      (+{(totalHours - requiredHours).toFixed(2)}h overtime)
                     </span>
                   )}
                 </span>
@@ -827,13 +944,12 @@ function DTRPreview({ content }: { content: DTRContent }) {
                 ></div>
               </div>
               
-              <div className="flex gap-8 mt-2">
-                <div>
-                  <div className="font-medium">Internship Duration:</div>
-                  <div className="text-gray-600">
-                    {new Date(content.periodStart).toLocaleDateString()} - {new Date(content.periodEnd).toLocaleDateString()}
+              <div className="flex gap-8 mt-2">                  <div>
+                    <div className="font-medium">Internship Duration:</div>
+                    <div className="text-gray-600">
+                      {new Date(content.periodStart).toLocaleDateString()} - {new Date(content.periodEnd).toLocaleDateString()}
+                    </div>
                   </div>
-                </div>
                 
                 <div className="flex flex-col items-center justify-center ml-auto">
                   <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${
@@ -910,7 +1026,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
                                 if (!session.timeIn) return null
-                                let badgeProps = getTimeBadgeProps(
+                                const badgeProps = getTimeBadgeProps(
                                   session.timeIn,
                                   session.sessionType,
                                   "in",
@@ -931,7 +1047,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                           <td className="py-3 px-4">
                             <div className="flex flex-col gap-1">
                               {sessions.map((session, i) => {
-                                let badgeProps = session.isActive
+                                const badgeProps = session.isActive
                                   ? getTimeBadgeProps(null, session.sessionType, "active")
                                   : getTimeBadgeProps(
                                       session.timeOut,
@@ -964,7 +1080,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                                   )
                                   
                                   const displayText = formatAccurateHours(accurateCalc.regularHours)
-                                  let badgeProps = {
+                                  const badgeProps = {
                                     variant: "outline" as const,
                                     className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
                                     text: displayText
@@ -997,7 +1113,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                                   )
                                   
                                   const displayText = formatAccurateHours(rawCalc.overtimeHours)
-                                  let badgeProps = {
+                                  const badgeProps = {
                                     variant: "outline" as const,
                                     className: rawCalc.overtimeHours > 0 ? 
                                       (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
@@ -1138,7 +1254,6 @@ function DTRPreview({ content }: { content: DTRContent }) {
         <div className="px-6 py-4">
           <div className="text-center">
             <p className="text-sm text-gray-600 mb-4">This document has been officially verified and approved by:</p>
-            <div className="border-b-2 border-gray-400 w-64 mx-auto mb-2"></div>
             <p className="font-medium text-lg">{content.adminSignature}</p>
             <p className="text-sm text-gray-600">{content.adminTitle}</p>
             <p className="text-sm text-gray-500 mt-4">
@@ -1152,37 +1267,80 @@ function DTRPreview({ content }: { content: DTRContent }) {
 }
 
 function CertificatePreview({ content }: { content: CertificateContent }) {
+  // Safely handle numeric values that might be strings
+  const totalHoursCompleted = typeof content.totalHoursCompleted === 'number' 
+    ? content.totalHoursCompleted 
+    : parseFloat(String(content.totalHoursCompleted)) || 0
+  
+  const requiredHours = typeof content.requiredHours === 'number' 
+    ? content.requiredHours 
+    : parseFloat(String(content.requiredHours)) || 0
+
+  // Format the issue date as "6th day of July 2025"
+  const formatIssueDate = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    const day = date.getDate()
+    const month = date.toLocaleDateString('en-US', { month: 'long' })
+    const year = date.getFullYear()
+    
+    // Add ordinal suffix to day
+    const getDayWithSuffix = (day: number): string => {
+      if (day >= 11 && day <= 13) return `${day}th`
+      switch (day % 10) {
+        case 1: return `${day}st`
+        case 2: return `${day}nd`
+        case 3: return `${day}rd`
+        default: return `${day}th`
+      }
+    }
+    
+    return `${getDayWithSuffix(day)} day of ${month} ${year}`
+  }
+
+  // Format date in user-friendly format (e.g., "January 15, 2025")
+  const formatUserFriendlyDate = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    })
+  }
+
   return (
-    <div className="border-4 border-black p-10 bg-white text-center">
-      <div className="text-xl font-bold mb-4">InternHQ</div>
-      <div className="text-3xl font-bold text-blue-800 mb-8">CERTIFICATE OF COMPLETION</div>
-      <div className="text-lg leading-relaxed mb-8">
-        This is to certify that
-        <div className="text-2xl font-bold text-blue-800 my-4">{content.internName}</div>
-        has successfully completed the internship program at<br />
-        <strong>{content.department}</strong><br />
-        from <strong>{new Date(content.periodStart).toLocaleDateString()}</strong> 
-        to <strong>{new Date(content.periodEnd).toLocaleDateString()}</strong>
+    <div className="bg-white text-center p-16 min-h-[800px] flex flex-col justify-between">
+      <div className="flex-shrink-0">
+        <div className="mb-10 h-32 flex items-center justify-center">
+          <img 
+            src="/cybersoft%20logo.png"
+            alt="Cybersoft Logo" 
+            className="max-h-24 w-auto"
+          />
+        </div>
+        
+        <h1 className="text-5xl font-bold text-blue-600 mb-12 underline tracking-widest">
+          Certificate of Completion
+        </h1>
       </div>
       
-      <div className="space-y-2 mb-8">
-        <p><strong>Total Hours Completed:</strong> {content.totalHoursCompleted.toFixed(2)} hours</p>
-        <p><strong>Required Hours:</strong> {content.requiredHours} hours</p>
-        <p><strong>Institution:</strong> {content.school}</p>
-        <p><strong>Completion Date:</strong> {new Date(content.completionDate).toLocaleDateString()}</p>
+      <div className="flex-grow flex items-center justify-center">
+        <div className="text-2xl leading-loose text-justify space-y-6">
+          <p>
+          This is to certify that <span className="text-3xl font-bold text-blue-600 underline mx-1">{content.internName}</span>, <strong>{content.degree || 'Unknown'}</strong> student from <strong>{content.school}</strong>, has satisfactorily completed <strong>{requiredHours.toFixed(0)} hours</strong> of On-The-Job Training in this company, and has been assigned to the <strong>{content.department}</strong> Department from <strong>{formatUserFriendlyDate(content.periodStart)}</strong> until <strong>{formatUserFriendlyDate(content.periodEnd)}</strong>.
+          </p>
+          <p>
+            This certification is issued upon the request of the above mentioned name for whatever legal purpose it may serve them best.
+          </p>
+          <p>
+            Signed this <strong>{formatIssueDate(new Date().toISOString())}</strong>.
+          </p>
+        </div>
       </div>
       
-      <div className="mt-12">
-        <p><strong>Issued by:</strong></p>
-        <div className="border-b-2 border-black w-72 mx-auto mt-8 mb-2"></div>
-        <p className="mt-2">
-          <strong>{content.adminSignature}</strong><br />
-          {content.adminTitle}
-        </p>
-        <p className="mt-8">
-          Certificate No: {content.certificateNumber}<br />
-          Date Issued: {content.issueDate}
-        </p>
+      <div className="text-left mt-20 text-xl flex-shrink-0">
+        <div className="mb-8 font-bold">Certified by:</div>
+        <div className="text-xl font-bold mb-2">{content.adminSignature}</div>
+        <div className="text-lg text-gray-600">{content.adminTitle}</div>
       </div>
     </div>
   )

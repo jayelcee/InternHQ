@@ -1,3 +1,7 @@
+/**
+ * Manages internship completion requests for administrators
+ * Allows admins to review, approve, or reject completion requests and generate documents
+ */
 "use client"
 
 import { useState, useEffect } from "react"
@@ -63,11 +67,6 @@ export function ManageCompletionRequests() {
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState<number | null>(null)
 
-  // Only show for admins
-  if (user?.role !== 'admin') {
-    return null
-  }
-
   const fetchCompletionRequests = async () => {
     setLoading(true)
     try {
@@ -77,26 +76,37 @@ export function ManageCompletionRequests() {
       
       if (response.ok) {
         const data = await response.json()
-        // Ensure numeric fields are properly typed
-        const formattedData = data.map((request: any) => ({
+        // Handle both array and empty responses
+        const requestArray = Array.isArray(data) ? data : []
+        const formattedData = requestArray.map((request: CompletionRequest) => ({
           ...request,
           total_hours_completed: Number(request.total_hours_completed) || 0,
           required_hours: Number(request.required_hours) || 0
         }))
         setCompletionRequests(formattedData)
       } else {
-        console.error('Failed to fetch completion requests')
+        console.error('Failed to fetch completion requests:', response.status, response.statusText)
+        // Set empty array on error
+        setCompletionRequests([])
       }
     } catch (error) {
       console.error('Error fetching completion requests:', error)
+      // Set empty array on error
+      setCompletionRequests([])
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchCompletionRequests()
-  }, [])
+    if (user?.role === 'admin') {
+      fetchCompletionRequests()
+    }
+  }, [user?.role])
+
+  if (user?.role !== 'admin') {
+    return null
+  }
 
   const handleProcessRequest = async (id: number, action: 'approve' | 'reject', admin_notes?: string) => {
     setProcessingId(id)
@@ -151,7 +161,6 @@ export function ManageCompletionRequests() {
   }
 
   const pendingRequests = completionRequests.filter(req => req.status === 'pending')
-  const processedRequests = completionRequests.filter(req => req.status !== 'pending')
 
   if (loading) {
     return (
@@ -178,8 +187,15 @@ export function ManageCompletionRequests() {
         </CardHeader>
         <CardContent>
           {pendingRequests.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No pending completion requests
+            <div className="text-center py-12 text-gray-500">
+              <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium mb-2">No Pending Requests</h3>
+              <p className="text-sm">
+                {completionRequests.length === 0 
+                  ? "No completion requests have been submitted yet."
+                  : "All completion requests have been reviewed."
+                }
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -203,8 +219,14 @@ export function ManageCompletionRequests() {
         </CardHeader>
         <CardContent>
           {completionRequests.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              No completion requests found
+            <div className="text-center py-12 text-gray-500">
+              <Clock className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium mb-2">No Completion Requests</h3>
+              <p className="text-sm">
+                No internship completion requests have been submitted yet.
+                <br />
+                Completion requests will appear here when interns submit them.
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -364,7 +386,6 @@ function DocumentActions({ requestId }: { requestId: number }) {
   const [showDocumentDialog, setShowDocumentDialog] = useState(false)
   const [adminSignature, setAdminSignature] = useState('')
   const [adminTitle, setAdminTitle] = useState('')
-  const [documentType, setDocumentType] = useState<'dtr' | 'certificate'>('dtr')
 
   const generateDocument = async (type: 'dtr' | 'certificate') => {
     if (!adminSignature || !adminTitle) {
@@ -387,7 +408,6 @@ function DocumentActions({ requestId }: { requestId: number }) {
       })
 
       if (response.ok) {
-        const data = await response.json()
         alert(`${type === 'dtr' ? 'DTR' : 'Certificate'} generated successfully!`)
         setShowDocumentDialog(false)
         setAdminSignature('')
@@ -445,7 +465,7 @@ function DocumentActions({ requestId }: { requestId: number }) {
               className="flex-1"
             >
               <FileText className="w-4 h-4 mr-2" />
-              {isGenerating && documentType === 'dtr' ? 'Generating...' : 'Generate DTR'}
+              {isGenerating ? 'Generating...' : 'Generate DTR'}
             </Button>
             <Button
               onClick={() => generateDocument('certificate')}
@@ -453,7 +473,7 @@ function DocumentActions({ requestId }: { requestId: number }) {
               className="flex-1"
             >
               <Award className="w-4 h-4 mr-2" />
-              {isGenerating && documentType === 'certificate' ? 'Generating...' : 'Generate Certificate'}
+              {isGenerating ? 'Generating...' : 'Generate Certificate'}
             </Button>
           </div>
         </div>

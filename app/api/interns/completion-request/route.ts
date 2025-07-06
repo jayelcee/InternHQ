@@ -1,3 +1,8 @@
+/**
+ * API route for intern completion requests
+ * POST: Submit a new completion request
+ * GET: Fetch intern's completion requests
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/auth'
 import { sql } from '@/lib/database'
@@ -16,12 +21,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Only interns can request completion
     if (role !== 'intern') {
       return NextResponse.json({ error: 'Only interns can request completion' }, { status: 403 })
     }
 
-    // Get internship program details
     const internshipResult = await sql`
       SELECT * FROM internship_programs WHERE user_id = ${userId} AND status = 'active'
     `
@@ -32,7 +35,6 @@ export async function POST(request: NextRequest) {
 
     const internshipProgram = internshipResult[0]
 
-    // Check if completion request already exists
     const existingRequest = await sql`
       SELECT * FROM internship_completion_requests 
       WHERE internship_program_id = ${internshipProgram.id} AND status = 'pending'
@@ -42,12 +44,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Completion request already pending' }, { status: 400 })
     }
 
-    // Get all time logs for the intern
     const timeLogsResult = await sql`
       SELECT * FROM time_logs WHERE user_id = ${userId} ORDER BY time_in
     `
-
-    // Calculate total hours using the existing utility function
     const stats = await calculateTimeStatistics(
       timeLogsResult,
       String(userId),

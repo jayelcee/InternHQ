@@ -1,3 +1,7 @@
+/**
+ * Button component for interns to submit completion requests
+ * Displays request status and allows submission of new requests
+ */
 "use client"
 
 import { useState } from "react"
@@ -36,7 +40,6 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
   const [submitting, setSubmitting] = useState(false)
   const [completionRequests, setCompletionRequests] = useState<CompletionRequest[]>([])
 
-  // Only show for interns viewing their own DTR
   const isOwnDTR = user?.role === 'intern' && (!internId || String(user.id) === internId)
   
   if (!isOwnDTR) {
@@ -52,8 +55,7 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
       
       if (response.ok) {
         const data = await response.json()
-        // Ensure numeric fields are properly typed
-        const formattedData = data.map((request: any) => ({
+        const formattedData = data.map((request: CompletionRequest) => ({
           ...request,
           total_hours_completed: Number(request.total_hours_completed) || 0,
           required_hours: Number(request.required_hours) || 0
