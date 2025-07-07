@@ -16,6 +16,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogClose,
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { calculateTimeStatistics } from "@/lib/time-utils"
@@ -76,6 +77,10 @@ export function ManageInternsDashboard() {
   const [isAddInternDialogOpen, setIsAddInternDialogOpen] = useState(false)
   const [interns, setInterns] = useState<Intern[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [internToDelete, setInternToDelete] = useState<string | null>(null)
+  const [isAlertDialogOpen, setIsAlertDialogOpen] = useState(false)
+  const [alertContent, setAlertContent] = useState({ title: "", description: "" })
 
   // Form states for adding new intern
   const [newIntern, setNewIntern] = useState({
@@ -180,11 +185,11 @@ export function ManageInternsDashboard() {
     try {
       setIsLoading(true)
       if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.degree || !newIntern.department) {
-        toast({
+        setAlertContent({
           title: "Error",
           description: "Please fill all required fields",
-          variant: "destructive",
         })
+        setIsAlertDialogOpen(true)
         return
       }
       const res = await fetch("/api/admin/interns", {
@@ -193,10 +198,11 @@ export function ManageInternsDashboard() {
         body: JSON.stringify(newIntern),
       })
       if (!res.ok) throw new Error("Failed to add intern")
-      toast({
+      setAlertContent({
         title: "Success",
         description: "Intern added successfully",
       })
+      setIsAlertDialogOpen(true)
       setIsAddInternDialogOpen(false)
       setNewIntern({
         firstName: "",
@@ -213,11 +219,11 @@ export function ManageInternsDashboard() {
       })
       fetchAll()
     } catch {
-      toast({
+      setAlertContent({
         title: "Error",
         description: "Failed to add intern",
-        variant: "destructive",
       })
+      setIsAlertDialogOpen(true)
     } finally {
       setIsLoading(false)
     }
@@ -226,27 +232,33 @@ export function ManageInternsDashboard() {
   /**
    * Delete an intern by ID
    */
-  const handleDeleteIntern = async (internId: string) => {
-    if (!confirm("Are you sure you want to delete this intern? This action cannot be undone.")) {
-      return
-    }
+  const handleDeleteRequest = (internId: string) => {
+    setInternToDelete(internId)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!internToDelete) return
     setIsLoading(true)
     try {
-      const res = await fetch(`/api/admin/interns/${internId}`, { method: "DELETE" })
+      const res = await fetch(`/api/admin/interns/${internToDelete}`, { method: "DELETE" })
       if (!res.ok) throw new Error("Failed to delete intern")
-      toast({
+      setAlertContent({
         title: "Success",
         description: "Intern deleted successfully",
       })
+      setIsAlertDialogOpen(true)
       fetchAll()
     } catch {
-      toast({
+      setAlertContent({
         title: "Error",
         description: "Failed to delete intern",
-        variant: "destructive",
       })
+      setIsAlertDialogOpen(true)
     } finally {
       setIsLoading(false)
+      setIsDeleteDialogOpen(false)
+      setInternToDelete(null)
     }
   }
 
@@ -376,7 +388,7 @@ export function ManageInternsDashboard() {
                           <Button size="icon" variant="outline" title="View Profile" onClick={() => setSelectedInternId(intern.id)}>
                             <UserCircle className="h-4 w-4" />
                           </Button>
-                          <Button size="icon" variant="destructive" title="Remove Intern" onClick={() => handleDeleteIntern(intern.id)}>
+                          <Button size="icon" variant="destructive" title="Remove Intern" onClick={() => handleDeleteRequest(intern.id)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -553,6 +565,41 @@ export function ManageInternsDashboard() {
             <Button type="button" onClick={handleAddIntern} disabled={isLoading}>
               {isLoading ? "Adding..." : "Add Intern"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this intern? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={isLoading}>
+              {isLoading ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Alert Dialog */}
+      <Dialog open={isAlertDialogOpen} onOpenChange={setIsAlertDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{alertContent.title}</DialogTitle>
+            <DialogDescription>{alertContent.description}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button onClick={() => setIsAlertDialogOpen(false)}>OK</Button>
+            </DialogClose>
           </DialogFooter>
         </DialogContent>
       </Dialog>
