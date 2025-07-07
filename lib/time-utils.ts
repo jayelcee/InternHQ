@@ -955,3 +955,23 @@ export function formatAccurateHours(hours: number): string {
   const displayMinutes = totalMinutes % 60
   return formatDuration(displayHours, displayMinutes)
 }
+
+/**
+ * Truncates a Date or ISO string to minute precision for consistent time storage.
+ * 
+ * This utility function ensures all time values are stored with minute precision
+ * by setting seconds and milliseconds to zero. This prevents timestamp precision
+ * issues and maintains consistency across the application.
+ * 
+ * @param date Date object or ISO string to truncate
+ * @returns ISO string truncated to minute precision
+ * @throws Error if the provided date is invalid
+ */
+export function truncateToMinute(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date
+  if (isNaN(d.getTime())) {
+    throw new Error(`Invalid date: ${date}`)
+  }
+  d.setSeconds(0, 0)
+  return d.toISOString()
+}

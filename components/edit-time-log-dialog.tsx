@@ -9,6 +9,7 @@ import { Pencil, Trash2 } from "lucide-react"
 import { TimeLogDisplay } from "@/lib/ui-utils"
 import { processLogsForContinuousEditing } from "@/lib/session-utils"
 import { useAuth } from "@/contexts/auth-context"
+import { truncateToMinute } from "@/lib/time-utils"
 
 interface EditTimeLogDialogProps {
   logs: TimeLogDisplay[]
@@ -89,8 +90,8 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
           if (isIntern) {
             // For interns, use the continuous session edit request API
             const logIds = session.logs.map(log => log.id)
-            const requestedTimeIn = new Date(timeIn).toISOString()
-            const requestedTimeOut = new Date(timeOut).toISOString()
+            const requestedTimeIn = truncateToMinute(new Date(timeIn))
+            const requestedTimeOut = truncateToMinute(new Date(timeOut))
             
             const response = await fetch("/api/interns/time-log-edit-session", {
               method: "POST",
@@ -112,8 +113,8 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
           } else {
             // For admins, use the same continuous session edit request API but with auto-approval
             const logIds = session.logs.map(log => log.id)
-            const requestedTimeIn = new Date(timeIn).toISOString()
-            const requestedTimeOut = new Date(timeOut).toISOString()
+            const requestedTimeIn = truncateToMinute(new Date(timeIn))
+            const requestedTimeOut = truncateToMinute(new Date(timeOut))
             
             const response = await fetch("/api/interns/time-log-edit-session", {
               method: "POST",
@@ -140,10 +141,10 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
           const updates: { time_in?: string; time_out?: string } = {}
           
           if (timeIn && timeIn !== (log.time_in ? new Date(log.time_in).toISOString().slice(0, 16) : "")) {
-            updates.time_in = new Date(timeIn).toISOString()
+            updates.time_in = truncateToMinute(new Date(timeIn))
           }
           if (timeOut && timeOut !== (log.time_out ? new Date(log.time_out).toISOString().slice(0, 16) : "")) {
-            updates.time_out = new Date(timeOut).toISOString()
+            updates.time_out = truncateToMinute(new Date(timeOut))
           }
           
           if (Object.keys(updates).length > 0) {

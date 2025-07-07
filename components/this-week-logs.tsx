@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
+import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration, truncateToMinute } from "@/lib/time-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -74,7 +74,7 @@ export function ThisWeekLogs({
                     if (isTimedIn && timeInTimestamp) {
                       activeLogs.push({
                         id: -1,
-                        time_in: timeInTimestamp.toISOString(),
+                        time_in: truncateToMinute(timeInTimestamp),
                         time_out: null,
                         status: "pending",
                         log_type: "regular"
@@ -84,7 +84,7 @@ export function ThisWeekLogs({
                     if (isOvertimeIn && overtimeInTimestamp) {
                       activeLogs.push({
                         id: -2,
-                        time_in: overtimeInTimestamp.toISOString(),
+                        time_in: truncateToMinute(overtimeInTimestamp),
                         time_out: null,
                         status: "pending",
                         log_type: "overtime"
