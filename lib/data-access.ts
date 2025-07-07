@@ -1350,17 +1350,22 @@ export async function updateOvertimeStatus(
 }
 
 /**
- * One-time migration to split existing long logs into regular and overtime portions.
+ * One-time migration to split existing long logs into the proper 3-tier time tracking system.
  * 
- * This migration function finds all time logs longer than the daily required hours
+ * This migration function finds all time logs that exceed their designated time boundaries
  * and automatically splits them into appropriate segments:
- * - Regular time (first 9 hours)
- * - Overtime (hours 9-12, marked as pending approval)
- * - Extended overtime (hours 12+, marked as pending approval)
+ * - Regular time: 0-9 hours per day
+ * - Overtime: 9-12 hours per day (3 hours max, requires approval)
+ * - Extended overtime: 12+ hours per day (requires approval)
+ * 
+ * Migration Logic:
+ * - Regular logs >9h: Split into regular + overtime/extended_overtime
+ * - Overtime logs >3h: Split into overtime + extended_overtime  
+ * - Extended overtime logs >12h total: Split into regular + overtime + extended_overtime
  * 
  * The migration preserves original timestamps and maintains data integrity
- * through database transactions. It processes both regular logs that became
- * too long and overtime logs that exceed the maximum allowed duration.
+ * through database transactions. It processes logs that exceed their
+ * designated time boundaries and splits them appropriately.
  * 
  * @returns Migration result with success status, processed count, and any errors
  */
@@ -1373,17 +1378,22 @@ export async function migrateExistingLongLogs(): Promise<{
   let processed = 0
 
   try {
-    // Find all logs that need splitting
+    // Find all logs that need splitting with 3-tier system
     const longLogs = await sql`
       SELECT id, user_id, time_in, time_out, created_at, log_type
       FROM time_logs 
       WHERE status = 'completed' 
         AND time_in IS NOT NULL 
         AND time_out IS NOT NULL
-        AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
         AND (
-          log_type = 'regular' 
-          OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+          -- Regular logs > 9 hours (should be split)
+          (log_type = 'regular' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+          OR 
+          -- Overtime logs > 3 hours (should be split into overtime + extended_overtime)
+          (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${MAX_OVERTIME_HOURS})
+          OR
+          -- Extended overtime logs > 12 hours total (should be split into regular + overtime + extended_overtime)
+          (log_type = 'extended_overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS})
         )
       ORDER BY created_at ASC
     `
@@ -1396,22 +1406,106 @@ export async function migrateExistingLongLogs(): Promise<{
         timeIn.setSeconds(0, 0)
         timeOut.setSeconds(0, 0)
         const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
-        if (totalHours <= DAILY_REQUIRED_HOURS) continue
-
-        // Calculate split points
+        
+        // Calculate split points for 3-tier system
         const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        const overtimeEndTime = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
         regularEndTime.setSeconds(0, 0)
-        const overtimeStartTime = new Date(regularEndTime.getTime())
-        overtimeStartTime.setSeconds(0, 0)
+        overtimeEndTime.setSeconds(0, 0)
+        
+        // Skip logs that don't actually need splitting
+        if (log.log_type === 'regular' && totalHours <= DAILY_REQUIRED_HOURS) {
+          continue
+        }
+        if (log.log_type === 'overtime' && totalHours <= MAX_OVERTIME_HOURS) {
+          continue
+        }
+        if (log.log_type === 'extended_overtime' && totalHours <= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          continue
+        }
+
         await sql.begin(async (tx) => {
           if (log.log_type === 'regular') {
-            // Update original log to regular hours only, create new overtime log
+            // Handle regular logs that need splitting
+            
+            // Update original log to regular hours only (0-9 hours)
             await tx`
               UPDATE time_logs
               SET time_out = ${truncateToMinute(regularEndTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
+            
+            if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+              // 3-tier split: Create both overtime (9-12h) and extended_overtime (12h+)
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(regularEndTime)}, 
+                  ${truncateToMinute(overtimeEndTime)}, 
+                  'completed', 
+                  'overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(overtimeEndTime)}, 
+                  ${truncateToMinute(timeOut)}, 
+                  'completed', 
+                  'extended_overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+            } else {
+              // 2-tier split: Create only overtime (9-12h)
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(regularEndTime)}, 
+                  ${truncateToMinute(timeOut)}, 
+                  'completed', 
+                  'overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+            }
+          } else if (log.log_type === 'overtime') {
+            // Handle overtime logs that are too long (>3 hours)
+            
+            // Split overtime into proper overtime (3h max) + extended_overtime  
+            const overtimeStartTime = new Date(timeIn.getTime())
+            const overtimeEndTime = new Date(overtimeStartTime.getTime() + (MAX_OVERTIME_HOURS * 60 * 60 * 1000))
+            overtimeEndTime.setSeconds(0, 0)
+            
+            // Update original overtime log to max 3 hours
+            await tx`
+              UPDATE time_logs
+              SET time_out = ${truncateToMinute(overtimeEndTime)}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+            
+            // Create extended_overtime log for remaining time
             await tx`
               INSERT INTO time_logs (
                 user_id, time_in, time_out, status, 
@@ -1419,17 +1513,20 @@ export async function migrateExistingLongLogs(): Promise<{
               )
               VALUES (
                 ${log.user_id}, 
-                ${truncateToMinute(overtimeStartTime)}, 
+                ${truncateToMinute(overtimeEndTime)}, 
                 ${truncateToMinute(timeOut)}, 
                 'completed', 
-                'overtime', 
+                'extended_overtime', 
                 'pending', 
                 ${log.created_at}, 
                 NOW()
               )
             `
-          } else if (log.log_type === 'overtime') {
-            // For overtime logs that are too long: Create regular log, update overtime log
+          } else if (log.log_type === 'extended_overtime') {
+            // Handle extended_overtime logs that span the full day (>12 hours total)
+            // This means they should be split into regular + overtime + extended_overtime
+            
+            // Create regular log (0-9 hours)
             await tx`
               INSERT INTO time_logs (
                 user_id, time_in, time_out, status, 
@@ -1445,9 +1542,29 @@ export async function migrateExistingLongLogs(): Promise<{
                 NOW()
               )
             `
+            
+            // Create overtime log (9-12 hours)
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${truncateToMinute(regularEndTime)}, 
+                ${truncateToMinute(overtimeEndTime)}, 
+                'completed', 
+                'overtime', 
+                'pending', 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+            
+            // Update original extended_overtime log to start at 12 hours
             await tx`
               UPDATE time_logs
-              SET time_in = ${truncateToMinute(overtimeStartTime)}, 
+              SET time_in = ${truncateToMinute(overtimeEndTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
