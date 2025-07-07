@@ -1,16 +1,20 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate, useSortDirection, sortGroupedLogsByDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
+import { filterLogsByInternId, formatAccurateHours } from "@/lib/time-utils"
+
+interface EditRequestMetadata {
+  isContinuousSession?: boolean
+  allLogIds?: number[]
+}
 
 interface EditLogRequest {
   id: number
@@ -22,7 +26,7 @@ interface EditLogRequest {
   originalTimeOut: string | null
   status: "pending" | "approved" | "rejected"
   requestedAt: string
-  metadata?: any
+  metadata?: EditRequestMetadata | string
 }
 
 interface DailyTimeRecordProps {

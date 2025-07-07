@@ -10,10 +10,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@/components/ui/dialog"
 import { CheckCircle, XCircle, Clock, RefreshCw, Zap, Shield, Search, Calendar, RotateCcw, Trash2 } from "lucide-react"
-import { calculateTimeWorked } from "@/lib/time-utils"
 import { formatLogDate, TimeLogDisplay, useSortDirection, sortLogsByDate } from "@/lib/ui-utils"
-import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps } from "@/lib/session-utils"
+import { processTimeLogSessions, getTimeBadgeProps, getDurationBadgeProps, ProcessedSession } from "@/lib/session-utils"
 import { format } from "date-fns"
 
 /**
@@ -44,6 +44,16 @@ interface OvertimeLog {
   department: string
   school: string
   approver_name?: string | null
+}
+
+/**
+ * Session data structure for internal component use
+ */
+interface Session extends ProcessedSession {
+  user: OvertimeLog["user"]
+  date: string
+  totalOvertimeHours: number
+  logIds: number[]
 }
 
 /**
@@ -84,6 +94,23 @@ export function OvertimeLogsDashboard() {
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+
+  // Confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    action: () => void
+    actionLabel: string
+    variant: "default" | "destructive"
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    action: () => {},
+    actionLabel: "",
+    variant: "default"
+  })
 
   /**
    * Fetch overtime logs from API
@@ -131,33 +158,105 @@ export function OvertimeLogsDashboard() {
   }, [fetchOvertimeLogs, checkLongLogs])
 
   /**
-   * Handle overtime status updates (approve/reject/revert to pending)
+   * Show confirmation dialog
    */
-  const handleStatusUpdate = async (logId: number, status: "approved" | "rejected" | "pending") => {
-    // Confirmation for revert action
+  const showConfirmDialog = (
+    title: string,
+    message: string,
+    action: () => void,
+    actionLabel: string,
+    variant: "default" | "destructive" = "default"
+  ) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      action,
+      actionLabel,
+      variant
+    })
+  }
+
+  /**
+   * Close confirmation dialog
+   */
+  const closeConfirmDialog = () => {
+    setConfirmDialog(prev => ({ ...prev, isOpen: false }))
+  }
+
+  /**
+   * Handle session-based status updates (for continuous overtime sessions)
+   */
+  const handleSessionStatusUpdate = async (sessionLogs: TimeLogDisplay[], status: "approved" | "rejected" | "pending") => {
+    // Confirmation for all actions
     if (status === "pending") {
-      const confirmRevert = window.confirm(
-        "Are you sure you want to revert this overtime log back to pending status? This will undo the previous approval/rejection decision."
+      showConfirmDialog(
+        "Revert Session to Pending",
+        `Are you sure you want to revert this overtime session back to pending status? This will undo the previous approval/rejection decision.`,
+        async () => {
+          await updateSessionStatus(sessionLogs, status)
+          closeConfirmDialog()
+        },
+        "Revert to Pending",
+        "destructive"
       )
-      if (!confirmRevert) return
+      return
     }
+    if (status === "approved") {
+      showConfirmDialog(
+        "Approve Overtime Session",
+        `Are you sure you want to approve this overtime session? This will mark this session as approved.`,
+        async () => {
+          await updateSessionStatus(sessionLogs, status)
+          closeConfirmDialog()
+        },
+        "Approve Session",
+        "default"
+      )
+      return
+    }
+    if (status === "rejected") {
+      showConfirmDialog(
+        "Reject Overtime Session",
+        `Are you sure you want to reject this overtime session? This will mark this session as rejected.`,
+        async () => {
+          await updateSessionStatus(sessionLogs, status)
+          closeConfirmDialog()
+        },
+        "Reject Session",
+        "destructive"
+      )
+      return
+    }
+    await updateSessionStatus(sessionLogs, status)
+  }
 
-    setActionLoading(logId)
+  /**
+   * Update status for all logs in a session
+   */
+  const updateSessionStatus = async (sessionLogs: TimeLogDisplay[], status: "approved" | "rejected" | "pending") => {
+    const firstLogId = sessionLogs[0]?.id
+    if (!firstLogId) return
+
+    setActionLoading(firstLogId)
     try {
-      const response = await fetch(`/api/admin/overtime/${logId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ status }),
-      })
+      // Update all logs in the session
+      for (const log of sessionLogs) {
+        const response = await fetch(`/api/admin/overtime/${log.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ status }),
+        })
 
-      if (response.ok) {
-        await fetchOvertimeLogs()
-      } else {
-        console.error("Failed to update overtime status")
+        if (!response.ok) {
+          console.error(`Failed to update overtime status for log ${log.id}`)
+        }
       }
+      
+      await fetchOvertimeLogs()
     } catch (error) {
-      console.error("Error updating overtime status:", error)
+      console.error("Error updating session overtime status:", error)
     } finally {
       setActionLoading(null)
     }
@@ -182,11 +281,23 @@ export function OvertimeLogsDashboard() {
         await Promise.all([fetchOvertimeLogs(), checkLongLogs()])
       } else {
         const error = await response.json()
-        alert(`Migration failed: ${error.error}`)
+        showConfirmDialog(
+          "Migration Failed",
+          `Migration failed: ${error.error}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
       }
     } catch (error) {
       console.error("Error running migration:", error)
-      alert("Failed to run migration. Please try again.")
+      showConfirmDialog(
+        "Migration Error",
+        "Failed to run migration. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setMigrationLoading(false)
     }
@@ -201,17 +312,25 @@ export function OvertimeLogsDashboard() {
     )
 
     if (sessionsToReject.length === 0) {
-      alert(`No pending sessions found with less than ${minOvertimeHours} hours to reject.`)
       return
     }
 
-    const totalLogsCount = sessionsToReject.reduce((sum, session) => sum + session.logIds.length, 0)
-
-    const confirmReject = window.confirm(
-      `Are you sure you want to auto-reject ${sessionsToReject.length} overtime sessions (${totalLogsCount} individual logs) that are below the minimum ${minOvertimeHours} hours threshold?`
+    showConfirmDialog(
+      "Bulk Auto-Reject",
+      `Are you sure you want to auto-reject ${sessionsToReject.length} overtime sessions that are below the minimum ${minOvertimeHours} hours threshold?`,
+      async () => {
+        await performBulkAutoReject(sessionsToReject)
+        closeConfirmDialog()
+      },
+      "Auto-Reject Sessions",
+      "destructive"
     )
-    if (!confirmReject) return
+  }
 
+  /**
+   * Perform bulk auto-reject (extracted from handleBulkAutoReject)
+   */
+  const performBulkAutoReject = async (sessionsToReject: Session[]) => {
     setBulkActionLoading("reject")
     try {
       let successCount = 0
@@ -239,11 +358,25 @@ export function OvertimeLogsDashboard() {
         }
       }
 
-      alert(`Bulk auto-reject completed!\nSuccessfully rejected: ${successCount} logs from ${sessionsToReject.length} sessions\nErrors: ${errorCount}`)
+      if (errorCount > 0) {
+        showConfirmDialog(
+          "Bulk Auto-Reject Results",
+          `Some errors occurred during bulk auto-reject.\nSuccessfully rejected: ${successCount} logs\nErrors: ${errorCount}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
+      }
       await fetchOvertimeLogs() // Refresh the data
     } catch (error) {
       console.error("Error in bulk auto-reject:", error)
-      alert("Failed to complete bulk auto-reject. Please try again.")
+      showConfirmDialog(
+        "Bulk Auto-Reject Error",
+        "Failed to complete bulk auto-reject. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setBulkActionLoading(null)
     }
@@ -262,13 +395,22 @@ export function OvertimeLogsDashboard() {
       return
     }
 
-    const totalLogsCount = sessionsToApprove.reduce((sum, session) => sum + session.logIds.length, 0)
-
-    const confirmApprove = window.confirm(
-      `Are you sure you want to auto-approve ${sessionsToApprove.length} overtime sessions (${totalLogsCount} individual logs) that meet or exceed the minimum ${minOvertimeHours} hours threshold?`
+    showConfirmDialog(
+      "Bulk Auto-Approve",
+      `Are you sure you want to auto-approve ${sessionsToApprove.length} overtime sessions that meet or exceed the minimum ${minOvertimeHours} hours threshold?`,
+      async () => {
+        await performBulkAutoApprove(sessionsToApprove)
+        closeConfirmDialog()
+      },
+      "Auto-Approve Sessions",
+      "default"
     )
-    if (!confirmApprove) return
+  }
 
+  /**
+   * Perform bulk auto-approve (extracted from handleBulkAutoApprove)
+   */
+  const performBulkAutoApprove = async (sessionsToApprove: Session[]) => {
     setBulkActionLoading("approve")
     try {
       let successCount = 0
@@ -296,11 +438,25 @@ export function OvertimeLogsDashboard() {
         }
       }
 
-      alert(`Bulk auto-approve completed!\nSuccessfully approved: ${successCount} logs from ${sessionsToApprove.length} sessions\nErrors: ${errorCount}`)
+      if (errorCount > 0) {
+        showConfirmDialog(
+          "Bulk Auto-Approve Results",
+          `Some errors occurred during bulk auto-approve.\nSuccessfully approved: ${successCount} logs\nErrors: ${errorCount}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
+      }
       await fetchOvertimeLogs() // Refresh the data
     } catch (error) {
       console.error("Error in bulk auto-approve:", error)
-      alert("Failed to complete bulk auto-approve. Please try again.")
+      showConfirmDialog(
+        "Bulk Auto-Approve Error",
+        "Failed to complete bulk auto-approve. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setBulkActionLoading(null)
     }
@@ -315,13 +471,22 @@ export function OvertimeLogsDashboard() {
       return
     }
 
-    const totalLogsCount = processedSessions.reduce((sum, session) => sum + session.logIds.length, 0)
-
-    const confirmRevert = window.confirm(
-      `Are you sure you want to revert ${processedSessions.length} approved/rejected overtime sessions (${totalLogsCount} individual logs) back to pending status? This will undo all previous decisions.`
+    showConfirmDialog(
+      "Bulk Revert to Pending",
+      `Are you sure you want to revert ${processedSessions.length} approved/rejected overtime sessions back to pending status? This will undo all previous decisions.`,
+      async () => {
+        await performBulkRevert()
+        closeConfirmDialog()
+      },
+      "Revert to Pending",
+      "destructive"
     )
-    if (!confirmRevert) return
+  }
 
+  /**
+   * Perform bulk revert (extracted from handleBulkRevert)
+   */
+  const performBulkRevert = async () => {
     setBulkActionLoading("revert")
     try {
       let successCount = 0
@@ -349,41 +514,95 @@ export function OvertimeLogsDashboard() {
         }
       }
 
-      alert(`Bulk revert completed!\nSuccessfully reverted: ${successCount} logs from ${processedSessions.length} sessions\nErrors: ${errorCount}`)
+      if (errorCount > 0) {
+        showConfirmDialog(
+          "Bulk Revert Results",
+          `Some errors occurred during bulk revert.\nSuccessfully reverted: ${successCount} logs\nErrors: ${errorCount}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
+      }
       await fetchOvertimeLogs() // Refresh the data
     } catch (error) {
       console.error("Error in bulk revert:", error)
-      alert("Failed to complete bulk revert. Please try again.")
+      showConfirmDialog(
+        "Bulk Revert Error",
+        "Failed to complete bulk revert. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setBulkActionLoading(null)
     }
   }
 
   /**
-   * Handle permanent deletion of overtime logs
+   * Handle session-based deletion of overtime logs
    */
-  const handleDeleteOvertimeLog = async (logId: number) => {
-    const confirmDelete = window.confirm(
-      "Are you sure you want to permanently delete this overtime log? This action cannot be undone."
+  const handleDeleteOvertimeSession = async (sessionLogs: TimeLogDisplay[]) => {
+    showConfirmDialog(
+      "Delete Overtime Session",
+      `Are you sure you want to permanently delete this overtime session? This action cannot be undone.`,
+      async () => {
+        await performDeleteOvertimeSession(sessionLogs)
+        closeConfirmDialog()
+      },
+      "Delete Session",
+      "destructive"
     )
-    if (!confirmDelete) return
+  }
 
-    setActionLoading(logId)
+  /**
+   * Perform session deletion (extracted from handleDeleteOvertimeSession)
+   */
+  const performDeleteOvertimeSession = async (sessionLogs: TimeLogDisplay[]) => {
+    const firstLogId = sessionLogs[0]?.id
+    if (!firstLogId) return
+
+    setActionLoading(firstLogId)
     try {
-      const response = await fetch(`/api/admin/overtime/${logId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
+      let successCount = 0
+      let errorCount = 0
 
-      if (response.ok) {
-        await fetchOvertimeLogs()
-      } else {
-        const error = await response.json()
-        alert(`Failed to delete overtime log: ${error.error || "Unknown error"}`)
+      for (const log of sessionLogs) {
+        try {
+          const response = await fetch(`/api/admin/overtime/${log.id}`, {
+            method: "DELETE",
+            credentials: "include",
+          })
+
+          if (response.ok) {
+            successCount++
+          } else {
+            errorCount++
+          }
+        } catch {
+          errorCount++
+        }
       }
+
+      if (errorCount > 0) {
+        showConfirmDialog(
+          "Session Deletion Results",
+          `Some errors occurred during session deletion.\nSuccessfully deleted: ${successCount} logs\nErrors: ${errorCount}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
+      }
+      
+      await fetchOvertimeLogs()
     } catch (error) {
-      console.error("Error deleting overtime log:", error)
-      alert("Failed to delete overtime log. Please try again.")
+      console.error("Error deleting overtime session:", error)
+      showConfirmDialog(
+        "Delete Error",
+        "Failed to delete overtime session. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setActionLoading(null)
     }
@@ -404,13 +623,22 @@ export function OvertimeLogsDashboard() {
       return
     }
 
-    const totalLogsCount = rejectedSessions.reduce((sum, session) => sum + session.logIds.length, 0)
-
-    const confirmDelete = window.confirm(
-      `Are you sure you want to permanently delete ${rejectedSessions.length} rejected overtime sessions (${totalLogsCount} individual logs)? This action cannot be undone.`
+    showConfirmDialog(
+      "Bulk Delete Sessions",
+      `Are you sure you want to permanently delete ${rejectedSessions.length} rejected overtime sessions? This action cannot be undone.`,
+      async () => {
+        await performBulkDelete(rejectedSessions)
+        closeConfirmDialog()
+      },
+      "Delete Sessions",
+      "destructive"
     )
-    if (!confirmDelete) return
+  }
 
+  /**
+   * Perform bulk delete (extracted from handleBulkDelete)
+   */
+  const performBulkDelete = async (rejectedSessions: Session[]) => {
     setBulkActionLoading("delete")
     try {
       let successCount = 0
@@ -436,11 +664,25 @@ export function OvertimeLogsDashboard() {
         }
       }
 
-      alert(`Bulk delete completed!\nSuccessfully deleted: ${successCount} logs from ${rejectedSessions.length} sessions\nErrors: ${errorCount}`)
+      if (errorCount > 0) {
+        showConfirmDialog(
+          "Bulk Delete Results",
+          `Some errors occurred during bulk delete.\nSuccessfully deleted: ${successCount} logs\nErrors: ${errorCount}`,
+          () => {},
+          "Close",
+          "destructive"
+        )
+      }
       await fetchOvertimeLogs() // Refresh the data
     } catch (error) {
       console.error("Error in bulk delete:", error)
-      alert("Failed to complete bulk delete. Please try again.")
+      showConfirmDialog(
+        "Bulk Delete Error",
+        "Failed to complete bulk delete. Please try again.",
+        () => {},
+        "Close",
+        "destructive"
+      )
     } finally {
       setBulkActionLoading(null)
     }
@@ -478,13 +720,6 @@ export function OvertimeLogsDashboard() {
       </Badge>
     )
   } */
-
-  // Calculate summary statistics
-  const stats = {
-    pending: logs.filter(log => log.overtime_status === "pending").length,
-    approved: logs.filter(log => log.overtime_status === "approved").length,
-    rejected: logs.filter(log => log.overtime_status === "rejected").length
-  }
 
   // Get departments for filter
   const departments = useMemo(() => {
@@ -528,7 +763,7 @@ export function OvertimeLogsDashboard() {
   )
 
   // Group logs into sessions for bulk actions
-  const pendingSessions = useMemo(() => {
+  const pendingSessions: Session[] = useMemo(() => {
     // Convert overtime logs to TimeLogDisplay format
     const timeLogDisplays: TimeLogDisplay[] = filteredPendingLogs.map(log => ({
       id: log.id,
@@ -582,7 +817,7 @@ export function OvertimeLogsDashboard() {
   }, [filteredPendingLogs])
 
   // Group processed logs into sessions for bulk revert
-  const processedSessions = useMemo(() => {
+  const processedSessions: Session[] = useMemo(() => {
     // Convert overtime logs to TimeLogDisplay format
     const timeLogDisplays: TimeLogDisplay[] = filteredProcessedLogs.map(log => ({
       id: log.id,
@@ -625,6 +860,17 @@ export function OvertimeLogsDashboard() {
       }))
     })
   }, [filteredProcessedLogs])
+
+  // Calculate summary statistics (after session grouping)
+  const stats = {
+    pending: pendingSessions.length,
+    approved: processedSessions.filter(session =>
+      session.logs.every(log => log.overtime_status === "approved")
+    ).length,
+    rejected: processedSessions.filter(session =>
+      session.logs.every(log => log.overtime_status === "rejected")
+    ).length
+  }
 
   const bulkStats = {
     belowMinimum: pendingSessions.filter(session => 
@@ -670,7 +916,7 @@ export function OvertimeLogsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-            <p className="text-xs text-muted-foreground">Overtime logs awaiting review</p>
+            <p className="text-xs text-muted-foreground">Overtime sessions awaiting review</p>
           </CardContent>
         </Card>
         
@@ -681,7 +927,7 @@ export function OvertimeLogsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{stats.approved}</div>
-            <p className="text-xs text-muted-foreground">Approved overtime logs</p>
+            <p className="text-xs text-muted-foreground">Approved overtime sessions</p>
           </CardContent>
         </Card>
         
@@ -692,7 +938,7 @@ export function OvertimeLogsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">{stats.rejected}</div>
-            <p className="text-xs text-muted-foreground">Rejected overtime logs</p>
+            <p className="text-xs text-muted-foreground">Rejected overtime sessions</p>
           </CardContent>
         </Card>
       </div>
@@ -1019,8 +1265,47 @@ export function OvertimeLogsDashboard() {
             <div>
               <CardTitle>Overtime Logs</CardTitle>
               <CardDescription>
-                Review and manage overtime hours submitted by interns. 
-                Showing {filteredLogs.length} of {logs.length} logs.
+                Review and manage overtime durations submitted by interns. 
+                {(() => {
+                  // Helper to count grouped sessions
+                  function countSessions(logsToGroup: OvertimeLog[]) {
+                    // Convert logs to TimeLogDisplay format
+                    const timeLogDisplays = logsToGroup.map(log => ({
+                      id: log.id,
+                      user_id: log.user_id,
+                      time_in: log.time_in,
+                      time_out: log.time_out,
+                      log_type: log.log_type as "overtime" | "extended_overtime",
+                      overtime_status: log.overtime_status,
+                      status: 'completed' as const,
+                      created_at: log.created_at,
+                      updated_at: log.updated_at
+                    }))
+                    // Group by user and date
+                    const groupedByUserAndDate = timeLogDisplays.reduce((groups, log) => {
+                      const user = logsToGroup.find(l => l.id === log.id)?.user
+                      if (!user || !log.time_in) return groups
+                      const dateKey = log.time_in.split('T')[0]
+                      const groupKey = `${user.id}-${dateKey}`
+                      if (!groups[groupKey]) {
+                        groups[groupKey] = { user, date: dateKey, logs: [] }
+                      }
+                      groups[groupKey].logs.push(log)
+                      return groups
+                    }, {} as Record<string, { user: OvertimeLog["user"], date: string, logs: TimeLogDisplay[] }>)
+                    // Process each group into sessions and count overtime sessions
+                    return Object.values(groupedByUserAndDate).reduce((count, group) => {
+                      const { sessions } = processTimeLogSessions(group.logs)
+                      const overtimeSessions = sessions.filter(s => s.isOvertimeSession || s.overtimeHours > 0)
+                      return count + overtimeSessions.length
+                    }, 0)
+                  }
+                  const filteredSessionCount = countSessions(filteredLogs)
+                  const totalSessionCount = countSessions(logs)
+                  return (
+                    <> Showing {filteredSessionCount} of {totalSessionCount} overtime sessions.</>
+                  )
+                })()}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -1137,9 +1422,6 @@ export function OvertimeLogsDashboard() {
                                 </div>
                                 <div className="text-xs text-gray-500">
                                   {group.user.department} • {group.user.school}
-                                </div>
-                                <div className="text-xs text-gray-400 mt-1">
-                                  {session.logs.length > 1 && `Combined from ${session.logs.length} continuous logs`}
                                 </div>
                                 <div className="text-xs text-gray-400 mt-1">
                                   {sessionStatus === "rejected" && "❌ Rejected - Not counted in progress"}
@@ -1283,9 +1565,7 @@ export function OvertimeLogsDashboard() {
                                     className="text-green-600 border-green-300 hover:bg-green-50"
                                     onClick={async () => {
                                       // Approve all logs in this session
-                                      for (const log of session.logs) {
-                                        await handleStatusUpdate(log.id, "approved")
-                                      }
+                                      await handleSessionStatusUpdate(session.logs, "approved")
                                     }}
                                     disabled={actionLoading === firstLogId}
                                   >
@@ -1301,9 +1581,7 @@ export function OvertimeLogsDashboard() {
                                     className="text-red-600 border-red-300 hover:bg-red-50"
                                     onClick={async () => {
                                       // Reject all logs in this session
-                                      for (const log of session.logs) {
-                                        await handleStatusUpdate(log.id, "rejected")
-                                      }
+                                      await handleSessionStatusUpdate(session.logs, "rejected")
                                     }}
                                     disabled={actionLoading === firstLogId}
                                   >
@@ -1323,9 +1601,7 @@ export function OvertimeLogsDashboard() {
                                     className="text-gray-600 border-gray-300 hover:bg-gray-50"
                                     onClick={async () => {
                                       // Revert all logs in this session to pending
-                                      for (const log of session.logs) {
-                                        await handleStatusUpdate(log.id, "pending")
-                                      }
+                                      await handleSessionStatusUpdate(session.logs, "pending")
                                     }}
                                     disabled={actionLoading === firstLogId}
                                     title="Revert to pending status."
@@ -1354,12 +1630,10 @@ export function OvertimeLogsDashboard() {
                                       className="text-red-600 border-red-300 hover:bg-red-50"
                                       onClick={async () => {
                                         if (sessionStatus !== "rejected") return;
-                                        for (const log of session.logs) {
-                                          await handleDeleteOvertimeLog(log.id)
-                                        }
+                                        await handleDeleteOvertimeSession(session.logs)
                                       }}
                                       disabled={actionLoading === firstLogId || sessionStatus !== "rejected"}
-                                      title="Permanently delete overtime log."
+                                      title="Permanently delete overtime session."
                                     >
                                       {actionLoading === firstLogId ? (
                                         <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
@@ -1382,6 +1656,38 @@ export function OvertimeLogsDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialog.isOpen} onOpenChange={closeConfirmDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{confirmDialog.title}</DialogTitle>
+            <DialogDescription>
+              {confirmDialog.message}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              variant={confirmDialog.variant}
+              className={
+                confirmDialog.actionLabel.toLowerCase().includes("revert to pending")
+                  ? "bg-black text-white hover:bg-gray-900 border-black"
+                  : confirmDialog.variant === "destructive"
+                  ? "bg-red-600 text-white hover:bg-red-700 border-red-600"
+                  : confirmDialog.variant === "default" && confirmDialog.actionLabel.toLowerCase().includes("approve")
+                  ? "bg-green-600 text-white hover:bg-green-700 border-green-600"
+                  : ""
+              }
+              onClick={confirmDialog.action}
+            >
+              {confirmDialog.actionLabel}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
