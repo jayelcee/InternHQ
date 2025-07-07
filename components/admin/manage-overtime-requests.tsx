@@ -393,15 +393,21 @@ export function OvertimeLogsDashboard() {
    * Handle bulk delete for sessions
    */
   const handleBulkDelete = async () => {
-    if (processedSessions.length === 0) {
-      alert("No approved/rejected sessions found to delete.")
+    // Filter only rejected sessions for bulk delete
+    const rejectedSessions = processedSessions.filter(session => {
+      const sessionStatus = session.logs.every(log => log.overtime_status === "rejected") ? "rejected" : "approved"
+      return sessionStatus === "rejected"
+    })
+
+    if (rejectedSessions.length === 0) {
+      alert("No rejected sessions found to delete.")
       return
     }
 
-    const totalLogsCount = processedSessions.reduce((sum, session) => sum + session.logIds.length, 0)
+    const totalLogsCount = rejectedSessions.reduce((sum, session) => sum + session.logIds.length, 0)
 
     const confirmDelete = window.confirm(
-      `Are you sure you want to permanently delete ${processedSessions.length} approved/rejected overtime sessions (${totalLogsCount} individual logs)? This action cannot be undone.`
+      `Are you sure you want to permanently delete ${rejectedSessions.length} rejected overtime sessions (${totalLogsCount} individual logs)? This action cannot be undone.`
     )
     if (!confirmDelete) return
 
@@ -410,7 +416,7 @@ export function OvertimeLogsDashboard() {
       let successCount = 0
       let errorCount = 0
 
-      for (const session of processedSessions) {
+      for (const session of rejectedSessions) {
         try {
           // Delete all logs in this session
           for (const logId of session.logIds) {
@@ -430,7 +436,7 @@ export function OvertimeLogsDashboard() {
         }
       }
 
-      alert(`Bulk delete completed!\nSuccessfully deleted: ${successCount} logs from ${processedSessions.length} sessions\nErrors: ${errorCount}`)
+      alert(`Bulk delete completed!\nSuccessfully deleted: ${successCount} logs from ${rejectedSessions.length} sessions\nErrors: ${errorCount}`)
       await fetchOvertimeLogs() // Refresh the data
     } catch (error) {
       console.error("Error in bulk delete:", error)
@@ -560,7 +566,16 @@ export function OvertimeLogsDashboard() {
         ...session,
         user: group.user,
         date: group.date,
-        totalOvertimeHours: session.overtimeHours, // Use overtimeHours property directly
+        totalOvertimeHours: (() => {
+          // Calculate total session duration for bulk actions
+          if (session.timeIn && session.timeOut) {
+            const start = new Date(session.timeIn)
+            const end = new Date(session.timeOut)
+            const durationMs = end.getTime() - start.getTime()
+            return durationMs / (1000 * 60 * 60) // Convert to hours
+          }
+          return 0
+        })(),
         logIds: session.logs.map(l => l.id)
       }))
     })
@@ -618,7 +633,15 @@ export function OvertimeLogsDashboard() {
     aboveMinimum: pendingSessions.filter(session => 
       session.totalOvertimeHours >= minOvertimeHours
     ).length,
-    processed: processedSessions.length
+    processed: processedSessions.length,
+    rejected: processedSessions.filter(session => {
+      const sessionStatus = session.logs.every(log => log.overtime_status === "rejected") ? "rejected" : "approved"
+      return sessionStatus === "rejected"
+    }).length,
+    approved: processedSessions.filter(session => {
+      const sessionStatus = session.logs.some(log => log.overtime_status === "approved") ? "approved" : "rejected"
+      return sessionStatus === "approved"
+    }).length
   }
 
   // Sort filtered logs by date
@@ -766,7 +789,15 @@ export function OvertimeLogsDashboard() {
               Bulk Actions for Overtime Sessions
             </CardTitle>
             <CardDescription className="text-amber-700">
-              Set minimum overtime hours threshold to auto-approve or auto-reject overtime sessions.
+              {stats.pending > 0 && (
+                <>Set minimum overtime hours threshold to auto-approve or auto-reject overtime sessions.</>
+              )}
+              {stats.pending === 0 && processedSessions.length > 0 && (
+                <>Manage processed overtime sessions - revert decisions or delete rejected sessions.</>
+              )}
+              {stats.pending === 0 && processedSessions.length === 0 && (
+                <>No overtime sessions available for bulk actions at this time.</>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -790,10 +821,20 @@ export function OvertimeLogsDashboard() {
                       />
                     </div>
                     <div className="text-sm text-gray-600">
-                      <div>• {bulkStats.belowMinimum} overtime sessions below {minOvertimeHours}h (can auto-reject)</div>
-                      <div>• {bulkStats.aboveMinimum} overtime sessions {minOvertimeHours}h+ (can auto-approve)</div>
-                      {processedSessions.length > 0 && (
-                        <div>• {bulkStats.processed} approved/rejected sessions (can revert to pending)</div>
+                      {bulkStats.belowMinimum > 0 && (
+                        <div>• {bulkStats.belowMinimum} overtime sessions below {minOvertimeHours}h → Auto-reject available</div>
+                      )}
+                      {bulkStats.aboveMinimum > 0 && (
+                        <div>• {bulkStats.aboveMinimum} overtime sessions {minOvertimeHours}h+ → Auto-approve available</div>
+                      )}
+                      {bulkStats.approved > 0 && (
+                        <div>• {bulkStats.approved} approved overtime sessions → Can revert to pending</div>
+                      )}
+                      {bulkStats.rejected > 0 && (
+                        <div>• {bulkStats.rejected} rejected overtime sessions → Can delete or revert to pending</div>
+                      )}
+                      {bulkStats.belowMinimum === 0 && bulkStats.aboveMinimum === 0 && bulkStats.approved === 0 && bulkStats.rejected === 0 && (
+                        <div className="text-gray-500">• No actions available for current sessions</div>
                       )}
                     </div>
                   </div>
@@ -861,7 +902,7 @@ export function OvertimeLogsDashboard() {
                       </Button>
                     )}
 
-                    {processedSessions.length > 0 && (
+                    {bulkStats.rejected > 0 && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -877,7 +918,7 @@ export function OvertimeLogsDashboard() {
                         ) : (
                           <>
                             <Trash2 className="h-3 w-3 mr-2" />
-                            Delete {processedSessions.length} Sessions
+                            Delete {bulkStats.rejected} Rejected Sessions
                           </>
                         )}
                       </Button>
@@ -890,7 +931,15 @@ export function OvertimeLogsDashboard() {
                 <>
                   <div className="flex items-center gap-4">
                     <div className="text-sm text-gray-600">
-                      <div>• {bulkStats.processed} approved/rejected sessions (can revert to pending)</div>
+                      {bulkStats.approved > 0 && (
+                        <div>• {bulkStats.approved} approved overtime sessions → Can revert to pending</div>
+                      )}
+                      {bulkStats.rejected > 0 && (
+                        <div>• {bulkStats.rejected} rejected overtime sessions → Can delete or revert to pending</div>
+                      )}
+                      {bulkStats.approved === 0 && bulkStats.rejected === 0 && (
+                        <div className="text-gray-500">• No processed sessions available for bulk actions</div>
+                      )}
                     </div>
                   </div>
                   
@@ -915,25 +964,27 @@ export function OvertimeLogsDashboard() {
                       )}
                     </Button>
 
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleBulkDelete}
-                      disabled={bulkActionLoading !== null}
-                      className="text-red-600 border-red-300 hover:bg-red-50"
-                    >
-                      {bulkActionLoading === "delete" ? (
-                        <>
-                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent mr-2" />
-                          Deleting...
-                        </>
-                      ) : (
-                        <>
-                          <Trash2 className="h-3 w-3 mr-2" />
-                          Delete {bulkStats.processed} Sessions
-                        </>
-                      )}
-                    </Button>
+                    {bulkStats.rejected > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleBulkDelete}
+                        disabled={bulkActionLoading !== null}
+                        className="text-red-600 border-red-300 hover:bg-red-50"
+                      >
+                        {bulkActionLoading === "delete" ? (
+                          <>
+                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent mr-2" />
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 className="h-3 w-3 mr-2" />
+                            Delete {bulkStats.rejected} Rejected Sessions
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
                 </>
               )}
@@ -941,9 +992,19 @@ export function OvertimeLogsDashboard() {
               <div className="text-xs text-amber-700 bg-amber-100 p-2 rounded flex items-start gap-2">
                 <Shield className="h-3 w-3 mt-0.5 flex-shrink-0" />
                 <div>
-                  <strong>Safety Notice:</strong> Bulk actions process continuous overtime sessions as units. 
-                  All logs within a session (overtime + extended_overtime) are approved/rejected together.
-                  You can always adjust decisions individually or bulk revert here.
+                  <strong>Safety Notice:</strong> 
+                  {stats.pending > 0 && processedSessions.length > 0 && (
+                    <> Bulk actions process continuous overtime sessions as units. All logs within a session (overtime + extended_overtime) are approved/rejected together. You can always adjust decisions individually or bulk revert processed sessions here.</>
+                  )}
+                  {stats.pending > 0 && processedSessions.length === 0 && (
+                    <> Auto-approve/reject actions process continuous overtime sessions as units. All logs within a session (overtime + extended_overtime) are processed together. You can always adjust decisions individually after bulk processing.</>
+                  )}
+                  {stats.pending === 0 && processedSessions.length > 0 && (
+                    <> Bulk revert and delete actions process continuous overtime sessions as units. All logs within a session are reverted or deleted together. {bulkStats.rejected > 0 ? 'Only rejected sessions can be permanently deleted.' : 'Individual adjustments can be made from the table below.'}</>
+                  )}
+                  {stats.pending === 0 && processedSessions.length === 0 && (
+                    <> No bulk actions are currently available. Individual session management can be performed from the table below when overtime sessions are present.</>
+                  )}
                 </div>
               </div>
             </div>
@@ -1012,7 +1073,7 @@ export function OvertimeLogsDashboard() {
                     <TableHead>Date</TableHead>
                     <TableHead>Time In</TableHead>
                     <TableHead>Time Out</TableHead>
-                    <TableHead>Hours</TableHead>
+                    <TableHead>Duration</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Approved By</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -1129,14 +1190,29 @@ export function OvertimeLogsDashboard() {
                             </TableCell>
                             <TableCell>
                               {(() => {
+                                // Calculate duration from session timeIn/timeOut for accurate display
+                                let durationText = "0h 00m"
+                                if (session.timeIn && session.timeOut) {
+                                  const start = new Date(session.timeIn)
+                                  const end = new Date(session.timeOut)
+                                  const ms = end.getTime() - start.getTime()
+                                  if (ms > 0) {
+                                    const totalMinutes = Math.floor(ms / 60000)
+                                    const hours = Math.floor(totalMinutes / 60)
+                                    const minutes = totalMinutes % 60
+                                    durationText = `${hours}h ${minutes.toString().padStart(2, "0")}m`
+                                  }
+                                }
                                 const badge = getDurationBadgeProps(
-                                  session.overtimeHours,
+                                  (session.timeIn && session.timeOut)
+                                    ? ((new Date(session.timeOut).getTime() - new Date(session.timeIn).getTime()) / 3600000)
+                                    : 0,
                                   "overtime",
                                   session.overtimeStatus
                                 )
                                 return (
                                   <Badge variant={badge.variant} className={badge.className}>
-                                    {badge.text}
+                                    {durationText}
                                   </Badge>
                                 )
                               })()}
@@ -1252,7 +1328,7 @@ export function OvertimeLogsDashboard() {
                                       }
                                     }}
                                     disabled={actionLoading === firstLogId}
-                                    title="Revert to pending status"
+                                    title="Revert to pending status."
                                   >
                                     {actionLoading === firstLogId ? (
                                       <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
@@ -1260,25 +1336,38 @@ export function OvertimeLogsDashboard() {
                                       <RotateCcw className="h-3 w-3" />
                                     )}
                                   </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-red-600 border-red-300 hover:bg-red-50"
-                                    onClick={async () => {
-                                      // Delete all logs in this session
-                                      for (const log of session.logs) {
-                                        await handleDeleteOvertimeLog(log.id)
-                                      }
-                                    }}
-                                    disabled={actionLoading === firstLogId}
-                                    title="Permanently delete overtime log"
-                                  >
-                                    {actionLoading === firstLogId ? (
-                                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                                    ) : (
-                                      <Trash2 className="h-3 w-3" />
-                                    )}
-                                  </Button>
+                                  {sessionStatus === "approved" ? (
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center justify-center h-8 px-2 py-2 rounded-md border border-red-300 bg-transparent opacity-40 cursor-not-allowed text-red-600"
+                                      style={{ minWidth: 36 }}
+                                      tabIndex={-1}
+                                      title="Cannot delete an approved overtime log."
+                                      disabled
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="text-red-600 border-red-300 hover:bg-red-50"
+                                      onClick={async () => {
+                                        if (sessionStatus !== "rejected") return;
+                                        for (const log of session.logs) {
+                                          await handleDeleteOvertimeLog(log.id)
+                                        }
+                                      }}
+                                      disabled={actionLoading === firstLogId || sessionStatus !== "rejected"}
+                                      title="Permanently delete overtime log."
+                                    >
+                                      {actionLoading === firstLogId ? (
+                                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                                      ) : (
+                                        <Trash2 className="h-5 w-5" />
+                                      )}
+                                    </Button>
+                                  )}
                                 </div>
                               )}
                             </TableCell>
