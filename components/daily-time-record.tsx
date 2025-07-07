@@ -1,16 +1,20 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import { RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { EditTimeLogDialog } from "@/components/edit-time-log-dialog"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate, useSortDirection, sortGroupedLogsByDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { filterLogsByInternId, calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
+import { filterLogsByInternId, formatAccurateHours } from "@/lib/time-utils"
+
+interface EditRequestMetadata {
+  isContinuousSession?: boolean
+  allLogIds?: number[]
+}
 
 interface EditLogRequest {
   id: number
@@ -22,6 +26,7 @@ interface EditLogRequest {
   originalTimeOut: string | null
   status: "pending" | "approved" | "rejected"
   requestedAt: string
+  metadata?: EditRequestMetadata | string
 }
 
 interface DailyTimeRecordProps {
@@ -71,14 +76,24 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     return editRequests.find(req => req.logId === logId && req.status === "pending") || null
   }
 
-  // Helper function to get effective time (requested if pending, otherwise original)
-  // const getEffectiveTime = (log: TimeLogDisplay, field: "time_in" | "time_out"): string | null => {
-  //   const pendingRequest = getPendingEditRequest(log.id)
-  //   if (pendingRequest) {
-  //     return field === "time_in" ? pendingRequest.requestedTimeIn : pendingRequest.requestedTimeOut
-  //   }
-  //   return log[field]
-  // }
+  // Helper function to get continuous session edit request that affects multiple logs
+  const getContinuousSessionEditRequest = (logIds: number[]): EditLogRequest | null => {
+    return editRequests.find(req => {
+      if (req.status !== "pending" || !req.metadata) return false
+      
+      try {
+        const metadata = typeof req.metadata === 'string' ? JSON.parse(req.metadata) : req.metadata
+        if (metadata.isContinuousSession && metadata.allLogIds) {
+          // Check if any of the provided logIds are in the continuous session
+          return logIds.some(id => metadata.allLogIds.includes(id))
+        }
+      } catch (e) {
+        console.error("Error parsing edit request metadata:", e)
+      }
+      
+      return false
+    }) || null
+  }
 
   // Helper function to create modified log with pending request data
   const getLogWithPendingData = (log: TimeLogDisplay): TimeLogDisplay => {
@@ -93,9 +108,47 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     return log
   }
 
-  // Check if a log has pending edit request
+  // Helper function to apply continuous session edit requests to logs
+  const getLogsWithContinuousSessionEdits = (logs: TimeLogDisplay[]): TimeLogDisplay[] => {
+    const logIds = logs.map(log => log.id)
+    const continuousRequest = getContinuousSessionEditRequest(logIds)
+    
+    if (continuousRequest) {
+      try {
+        const metadata = typeof continuousRequest.metadata === 'string' 
+          ? JSON.parse(continuousRequest.metadata) 
+          : continuousRequest.metadata
+          
+        if (metadata.isContinuousSession && metadata.allLogIds) {
+          // Apply the continuous session edit to all logs in the session
+          return logs.map(log => {
+            if (metadata.allLogIds.includes(log.id)) {
+              // For continuous sessions, we need to reconstruct the logs
+              // The first log gets the requested time_in, last log gets requested time_out
+              const isFirstLog = log.id === Math.min(...metadata.allLogIds)
+              const isLastLog = log.id === Math.max(...metadata.allLogIds)
+              
+              return {
+                ...log,
+                time_in: isFirstLog ? continuousRequest.requestedTimeIn || log.time_in : log.time_in,
+                time_out: isLastLog ? continuousRequest.requestedTimeOut || log.time_out : log.time_out,
+              }
+            }
+            return log
+          })
+        }
+      } catch (e) {
+        console.error("Error processing continuous session edit:", e)
+      }
+    }
+    
+    // Fall back to individual log edits
+    return logs.map(log => getLogWithPendingData(log))
+  }
+
+  // Check if a log has pending edit request (individual or continuous session)
   const hasPendingEdit = (logId: number): boolean => {
-    return getPendingEditRequest(logId) !== null
+    return getPendingEditRequest(logId) !== null || getContinuousSessionEditRequest([logId]) !== null
   }
 
   // Get yellow badge props for pending edit requests
@@ -136,95 +189,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     }
   }
 
-  // State for long logs migration
-  const [migrationStatus, setMigrationStatus] = useState<{ hasLongLogs: boolean; count: number }>({
-    hasLongLogs: false,
-    count: 0
-  })
-  const [migrationLoading, setMigrationLoading] = useState(false)
 
-  // Check if there are long logs that need migration
-  const checkLongLogs = useCallback(async () => {
-    try {
-      // Determine the user ID to check
-      let targetUserId: string | null = null
-      
-      if (internId) {
-        // Admin viewing specific intern or explicit internId provided
-        targetUserId = internId
-      } else if (isIntern && user?.id) {
-        // Intern viewing their own DTR
-        targetUserId = String(user.id)
-      }
-      
-      // Use user-specific endpoint if we have a target user ID, otherwise global endpoint
-      const endpoint = targetUserId 
-        ? `/api/time-logs/long-logs/user/${targetUserId}`
-        : "/api/time-logs/long-logs"
-      
-      const response = await fetch(endpoint, {
-        credentials: "include",
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setMigrationStatus({
-          hasLongLogs: data.hasLongLogs,
-          count: data.count
-        })
-      }
-    } catch (error) {
-      console.error("Error checking long logs:", error)
-    }
-  }, [internId, isIntern, user?.id])
-
-  // Check for long logs on component mount
-  useEffect(() => {
-    checkLongLogs()
-  }, [checkLongLogs])
-
-  // Handle manual migration of long logs
-  const handleMigration = async () => {
-    if (migrationLoading) return
-    
-    setMigrationLoading(true)
-    try {
-      // Determine the user ID to migrate
-      let targetUserId: string | null = null
-      
-      if (internId) {
-        // Admin viewing specific intern or explicit internId provided
-        targetUserId = internId
-      } else if (isIntern && user?.id) {
-        // Intern viewing their own DTR
-        targetUserId = String(user.id)
-      }
-      
-      // Use user-specific endpoint if we have a target user ID, otherwise global endpoint
-      const endpoint = targetUserId 
-        ? `/api/time-logs/long-logs/user/${targetUserId}/migrate`
-        : "/api/time-logs/long-logs"
-      
-      const response = await fetch(endpoint, {
-        method: "POST",
-        credentials: "include",
-      })
-      
-      if (response.ok) {
-        await response.json()
-        // Refresh data after migration
-        if (onTimeLogUpdate) onTimeLogUpdate()
-        await checkLongLogs()
-      } else {
-        const error = await response.json()
-        alert(`Migration failed: ${error.error}`)
-      }
-    } catch (error) {
-      console.error("Error running migration:", error)
-      alert("Failed to run migration. Please try again.")
-    } finally {
-      setMigrationLoading(false)
-    }
-  }
 
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
@@ -257,18 +222,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
             >
               {sortButtonText}
             </Button>
-            {migrationStatus.hasLongLogs && (
-              <Button
-                onClick={handleMigration}
-                variant="outline"
-                size="sm"
-                disabled={migrationLoading}
-                className="shrink-0"
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`} />
-                {migrationLoading ? 'Processing...' : `Split ${migrationStatus.count} Long Logs`}
-              </Button>
-            )}
+
             {(isIntern || isAdmin) && (
               !showActions ? (
                 <Button
@@ -318,8 +272,8 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                 .map(([key, logsForDate]) => {
                   const datePart = key.split("-").slice(-3).join("-")
                   
-                  // Transform logs to use pending request data if available
-                  const logsWithPendingData = logsForDate.map(log => getLogWithPendingData(log))
+                  // Transform logs to use pending request data (including continuous sessions)
+                  const logsWithPendingData = getLogsWithContinuousSessionEdits(logsForDate)
                   
                   // Check if any log in this date has pending edit requests
                   const hasAnyPendingEdit = logsForDate.some(log => hasPendingEdit(log.id))
@@ -404,92 +358,69 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       {/* Regular Shift Column */}
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {(() => {
-                            let previousRegularHours = 0
-                            return sessions.map((session, i) => {
-                              // Use accurate calculation instead of centralized truncation
-                              const accurateCalc = calculateAccurateSessionDuration(
-                                session.logs,
-                                new Date(),
-                                previousRegularHours
-                              )
-                              
-                              const displayText = formatAccurateHours(accurateCalc.regularHours)
-                              let badgeProps = {
-                                variant: "outline" as const,
-                                className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
-                                text: displayText
+                          {sessions.map((session, i) => {
+                            // Use session processing results directly
+                            const displayText = formatAccurateHours(session.regularHours)
+                            let badgeProps = {
+                              variant: "outline" as const,
+                              className: session.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
+                              text: displayText
+                            }
+                            
+                            // Apply yellow badge styling if any log in this date has pending edit
+                            if (hasAnyPendingEdit) {
+                              badgeProps = {
+                                ...badgeProps,
+                                className: "bg-yellow-100 text-yellow-700 border-yellow-300"
                               }
-                              
-                              // Apply yellow badge styling if any log in this date has pending edit
-                              if (hasAnyPendingEdit) {
-                                badgeProps = {
-                                  ...badgeProps,
-                                  className: "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                }
-                              }
-                              
-                              // Update tracking variables for next iteration
-                              previousRegularHours += accurateCalc.regularHours
-                              
-                              return (
-                                <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
-                                  {badgeProps.text}
-                                </Badge>
-                              )
-                            })
-                          })()}
+                            }
+                            
+                            return (
+                              <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
+                                {badgeProps.text}
+                              </Badge>
+                            )
+                          })}
                         </div>
                       </TableCell>
                       
                       {/* Overtime Column */}
                       <TableCell>
                         <div className="flex flex-col gap-1">
-                          {(() => {
-                            let previousRegularHours = 0
-                            return sessions.map((session, i) => {
-                              // Use raw calculation for overtime display (shows actual time worked)
-                              const rawCalc = calculateRawSessionDuration(
-                                session.logs,
-                                new Date(),
-                                previousRegularHours
-                              )
-                              
-                              const displayText = formatAccurateHours(rawCalc.overtimeHours)
-                              let badgeProps = {
-                                variant: "outline" as const,
-                                className: rawCalc.overtimeHours > 0 ? 
-                                  (rawCalc.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
-                                   rawCalc.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
-                                   "bg-yellow-100 text-yellow-700 border-yellow-300") :
-                                  "bg-gray-100 text-gray-700 border-gray-300",
-                                text: displayText
+                          {sessions.map((session, i) => {
+                            // Use session processing results directly
+                            const displayText = formatAccurateHours(session.overtimeHours)
+                            let badgeProps = {
+                              variant: "outline" as const,
+                              className: session.overtimeHours > 0 ? 
+                                (session.overtimeStatus === "approved" ? "bg-purple-100 text-purple-700 border-purple-300" :
+                                 session.overtimeStatus === "rejected" ? "bg-gray-100 text-gray-700 border-gray-300" :
+                                 "bg-yellow-100 text-yellow-700 border-yellow-300") :
+                                "bg-gray-100 text-gray-700 border-gray-300",
+                              text: displayText
+                            }
+                            
+                            // Apply yellow badge styling if any log in this date has pending edit
+                            if (hasAnyPendingEdit) {
+                              badgeProps = {
+                                ...badgeProps,
+                                className: "bg-yellow-100 text-yellow-700 border-yellow-300"
                               }
-                              
-                              // Apply yellow badge styling if any log in this date has pending edit
-                              if (hasAnyPendingEdit) {
-                                badgeProps = {
-                                  ...badgeProps,
-                                  className: "bg-yellow-100 text-yellow-700 border-yellow-300"
-                                }
-                              }
-                              
-                              // Update tracking variables for next iteration using RAW hours for display consistency
-                              previousRegularHours += rawCalc.regularHours
-                              
-                              return (
-                                <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
-                                  {badgeProps.text}
-                                </Badge>
-                              )
-                            })
-                          })()}
+                            }
+                            
+                            return (
+                              <Badge key={i} variant={badgeProps.variant} className={badgeProps.className}>
+                                {badgeProps.text}
+                              </Badge>
+                            )
+                          })}
                         </div>
                       </TableCell>
                       
                       {/* Actions Column */}
                       {((isAdmin && showActions) || (isIntern && showActions)) && (
-                        <TableCell className="text-right">
+                        <TableCell className="text-right align-center" title="Edit Log">
+                          <div className="flex justify-end">
                           <EditTimeLogDialog
                             key={key}
                             logs={logsForDate}
@@ -497,7 +428,10 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                             isLoading={isUpdating}
                             isAdmin={isAdmin}
                             isIntern={isIntern}
+                            disabled={hasAnyPendingEdit}
+                            disabledReason={hasAnyPendingEdit ? "Cannot edit logs with pending edit requests" : ""}
                           />
+                          </div>
                         </TableCell>
                       )}
                     </TableRow>

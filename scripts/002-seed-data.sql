@@ -89,27 +89,27 @@ INSERT INTO intern_project_assignments (user_id, project_id, assigned_date, role
 ON CONFLICT (user_id, project_id) DO NOTHING;
 
 -- TIME LOGS (last 2 weeks June 2025)
+-- These logs are intentionally created as long logs to test the migration system
+-- They will be split by the migration function into proper regular/overtime/extended_overtime segments
+
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type) 
 SELECT 
     (SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com'),
     (date_value || ' ' || time_in)::timestamptz,
     (date_value || ' ' || time_out)::timestamptz,
     'completed',
-    CASE 
-        WHEN (time_out::time - time_in::time) > interval '9 hours' THEN 'overtime'
-        ELSE 'regular'
-    END
+    'regular'  -- All logs start as regular, migration will split them appropriately
 FROM (VALUES
-    ('2025-06-11', '09:00:00', '18:37:00'),
-    ('2025-06-12', '09:00:00', '18:33:00'),
-    ('2025-06-13', '09:00:00', '21:12:00'),
-    ('2025-06-16', '09:04:00', '20:11:00'),
-    ('2025-06-17', '09:00:00', '21:00:00'),
-    ('2025-06-18', '09:01:00', '18:10:00'),
-    ('2025-06-19', '09:00:00', '21:09:00'),
-    ('2025-06-20', '09:00:00', '18:00:00'),
-    ('2025-06-23', '09:00:00', '18:00:00'),
-    ('2025-06-24', '09:00:00', '18:00:00')
+    ('2025-06-11', '09:00:00', '18:37:00'),  -- 9h 37m → regular + overtime
+    ('2025-06-12', '09:00:00', '18:33:00'),  -- 9h 33m → regular + overtime
+    ('2025-06-13', '09:00:00', '21:12:00'),  -- 12h 12m → regular + overtime + extended_overtime
+    ('2025-06-16', '09:04:00', '20:11:00'),  -- 11h 7m → regular + overtime
+    ('2025-06-17', '09:00:00', '21:00:00'),  -- 12h → regular + overtime
+    ('2025-06-18', '09:01:00', '18:10:00'),  -- 9h 9m → regular + overtime
+    ('2025-06-19', '09:00:00', '21:09:00'),  -- 12h 9m → regular + overtime + extended_overtime
+    ('2025-06-20', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-23', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-24', '09:00:00', '18:00:00')   -- 9h → regular only
 ) AS logs(date_value, time_in, time_out);
 
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
@@ -118,28 +118,28 @@ SELECT
     (date_value || ' ' || time_in)::timestamptz,
     (date_value || ' ' || time_out)::timestamptz,
     'completed',
-    CASE 
-        WHEN (time_out::time - time_in::time) > interval '9 hours' THEN 'overtime'
-        ELSE 'regular'
-    END
+    'regular'  -- All logs start as regular for consistency
 FROM (VALUES
-    ('2025-06-11', '09:00:00', '18:00:00'),
-    ('2025-06-12', '09:00:00', '18:00:00'),
-    ('2025-06-13', '09:00:00', '18:00:00'),
-    ('2025-06-16', '09:00:00', '18:00:00'),
-    ('2025-06-17', '09:00:00', '18:00:00'),
-    ('2025-06-18', '09:00:00', '18:00:00'),
-    ('2025-06-19', '09:00:00', '18:00:00'),
-    ('2025-06-20', '09:00:00', '18:00:00'),
-    ('2025-06-23', '09:00:00', '18:00:00'),
-    ('2025-06-24', '09:00:00', '18:00:00')
+    ('2025-06-11', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-12', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-13', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-16', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-17', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-18', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-19', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-20', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-23', '09:00:00', '18:00:00'),  -- 9h → regular only
+    ('2025-06-24', '09:00:00', '18:00:00')   -- 9h → regular only
 ) AS logs(date_value, time_in, time_out);
 
--- OVERTIME STATUS
-UPDATE time_logs 
-SET overtime_status = 'pending' 
-WHERE log_type = 'overtime' 
-  AND overtime_status IS NULL;
+-- Remove the old overtime status update since it's not needed anymore
+-- The migration function will handle setting proper overtime_status values
+
+-- NOTES:
+-- 1. Jasmine has 7 long logs (>9h), with 2 having extended overtime (>12h)
+-- 2. Jireh has only regular 9h logs
+-- 3. Use the migration system to properly split these logs after seeding
+-- 4. The migration will create proper regular/overtime/extended_overtime segments
 
 -- DATA VERIFICATION
 DO $$

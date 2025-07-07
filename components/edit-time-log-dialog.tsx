@@ -17,9 +17,11 @@ interface EditTimeLogDialogProps {
   isLoading: boolean
   isAdmin?: boolean
   isIntern?: boolean
+  disabled?: boolean
+  disabledReason?: string
 }
 
-export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, isIntern = false }: EditTimeLogDialogProps) {
+export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, isIntern = false, disabled = false, disabledReason = "" }: EditTimeLogDialogProps) {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   // Store timeIn/timeOut for each session (not individual logs)
@@ -198,12 +200,25 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
     : ""
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100">
-          <Pencil className="h-3 w-3" />
-        </Button>
-      </DialogTrigger>
+    <>
+      {disabled ? (
+        <div 
+          className="h-6 w-6 p-0 flex items-center justify-center cursor-not-allowed opacity-40 hover:opacity-60 transition-opacity"
+          title={disabledReason}
+        >
+          <Pencil className="h-4 w-4 text-black" />
+        </div>
+      ) : (
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+          <DialogTrigger asChild>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="h-6 w-6 p-0 flex items-center justify-center border border-transparent transition-colors"
+            >
+              <Pencil className="h-4 w-4 text-black" />
+            </Button>
+          </DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
@@ -322,5 +337,7 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
         )}
       </DialogContent>
     </Dialog>
+      )}
+    </>
   )
 }
