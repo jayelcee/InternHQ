@@ -630,13 +630,12 @@ export function InternDashboardContent() {
             return { ...log, hoursWorked: 0, duration: null }
           }))
 
-          // Find the latest active regular log (no time_out) FOR TODAY ONLY
-          const todayStr = getTodayDateString()
+          // --- NEW: Find the latest active session (regardless of date) ---
+          // Find the latest active regular log (no time_out)
           const activeLog = logsArr
             .filter((log: Record<string, unknown>) =>
               log.time_out === null &&
               log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
               (log.log_type === "regular" || !log.log_type)
             )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
@@ -644,9 +643,8 @@ export function InternDashboardContent() {
             const timeInDate = new Date(activeLog.time_in as string)
             const now = new Date()
             const sessionDurationHours = (now.getTime() - timeInDate.getTime()) / (1000 * 60 * 60)
-            
-            // Safeguard: If session duration is unrealistic (more than 24 hours), don't restore timed-in state
-            if (sessionDurationHours > 24) {
+            if (sessionDurationHours > 48) {
+              // Safeguard: If session duration is unrealistic (more than 48 hours), don't restore timed-in state
               console.warn(`Unrealistic session duration detected during restoration: ${sessionDurationHours.toFixed(2)}h. Not restoring timed-in state.`)
               setIsTimedIn(false)
               setTimeInTimestamp(null)
@@ -659,36 +657,27 @@ export function InternDashboardContent() {
             setTimeInTimestamp(null)
           }
 
-          // Find the latest active overtime log (no time_out) FOR TODAY ONLY
+          // Find the latest active overtime log (no time_out)
           const activeOvertimeLog = logsArr
             .filter((log: Record<string, unknown>) =>
               log.time_out === null &&
               log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
               (log.log_type === "overtime" || log.log_type === "extended_overtime")
             )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
           if (activeOvertimeLog) {
             setIsOvertimeIn(true)
             setOvertimeInTimestamp(new Date(activeOvertimeLog.time_in as string))
+            if (activeOvertimeLog.log_type === "extended_overtime") {
+              setIsExtendedOvertimeIn(true)
+              setExtendedOvertimeInTimestamp(new Date(activeOvertimeLog.time_in as string))
+            } else {
+              setIsExtendedOvertimeIn(false)
+              setExtendedOvertimeInTimestamp(null)
+            }
           } else {
             setIsOvertimeIn(false)
             setOvertimeInTimestamp(null)
-          }
-
-          // Find the latest active extended overtime log (no time_out) FOR TODAY ONLY
-          const activeExtendedOvertimeLog = logsArr
-            .filter((log: Record<string, unknown>) =>
-              log.time_out === null &&
-              log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
-              log.log_type === "extended_overtime"
-            )
-            .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
-          if (activeExtendedOvertimeLog) {
-            setIsExtendedOvertimeIn(true)
-            setExtendedOvertimeInTimestamp(new Date(activeExtendedOvertimeLog.time_in as string))
-          } else {
             setIsExtendedOvertimeIn(false)
             setExtendedOvertimeInTimestamp(null)
           }
