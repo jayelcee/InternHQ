@@ -1,3 +1,15 @@
+/**
+ * @file API route for admin to fetch or create interns.
+ * 
+ * GET: Returns all interns.
+ *      Requires admin authentication via 'auth-token' cookie.
+ *      Returns 401 if unauthorized.
+ * 
+ * POST: Creates a new intern with provided data.
+ *       Requires admin authentication via 'auth-token' cookie.
+ *       Returns 401 if unauthorized, 400 for service errors.
+ *       On success, returns the created intern.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { getAllInterns, createIntern } from "@/lib/data-access"
@@ -19,8 +31,8 @@ export async function GET(request: NextRequest) {
     const interns = await getAllInterns()
 
     return NextResponse.json({ interns })
-  } catch (error) {
-    console.error("Error fetching interns:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -47,8 +59,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true, intern: result.intern })
-  } catch (error) {
-    console.error("Error creating intern:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

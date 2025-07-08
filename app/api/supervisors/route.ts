@@ -1,3 +1,9 @@
+/**
+ * @file API route for fetching all supervisors.
+ * 
+ * GET: Returns an array of supervisor objects.
+ *      Returns 500 on error.
+ */
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/database"
 

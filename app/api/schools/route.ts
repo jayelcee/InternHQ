@@ -1,3 +1,9 @@
+/**
+ * @file API route for fetching all schools.
+ * 
+ * GET: Returns an array of school objects.
+ *      Returns 500 on error.
+ */
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/database"
 

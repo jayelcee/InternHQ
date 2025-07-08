@@ -1,14 +1,16 @@
+/**
+ * @file API route for admin to revert a time log edit request to its original state.
+ * 
+ * POST: Reverts a single or continuous session edit request by ID.
+ *       Requires authentication via 'auth-token' or 'token' cookie.
+ *       Returns 400 for invalid ID, 404 if not found, 500 for errors.
+ *       On success, returns { success: true }.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { revertTimeLogToOriginal, processContinuousEditRequests } from "@/lib/data-access"
 import { verifyToken } from "@/lib/auth"
 import { sql } from "@/lib/database"
 
-/**
- * API Route: POST /api/admin/time-log-edit-requests/[id]/revert
- * Reverts a time log edit request to its original state.
- * Handles both single and continuous session edit requests.
- * Requires authentication via token in cookies.
- */
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
@@ -53,9 +55,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: result.error || "Failed to revert time log" }, { status: 500 })
     }
     return NextResponse.json({ success: true })
-  } catch (err) {
-    // Log only essential error information
-    console.error("Error reverting time log edit request:", err)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Failed to revert time log" }, { status: 500 })
   }
 }

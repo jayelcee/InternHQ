@@ -1,3 +1,10 @@
+/**
+ * @file API route for admin to fetch all overtime logs for approval.
+ *
+ * GET: Returns all overtime logs pending approval.
+ * Requires admin authentication via 'auth-token' cookie.
+ * Returns 401 if unauthorized.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { getOvertimeLogsForApproval } from "@/lib/data-access"
 import { verifyToken } from "@/lib/auth"
@@ -22,8 +29,8 @@ export async function GET(request: NextRequest) {
 
     const overtimeLogs = await getOvertimeLogsForApproval()
     return NextResponse.json(overtimeLogs)
-  } catch (error) {
-    console.error("Error fetching overtime logs:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Failed to fetch overtime logs" },
       { status: 500 }

@@ -1,3 +1,15 @@
+/**
+ * @file API route for admin to fetch or delete a specific intern.
+ *
+ * GET: Returns intern details for the given ID.
+ *      Requires admin authentication via 'auth-token' cookie.
+ *      Returns 401 if unauthorized, 404 if not found or not an intern.
+ *
+ * DELETE: Deletes the intern with the given ID.
+ *         Requires admin authentication via 'auth-token' cookie.
+ *         Returns 401 if unauthorized, 400 for service errors.
+ *         On success, returns { success: true }.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { verifyToken } from "@/lib/auth";
 import { getUserWithDetails, deleteIntern } from "@/lib/data-access";
@@ -27,8 +39,8 @@ export async function GET(
     }
 
     return NextResponse.json({ intern });
-  } catch (error) {
-    console.error("Error fetching intern:", error);
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -58,8 +70,8 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error deleting intern:", error);
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

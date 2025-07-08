@@ -1,3 +1,15 @@
+/**
+ * @file API route for updating and fetching a user's work schedule.
+ * 
+ * POST: Updates the user's work schedule.
+ *       Requires authentication via 'auth-token' cookie.
+ *       Expects { schedule: { start, end, days[] } } in body.
+ *       Returns 400 for invalid input, 401 if unauthorized.
+ * 
+ * GET: Retrieves the user's current work schedule.
+ *      Requires authentication via 'auth-token' cookie.
+ *      Returns default schedule if not set.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { sql } from "@/lib/database"
@@ -56,8 +68,7 @@ export async function POST(request: NextRequest) {
       message: "Work schedule updated successfully" 
     })
 
-  } catch (error) {
-    console.error("Schedule update error:", error)
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -135,8 +146,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ schedule: frontendSchedule })
 
-  } catch (error) {
-    console.error("Schedule fetch error:", error)
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -1,3 +1,9 @@
+/**
+ * @file API route for user logout.
+ * 
+ * POST: Clears the 'auth-token' cookie to log out the user.
+ *       Always returns { success: true }.
+ */
 import { NextResponse } from "next/server"
 
 export async function POST() {
@@ -13,8 +19,8 @@ export async function POST() {
     })
 
     return response
-  } catch (error) {
-    console.error("Logout error:", error)
-    return NextResponse.json({ success: true }) // Always succeed logout
+  } catch {
+    // Always succeed logout, even on error
+    return NextResponse.json({ success: true })
   }
 }

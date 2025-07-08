@@ -1,3 +1,10 @@
+/**
+ * @file API route for admin continuous session editing (deprecated).
+ * 
+ * PUT: Editing continuous sessions directly is deprecated.
+ *      Use /api/interns/time-log-edit-session with isAdminEdit=true for admin edits.
+ *      Always returns 410 Gone.
+ */
 import { NextResponse } from "next/server"
 
 /**

@@ -1,3 +1,11 @@
+/**
+ * @file API route for fetching time logs.
+ * 
+ * GET: Returns time logs for the authenticated user or all logs for admin.
+ *      Supports filtering by logType and userId (admin only).
+ *      Requires authentication via 'auth-token' cookie.
+ *      Returns 401 if unauthorized, 500 on error.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { getTimeLogsForUser, getAllTimeLogsWithDetails } from "@/lib/data-access"
@@ -37,8 +45,7 @@ export async function GET(request: NextRequest) {
       const logs = await getTimeLogsForUser(String(userId), logType)
       return NextResponse.json({ logs })
     }
-  } catch (error) {
-    console.error("Error fetching time logs:", error)
+  } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
