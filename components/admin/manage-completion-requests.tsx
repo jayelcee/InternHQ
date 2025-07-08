@@ -397,7 +397,7 @@ export function ManageCompletionRequests() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="bg-indigo-100 text-indigo-700 border-indigo-300">
-                            {format(new Date(request.created_at), "MMM d, yyyy")}
+                            {new Date(request.created_at).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Badge>
                         </TableCell>
                         <TableCell>

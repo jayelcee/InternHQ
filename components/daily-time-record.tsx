@@ -203,6 +203,9 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     return <div className="text-center text-gray-500 py-8">No logs found.</div>
   }
 
+  // Group logs by intern and date for display count (like admin dashboard)
+  const groupedLogs = groupLogsByDate(filterLogsByInternId(logs, internId));
+
   return (
     <Card>
       <CardHeader>
@@ -210,7 +213,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
           <div>
             <CardTitle className="text-lg">All Intern Logs</CardTitle>
             <p className="text-sm text-gray-600">
-              Showing {logs.length} of {logs.length} time records
+              Showing {groupedLogs.length} of {groupedLogs.length} time records
             </p>
           </div>
           <div className="flex flex-row items-center gap-2 mt-2 sm:mt-0">

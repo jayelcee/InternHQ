@@ -114,32 +114,28 @@ export class DocumentGenerationService {
     approvedOvertimeHours: number
     totalHoursRendered: number
   } {
-    let totalRegularHours = 0
-    let totalApprovedOvertimeHours = 0
-    
+    let totalRegularHours = 0;
     for (const log of timeLogsDetails) {
       try {
-        const timeIn = parseDateTime(log.date, log.timeIn)
-        const timeOut = parseDateTime(log.date, log.timeOut)
-        
-        const durationMs = timeOut.getTime() - timeIn.getTime()
-        const durationHours = durationMs / (1000 * 60 * 60)
-        
         if (log.logType === "regular") {
-          totalRegularHours += durationHours
-        } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
-          totalApprovedOvertimeHours += durationHours
+          const timeIn = parseDateTime(log.date, log.timeIn);
+          const timeOut = parseDateTime(log.date, log.timeOut);
+          const durationMs = timeOut.getTime() - timeIn.getTime();
+          const durationHours = durationMs / (1000 * 60 * 60);
+          totalRegularHours += durationHours;
         }
       } catch (error) {
-        console.warn('Error processing log entry:', error)
+        console.warn('Error processing log entry:', error);
       }
     }
-    
+    const regularHours = Number(truncateTo2Decimals(totalRegularHours));
+    // totalHoursRendered should be provided externally (see getDTRTemplate usage)
+    // For this static method, return 0 for totalHoursRendered and approvedOvertimeHours as placeholder
     return {
-      regularHours: Number(truncateTo2Decimals(totalRegularHours)),
-      approvedOvertimeHours: Number(truncateTo2Decimals(totalApprovedOvertimeHours)),
-      totalHoursRendered: Number(truncateTo2Decimals(totalRegularHours + totalApprovedOvertimeHours))
-    }
+      regularHours,
+      approvedOvertimeHours: 0,
+      totalHoursRendered: 0
+    };
   }
 
   /**
@@ -154,6 +150,31 @@ export class DocumentGenerationService {
     totalHours: number,
     requiredHours: number
   ): string {
+    // Group logs by intern and date for display count (like DocumentViewer and daily-time-record)
+    const groupedLogs = groupLogsByDate(transformedLogs);
+
+    // Calculate time stats for summary section (using new logic)
+    let totalRegularHours = 0;
+    content.timeLogsDetails.forEach(log => {
+      if (log.logType === "regular") {
+        const timeIn = parseDateTime(log.date, log.timeIn);
+        const timeOut = parseDateTime(log.date, log.timeOut);
+        const durationMs = timeOut.getTime() - timeIn.getTime();
+        const durationHours = durationMs / (1000 * 60 * 60);
+        totalRegularHours += durationHours;
+      }
+    });
+    const regularHours = Number(truncateTo2Decimals(totalRegularHours));
+    // The total hours rendered is the internship progress (completed hours submitted)
+    const totalHoursRendered = typeof content.totalHours === 'number' ? content.totalHours : parseFloat(String(content.totalHours)) || 0;
+    // Approved overtime is the difference between total rendered and regular hours
+    const approvedOvertimeHours = Math.max(0, totalHoursRendered - regularHours);
+    const timeStats = {
+      regularHours,
+      approvedOvertimeHours: Number(truncateTo2Decimals(approvedOvertimeHours)),
+      totalHoursRendered: Number(truncateTo2Decimals(totalHoursRendered)),
+    };
+
     return `
       <!DOCTYPE html>
       <html>
@@ -242,7 +263,7 @@ export class DocumentGenerationService {
                     ${completedHours.toFixed(2)}h / ${requiredHours}h
                     ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
+                        (+${(totalHours - requiredHours).toFixed(2)})
                       </span>` : ''
                     }
                   </span>
@@ -274,7 +295,7 @@ export class DocumentGenerationService {
             <div class="card-header">
               <h3 class="card-title">Daily Time Record</h3>
               <p style="font-size: 14px; color: #6b7280; margin: 4px 0 0 0;">
-                Document No: ${content.documentNumber} • Showing ${content.timeLogsDetails.length} time records
+                Showing ${groupedLogs.length} of ${groupedLogs.length} time records
               </p>
             </div>
             <div style="overflow-x: auto;">
@@ -408,15 +429,15 @@ export class DocumentGenerationService {
             <div class="card-content">
               <div class="stats-grid">
                 <div class="stat-card">
-                  <div class="stat-value text-blue-600">${hoursSummary.regularHours.toFixed(2)}</div>
+                  <div class="stat-value text-blue-600">${timeStats.regularHours.toFixed(2)}</div>
                   <div class="stat-label">Regular Hours</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-value text-purple-600">${hoursSummary.approvedOvertimeHours.toFixed(2)}</div>
+                  <div class="stat-value text-purple-600">${timeStats.approvedOvertimeHours.toFixed(2)}</div>
                   <div class="stat-label">Approved Overtime</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-value text-green-600">${hoursSummary.totalHoursRendered.toFixed(2)}</div>
+                  <div class="stat-value text-green-600">${timeStats.totalHoursRendered.toFixed(2)}</div>
                   <div class="stat-label">Total Hours Rendered</div>
                 </div>
               </div>
@@ -431,9 +452,12 @@ export class DocumentGenerationService {
               <div class="text-center">
                 <p class="text-gray-600 mb-4">This document has been officially verified and approved by:</p><br>
                 <p class="font-medium" style="font-size: 18px;">${content.adminSignature}</p>
-                <p class="text-gray-600">${content.adminTitle}</p>
-                <p class="text-gray-600 mt-4">
+                <p class="text-gray-600">${content.adminTitle}</p><br>
+                <p class="text-gray-500 mt-10">
                   Date Issued: ${new Date(content.issueDate).toLocaleDateString()}
+                </p>
+                <p class="text-gray-500">
+                  Document No: ${content.documentNumber}
                 </p>
               </div>
             </div>

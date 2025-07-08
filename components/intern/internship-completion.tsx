@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import { DocumentViewer } from "@/components/document-viewer"
 import { calculateTimeStatistics } from "@/lib/time-utils"
+import { getPendingIssues } from "@/lib/pending-issues"
 import { DocumentGenerationService } from "@/lib/document-generation-service"
 
 interface CompletionRequest {
@@ -120,6 +121,10 @@ export function InternshipCompletion() {
     progressPercentage: 0,
     isCompleted: false
   })
+  const [pendingIssues, setPendingIssues] = useState({
+    hasPendingEditRequests: false,
+    hasPendingOvertime: false
+  })
 
   const fetchCompletionStatus = useCallback(async () => {
     try {
@@ -165,9 +170,13 @@ export function InternshipCompletion() {
     const loadData = async () => {
       await fetchCompletionStatus()
       await fetchTimeStats()
+      if (user?.id) {
+        const issues = await getPendingIssues(user.id)
+        setPendingIssues(issues)
+      }
     }
     loadData()
-  }, [fetchCompletionStatus, fetchTimeStats]) // Include both functions in dependency array
+  }, [fetchCompletionStatus, fetchTimeStats, user?.id])
 
   const submitCompletionRequest = async () => {
     setSubmitting(true)
@@ -486,59 +495,68 @@ export function InternshipCompletion() {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-between">
                 <div className="space-y-4">
-                    <div className="flex items-center justify-center gap-2 text-green-600">
-                    <CheckCircle className="w-4 h-4" />
-                    <span>You have completed all required hours!</span>
+                  {pendingIssues.hasPendingEditRequests || pendingIssues.hasPendingOvertime ? (
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <XCircle className="w-10 h-15 text-red-600" />
+                      <span className="font-medium text-center">You have pending overtime or edit requests. Please reach out to your manager to resolve them first.</span>
                     </div>
-                  <p className="text-sm text-center text-gray-600">
-                    Submit a completion request to have your internship reviewed and approved by the HR Manager. Once approved, you will receive your official Daily Time Record (DTR) and Certificate of Completion.
-                  </p>
-                  <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-                    <DialogTrigger asChild>
-                      <Button className="w-full mt-4">
-                        <Send className="w-4 h-4 mr-2" />
-                        Submit Completion Request
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Confirm Completion Request</DialogTitle>
-                        <DialogDescription>
-                          Are you sure you want to submit your internship completion request?
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div className="bg-blue-50 p-4 rounded-lg">
-                          <div className="flex items-center gap-2 text-blue-800">
-                            <AlertCircle className="w-4 h-4" />
-                            <span className="font-medium">Summary</span>
-                          </div>
-                          <div className="mt-2 text-sm text-blue-700">
-                            <p>Hours Completed: {timeStats.internshipProgress.toFixed(2)}h</p>
-                            <p>Required Hours: {user?.internship?.required_hours || 0}h</p>
-                            <p>Progress: {timeStats.progressPercentage.toFixed(0)}%</p>
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-600">
-                          Once submitted, the HR Manager will review your request. You will see the real-time status and official internship completion documents here.
-                        </p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-center gap-2 text-green-600">
+                        <CheckCircle className="w-4 h-4" />
+                        <span>You have completed all required hours!</span>
                       </div>
-                      <DialogFooter>
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setShowConfirmDialog(false)}
-                        >
-                          Cancel
-                        </Button>
-                        <Button 
-                          onClick={submitCompletionRequest}
-                          disabled={submitting}
-                        >
-                          {submitting ? 'Submitting...' : 'Submit Request'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                      <p className="text-sm text-center text-gray-600">
+                        Submit a completion request to have your internship reviewed and approved by the HR Manager. Once approved, you will receive your official Daily Time Record (DTR) and Certificate of Completion.
+                      </p>
+                      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+                        <DialogTrigger asChild>
+                          <Button className="w-full mt-4">
+                            <Send className="w-4 h-4 mr-2" />
+                            Submit Completion Request
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Confirm Completion Request</DialogTitle>
+                            <DialogDescription>
+                              Are you sure you want to submit your internship completion request?
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div className="bg-blue-50 p-4 rounded-lg">
+                              <div className="flex items-center gap-2 text-blue-800">
+                                <AlertCircle className="w-4 h-4" />
+                                <span className="font-medium">Summary</span>
+                              </div>
+                              <div className="mt-2 text-sm text-blue-700">
+                                <p>Hours Completed: {timeStats.internshipProgress.toFixed(2)}h</p>
+                                <p>Required Hours: {user?.internship?.required_hours || 0}h</p>
+                                <p>Progress: {timeStats.progressPercentage.toFixed(0)}%</p>
+                              </div>
+                            </div>
+                            <p className="text-sm text-gray-600">
+                              Once submitted, the HR Manager will review your request. You will see the real-time status and official internship completion documents here.
+                            </p>
+                          </div>
+                          <DialogFooter>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => setShowConfirmDialog(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button 
+                              onClick={submitCompletionRequest}
+                              disabled={submitting}
+                            >
+                              {submitting ? 'Submitting...' : 'Submit Request'}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
