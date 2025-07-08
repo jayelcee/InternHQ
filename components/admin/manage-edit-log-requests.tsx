@@ -518,7 +518,7 @@ export function EditLogRequestsAdmin() {
                             )}
                             {isDirectEdit && (
                               <div className="text-xs text-blue-600 font-medium">
-                                Admin Direct Edit
+                                Direct Admin Edit
                               </div>
                             )}
                           </div>
@@ -583,23 +583,36 @@ export function EditLogRequestsAdmin() {
                                 </>
                               )}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 border-red-300 hover:bg-red-50 ml-2"
-                              disabled={actionLoading === req.id}
-                              // onClick={() => handleAction(req.id.toString(), "delete")}
-                              onClick={() => setConfirmAction({ action: "delete", req })}
-                              title="Delete Request"
-                            >
-                              {actionLoading === req.id && confirmAction.action === "delete" ? (
-                                <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                              ) : (
-                                <>
-                                  <Trash2 className="h-3 w-3" />
-                                </>
-                              )}
-                            </Button>
+                            {req.status === "approved" ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center h-8 px-2 py-2 rounded-md border border-red-300 bg-transparent opacity-40 cursor-not-allowed text-red-600 ml-2"
+                                style={{ minWidth: 36 }}
+                                tabIndex={-1}
+                                title="Cannot delete an approved edit request."
+                                disabled
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 border-red-300 hover:bg-red-50 ml-2"
+                                disabled={actionLoading === req.id}
+                                // onClick={() => handleAction(req.id.toString(), "delete")}
+                                onClick={() => setConfirmAction({ action: "delete", req })}
+                                title="Delete Request"
+                              >
+                                {actionLoading === req.id && confirmAction.action === "delete" ? (
+                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                                ) : (
+                                  <>
+                                    <Trash2 className="h-3 w-3" />
+                                  </>
+                                )}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </TableCell>

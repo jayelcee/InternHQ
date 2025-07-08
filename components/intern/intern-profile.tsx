@@ -874,14 +874,16 @@ export function InternProfile({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  value={profileData.bio}
-                  onChange={(e) => handleInputChange("bio", e.target.value)}
-                  disabled={!isEditing}
-                  className="min-h-32"
-                  placeholder="Tell us about yourself..."
-                />
+                <div className={!isEditing ? "pointer-events-none" : ""}>
+                  <Textarea
+                    id="bio"
+                    value={profileData.bio}
+                    onChange={(e) => handleInputChange("bio", e.target.value)}
+                    disabled={!isEditing}
+                    className="min-h-32"
+                    placeholder="Tell us about yourself..."
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1121,151 +1123,32 @@ export function InternProfile({
                     </div>
                   <div className="space-y-2">
                     <Label htmlFor="requiredHours">Required Hours</Label>
-                    <Input
-                      id="requiredHours"
-                      type="number"
-                      min={0}
-                      value={profileData.requiredHours || ""}
-                      onChange={(e) => handleInputChange("requiredHours", e.target.value ? Number(e.target.value) : 0)}
-                      disabled={!isEditing}
-                      placeholder="Required Hours"
-                    />
+                    <div title={isEditing && !(user?.role === "admin") ? "Only admins can edit required hours." : ""}>
+                      <Input
+                        id="requiredHours"
+                        type="number"
+                        min={0}
+                        value={profileData.requiredHours || ""}
+                        onChange={(e) => handleInputChange("requiredHours", e.target.value ? Number(e.target.value) : 0)}
+                        disabled={!isEditing || !(user?.role === "admin")}
+                        placeholder="Required Hours"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="completedHours">Completed Hours</Label>
-                    <Input
-                      id="completedHours"
-                      value={completedHours.toFixed(2)}
-                      disabled
-                      readOnly
-                    />
+                    <div title={isEditing ? "Completed hours are automatically calculated in the system." : ""}>
+                      <Input
+                        id="completedHours"
+                        value={completedHours.toFixed(2)}
+                        disabled
+                        readOnly
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Work Schedule */}
-                <div className="pt-6 mt-6 border-t">
-                  <h3 className="text-lg font-medium mb-4">Work Schedule</h3>
-                  {workSchedule ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="start-time">Start Time</Label>
-                        {isEditing ? (
-                          <Input
-                            id="start-time"
-                            type="time"
-                            value={workSchedule.start || "09:00"}
-                            onChange={(e) => {
-                              setWorkSchedule(prev => prev ? { ...prev, start: e.target.value } : { start: e.target.value, end: "18:00", days: [] })
-                            }}
-                          />
-                        ) : (
-                          <Input
-                            value={(() => {
-                              const time = workSchedule.start || "09:00"
-                              const [hours, minutes] = time.split(':')
-                              const hour = parseInt(hours)
-                              const ampm = hour >= 12 ? 'PM' : 'AM'
-                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
-                              return `${displayHour}:${minutes} ${ampm}`
-                            })()}
-                            disabled
-                          />
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="end-time">End Time</Label>
-                        {isEditing ? (
-                          <Input
-                            id="end-time"
-                            type="time"
-                            value={workSchedule.end || "18:00"}
-                            onChange={(e) => {
-                              setWorkSchedule(prev => prev ? { ...prev, end: e.target.value } : { start: "09:00", end: e.target.value, days: [] })
-                            }}
-                          />
-                        ) : (
-                          <Input
-                            value={(() => {
-                              const time = workSchedule.end || "18:00"
-                              const [hours, minutes] = time.split(':')
-                              const hour = parseInt(hours)
-                              const ampm = hour >= 12 ? 'PM' : 'AM'
-                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
-                              return `${displayHour}:${minutes} ${ampm}`
-                            })()}
-                            disabled
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-gray-500 text-sm">No work schedule set</div>
-                  )}
-                  
-                  {workSchedule && (
-                    <div className="space-y-2 mt-4">
-                      <Label>Work Days</Label>
-                      {isEditing ? (
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            { value: 1, label: "Mon" },
-                            { value: 2, label: "Tue" },
-                            { value: 3, label: "Wed" },
-                            { value: 4, label: "Thu" },
-                            { value: 5, label: "Fri" },
-                            { value: 6, label: "Sat" },
-                            { value: 7, label: "Sun" }
-                          ].map((day) => (
-                            <label key={day.value} className={cn(
-                              "flex items-center gap-2 px-3 py-2 border rounded-md text-sm transition-colors",
-                              "cursor-pointer hover:bg-gray-50",
-                              workSchedule.days?.includes(day.value) && "bg-green-50 border-green-200 text-green-700"
-                            )}>
-                              <input
-                                type="checkbox"
-                                checked={workSchedule.days?.includes(day.value) || false}
-                                onChange={(e) => {
-                                  const currentDays = workSchedule.days || []
-                                  const newDays = e.target.checked 
-                                    ? [...currentDays, day.value]
-                                    : currentDays.filter((d: number) => d !== day.value)
-                                  setWorkSchedule(prev => prev ? { ...prev, days: newDays } : { start: "09:00", end: "18:00", days: newDays })
-                                }}
-                                className="rounded border-gray-300"
-                              />
-                              <span>{day.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            { value: 1, label: "Mon" },
-                            { value: 2, label: "Tue" },
-                            { value: 3, label: "Wed" },
-                            { value: 4, label: "Thu" },
-                            { value: 5, label: "Fri" },
-                            { value: 6, label: "Sat" },
-                            { value: 7, label: "Sun" }
-                          ].map((day) => (
-                            <Badge 
-                              key={day.value} 
-                              variant={workSchedule.days?.includes(day.value) ? "default" : "outline"}
-                              className={cn(
-                                "text-sm",
-                                workSchedule.days?.includes(day.value) 
-                                  ? "bg-green-100 text-green-800 hover:bg-green-200" 
-                                  : "text-gray-400"
-                              )}
-                            >
-                              {day.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {/* Work Schedule removed as per requirements */}
               </div>
             </CardContent>
           </Card>
@@ -1471,24 +1354,26 @@ export function InternProfile({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="emergencyContactRelation">Relationship</Label>
-                  <Select
-                    value={profileData.emergencyContactRelation}
-                    onValueChange={(value) => handleInputChange("emergencyContactRelation", value)}
-                    disabled={!isEditing}
-                  >
-                    <SelectTrigger id="emergencyContactRelation">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mother">Mother</SelectItem>
-                      <SelectItem value="Father">Father</SelectItem>
-                      <SelectItem value="Sibling">Sibling</SelectItem>
-                      <SelectItem value="Spouse">Spouse</SelectItem>
-                      <SelectItem value="Relative">Relative</SelectItem>
-                      <SelectItem value="Friend">Friend</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className={!isEditing ? "pointer-events-none" : ""}>
+                    <Select
+                      value={profileData.emergencyContactRelation}
+                      onValueChange={(value) => handleInputChange("emergencyContactRelation", value)}
+                      disabled={!isEditing}
+                    >
+                      <SelectTrigger id="emergencyContactRelation">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Mother">Mother</SelectItem>
+                        <SelectItem value="Father">Father</SelectItem>
+                        <SelectItem value="Sibling">Sibling</SelectItem>
+                        <SelectItem value="Spouse">Spouse</SelectItem>
+                        <SelectItem value="Relative">Relative</SelectItem>
+                        <SelectItem value="Friend">Friend</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="emergencyContactPhone">Phone Number</Label>

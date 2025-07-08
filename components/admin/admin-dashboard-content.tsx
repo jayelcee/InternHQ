@@ -318,7 +318,8 @@ export function HRAdminDashboard() {
       id: log.id,
       time_in: log.timeIn,
       time_out: log.timeOut,
-      status: "completed" as const,
+      // Set status to pending if time_out is null (active session)
+      status: log.timeOut ? "completed" as const : "pending" as const,
       log_type: log.log_type,
       overtime_status: log.overtime_status,
       user_id: log.internId,
@@ -354,7 +355,7 @@ export function HRAdminDashboard() {
     })
 
     return groupsWithInternInfo
-  }, [filteredLogs, sortDirection])
+  }, [filteredLogs, sortDirection, currentTime])
 
   // --- Intern Profile Modal ---
   function handleViewInternDetails(internId: number) {
@@ -540,18 +541,23 @@ export function HRAdminDashboard() {
               {/* Date filter (only in logs mode) */}
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-48"
-                    disabled={viewMode === "overview"}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {viewMode === "overview"
-                      ? format(new Date(), "MMM dd, yyyy")
-                      : selectedDate
-                        ? format(selectedDate, "MMM dd, yyyy")
-                        : "All Dates"}
-                  </Button>
+                  <div className="relative" data-tooltip-id="date-filter-tooltip">
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-48"
+                      disabled={viewMode === "overview"}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {viewMode === "overview"
+                        ? format(new Date(), "MMM dd, yyyy")
+                        : selectedDate
+                          ? format(selectedDate, "MMM dd, yyyy")
+                          : "All Dates"}
+                    </Button>
+                    {viewMode === "overview" && (
+                      <div className="absolute inset-0 cursor-help" title="Overview only displays today's sessions." />
+                    )}
+                  </div>
                 </PopoverTrigger>
                 {viewMode !== "overview" && (
                   <PopoverContent className="w-auto p-0" align="start">
@@ -883,8 +889,8 @@ export function HRAdminDashboard() {
                     {groupedLogsForDTR.map((group) => {
                       const { key, logs: logsForDate, datePart, internName, department } = group
                       
-                      // Use centralized session processing
-                      const { sessions } = processTimeLogSessions(logsForDate)
+                      // Use centralized session processing with real-time updates
+                      const { sessions } = processTimeLogSessions(logsForDate, currentTime)
 
                       return (
                         <TableRow key={key}>
@@ -985,11 +991,11 @@ export function HRAdminDashboard() {
                               })()}
                             </div>
                           </TableCell>
-                          {/* Regular Shift - Show per session with accurate calculation */}
+                          {/* Regular Shift - Show per session with accurate real-time calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                const durationBadges = createDurationBadges(sessions, new Date(), "regular")
+                                const durationBadges = createDurationBadges(sessions, currentTime, "regular")
                                 return durationBadges.map((badge, i) => (
                                   <Badge key={i} variant={badge.variant} className={badge.className}>
                                     {badge.text}
@@ -998,11 +1004,11 @@ export function HRAdminDashboard() {
                               })()}
                             </div>
                           </TableCell>
-                          {/* Overtime - Show per session with accurate calculation */}
+                          {/* Overtime - Show per session with accurate real-time calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                const durationBadges = createDurationBadges(sessions, new Date(), "overtime")
+                                const durationBadges = createDurationBadges(sessions, currentTime, "overtime")
                                 return durationBadges.map((badge, i) => (
                                   <Badge key={i} variant={badge.variant} className={badge.className}>
                                     {badge.text}

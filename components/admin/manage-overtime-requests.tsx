@@ -1362,6 +1362,7 @@ export function OvertimeLogsDashboard() {
                     <TableHead>Duration</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Approved By</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1556,6 +1557,45 @@ export function OvertimeLogsDashboard() {
                               ) : (
                                 <span className="text-gray-400">—</span>
                               )}
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                // Find unique notes from any log in this session
+                                const notesFromSession = session.logs
+                                  .map(log => sortedLogs.find(l => l.id === log.id)?.notes)
+                                  .filter((note): note is string => note != null && note.trim() !== '')
+                                
+                                if (notesFromSession.length === 0) {
+                                  return <span className="text-gray-400">—</span>
+                                }
+                                
+                                // Remove duplicates for continuous sessions
+                                const uniqueNotes = Array.from(new Set(notesFromSession))
+                                const combinedNotes = uniqueNotes.join('; ')
+                                
+                                return (
+                                  <div className="text-sm max-w-xs">
+                                    <div 
+                                      className="text-gray-700 cursor-help" 
+                                      title="Tasks or notes for this overtime session."
+                                      style={{
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                        lineHeight: '1.4'
+                                      }}
+                                    >
+                                      {combinedNotes}
+                                    </div>
+                                    {combinedNotes.length > 50 && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Click to view full notes
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
                             </TableCell>
                             <TableCell className="text-right">
                               {sessionStatus === "pending" && (
