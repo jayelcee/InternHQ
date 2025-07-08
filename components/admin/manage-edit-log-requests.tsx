@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { format } from "date-fns"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 
 interface EditLogRequest {
   id: number
@@ -43,6 +44,10 @@ export function EditLogRequestsAdmin() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{
+    action: "approve" | "reject" | "revert" | "delete" | null,
+    req: EditLogRequest | null
+  }>({ action: null, req: null })
 
   // Summary statistics for edit log requests
   const stats = {
@@ -162,6 +167,79 @@ export function EditLogRequestsAdmin() {
 
   return (
     <>
+      {/* Confirmation Dialog */}
+      <Dialog open={!!confirmAction.action} onOpenChange={open => { if (!open) setConfirmAction({ action: null, req: null }) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmAction.action === "approve" && "Approve Edit Request"}
+              {confirmAction.action === "reject" && "Reject Edit Request"}
+              {confirmAction.action === "revert" && "Revert Edit Request"}
+              {confirmAction.action === "delete" && "Delete Edit Request"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            {confirmAction.action === "approve" && (
+              <span>Are you sure you want to approve this edit request?</span>
+            )}
+            {confirmAction.action === "reject" && (
+              <span>Are you sure you want to reject this edit request?</span>
+            )}
+            {confirmAction.action === "revert" && (
+              <span>Are you sure you want to revert this request to pending status?</span>
+            )}
+            {confirmAction.action === "delete" && (
+              <span>Are you sure you want to delete this edit request? This cannot be undone.</span>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmAction({ action: null, req: null })}
+              disabled={actionLoading === confirmAction.req?.id}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={
+                confirmAction.action === "delete"
+                  ? "destructive"
+                  : confirmAction.action === "reject"
+                  ? "destructive"
+                  : "default"
+              }
+              className={
+                confirmAction.action === "approve"
+                  ? "bg-green-600 text-white"
+                  : confirmAction.action === "reject"
+                  ? "bg-red-600 text-white"
+                  : confirmAction.action === "delete"
+                  ? "bg-red-600 text-white"
+                  : ""
+              }
+              onClick={async () => {
+                if (confirmAction.req && confirmAction.action) {
+                  await handleAction(confirmAction.req.id.toString(), confirmAction.action)
+                  setConfirmAction({ action: null, req: null })
+                }
+              }}
+              disabled={actionLoading === confirmAction.req?.id}
+            >
+              {actionLoading === confirmAction.req?.id ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              ) : (
+                <>
+                  {confirmAction.action === "approve" && "Approve"}
+                  {confirmAction.action === "reject" && "Reject"}
+                  {confirmAction.action === "revert" && "Revert"}
+                  {confirmAction.action === "delete" && "Delete"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Summary cards for edit log request statuses Pending, Approved, Rejected */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <Card>
@@ -440,7 +518,7 @@ export function EditLogRequestsAdmin() {
                             )}
                             {isDirectEdit && (
                               <div className="text-xs text-blue-600 font-medium">
-                                Admin Direct Edit
+                                Direct Admin Edit
                               </div>
                             )}
                           </div>
@@ -455,11 +533,12 @@ export function EditLogRequestsAdmin() {
                               size="sm"
                               variant="outline"
                               className="text-green-600 border-green-300 hover:bg-green-50"
-                              onClick={() => handleAction(req.id.toString(), "approve")}
+                              // onClick={() => handleAction(req.id.toString(), "approve")}
+                              onClick={() => setConfirmAction({ action: "approve", req })}
                               disabled={actionLoading === req.id}
-                              title="Approve Request"
+                              title="Approve Edit Request"
                             >
-                              {actionLoading === req.id ? (
+                              {actionLoading === req.id && confirmAction.action === "approve" ? (
                                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
                               ) : (
                                 <>
@@ -471,11 +550,12 @@ export function EditLogRequestsAdmin() {
                               size="sm"
                               variant="outline"
                               className="text-red-600 border-red-300 hover:bg-red-50"
-                              onClick={() => handleAction(req.id.toString(), "reject")}
+                              // onClick={() => handleAction(req.id.toString(), "reject")}
+                              onClick={() => setConfirmAction({ action: "reject", req })}
                               disabled={actionLoading === req.id}
-                              title="Reject Request"
+                              title="Reject Edit Request"
                             >
-                              {actionLoading === req.id ? (
+                              {actionLoading === req.id && confirmAction.action === "reject" ? (
                                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
                               ) : (
                                 <>
@@ -491,10 +571,11 @@ export function EditLogRequestsAdmin() {
                               variant="outline"
                               className="text-gray-600 border-gray-300 hover:bg-gray-50"
                               disabled={actionLoading === req.id}
-                              onClick={() => handleAction(req.id.toString(), "revert")}
-                              title="Revert to pending status"
+                              // onClick={() => handleAction(req.id.toString(), "revert")}
+                              onClick={() => setConfirmAction({ action: "revert", req })}
+                              title="Revert to pending status."
                             >
-                              {actionLoading === req.id ? (
+                              {actionLoading === req.id && confirmAction.action === "revert" ? (
                                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />
                               ) : (
                                 <>
@@ -502,22 +583,36 @@ export function EditLogRequestsAdmin() {
                                 </>
                               )}
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 border-red-300 hover:bg-red-50 ml-2"
-                              disabled={actionLoading === req.id}
-                              onClick={() => handleAction(req.id.toString(), "delete")}
-                              title="Delete Request"
-                            >
-                              {actionLoading === req.id ? (
-                                <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
-                              ) : (
-                                <>
-                                  <Trash2 className="h-3 w-3" />
-                                </>
-                              )}
-                            </Button>
+                            {req.status === "approved" ? (
+                              <button
+                                type="button"
+                                className="inline-flex items-center justify-center h-8 px-2 py-2 rounded-md border border-red-300 bg-transparent opacity-40 cursor-not-allowed text-red-600 ml-2"
+                                style={{ minWidth: 36 }}
+                                tabIndex={-1}
+                                title="Cannot delete an approved edit request."
+                                disabled
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 border-red-300 hover:bg-red-50 ml-2"
+                                disabled={actionLoading === req.id}
+                                // onClick={() => handleAction(req.id.toString(), "delete")}
+                                onClick={() => setConfirmAction({ action: "delete", req })}
+                                title="Delete Request"
+                              >
+                                {actionLoading === req.id && confirmAction.action === "delete" ? (
+                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
+                                ) : (
+                                  <>
+                                    <Trash2 className="h-3 w-3" />
+                                  </>
+                                )}
+                              </Button>
+                            )}
                           </div>
                         )}
                       </TableCell>

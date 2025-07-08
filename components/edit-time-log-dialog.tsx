@@ -86,7 +86,6 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
       // Handle each session - apply time changes to all logs in the session
       for (const session of sessions) {
         const { timeIn, timeOut } = sessionTimes[session.id] || {}
-        
         if (session.isContinuousSession && timeIn && timeOut) {
           // For continuous sessions, create a single edit request instead of individual ones
           if (isIntern) {
@@ -94,7 +93,6 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
             const logIds = session.logs.map(log => log.id)
             const requestedTimeIn = truncateToMinute(new Date(timeIn))
             const requestedTimeOut = truncateToMinute(new Date(timeOut))
-            
             const response = await fetch("/api/interns/time-log-edit-session", {
               method: "POST",
               headers: {
@@ -108,7 +106,6 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
                 userId: user?.id
               }),
             })
-            
             if (!response.ok) {
               throw new Error("Failed to submit continuous session edit request")
             }
@@ -117,7 +114,6 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
             const logIds = session.logs.map(log => log.id)
             const requestedTimeIn = truncateToMinute(new Date(timeIn))
             const requestedTimeOut = truncateToMinute(new Date(timeOut))
-            
             const response = await fetch("/api/interns/time-log-edit-session", {
               method: "POST",
               headers: {
@@ -132,7 +128,6 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
                 isAdminEdit: true // Flag to auto-approve
               }),
             })
-            
             if (!response.ok) {
               throw new Error("Failed to update continuous session")
             }
@@ -141,14 +136,19 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
           // For single logs, handle normally
           const log = session.logs[0]
           const updates: { time_in?: string; time_out?: string } = {}
-          
+          // Only update time_in if provided and different
           if (timeIn && timeIn !== (log.time_in ? new Date(log.time_in).toISOString().slice(0, 16) : "")) {
             updates.time_in = truncateToMinute(new Date(timeIn))
           }
+          // Only update time_out if provided and different
           if (timeOut && timeOut !== (log.time_out ? new Date(log.time_out).toISOString().slice(0, 16) : "")) {
             updates.time_out = truncateToMinute(new Date(timeOut))
           }
-          
+          // If the log is still active (no time_out in DB and no timeOut in edit), do not set time_out
+          if (!log.time_out && !timeOut) {
+            delete updates.time_out
+          }
+          // If there are updates to apply
           if (Object.keys(updates).length > 0) {
             // Admin edits now go through the same edit request system but are auto-approved
             const response = await fetch("/api/interns/time-log-edit", {
@@ -160,12 +160,12 @@ export function EditTimeLogDialog({ logs, onDelete, isLoading, isAdmin = false, 
               body: JSON.stringify({
                 logId: log.id,
                 time_in: updates.time_in,
-                time_out: updates.time_out,
+                // Only send time_out if it is present in updates
+                ...(typeof updates.time_out !== 'undefined' ? { time_out: updates.time_out } : {}),
                 userId: user?.id,
                 isAdminEdit: isAdmin // Flag to auto-approve if admin
               }),
             })
-            
             if (!response.ok) {
               throw new Error("Failed to update time log")
             }

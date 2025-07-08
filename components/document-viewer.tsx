@@ -4,7 +4,7 @@
  */
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { 
   Dialog, 
@@ -249,46 +249,36 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
     
     // Transform timeLogsDetails to TimeLogDisplay format for session processing
     const transformedLogs: TimeLogDisplay[] = content.timeLogsDetails.map((log, index) => {
-      // Parse the AM/PM time format and convert to ISO string for calculations
       const timeInDate = parseDateTime(log.date, log.timeIn)
       const timeOutDate = parseDateTime(log.date, log.timeOut)
-      
       return {
-        id: index + 1, // Generate an ID
-        time_in: timeInDate.toISOString(), // ISO string for calculations
-        time_out: timeOutDate.toISOString(), // ISO string for calculations
+        id: index + 1,
+        time_in: timeInDate.toISOString(),
+        time_out: timeOutDate.toISOString(),
         log_type: log.logType as "regular" | "overtime" | "extended_overtime",
         status: log.status as "pending" | "completed",
         overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
-        user_id: 1, // Default user ID
-        internId: 1 // Default intern ID
+        user_id: 1,
+        internId: 1
       }
     })
+
+    // Group logs by intern and date for display count (like daily-time-record and admin dashboard)
+    const groupedLogs = groupLogsByDate(transformedLogs);
 
     // Calculate accurate hours summary from time logs - simplified approach
     const calculateHoursSummary = () => {
       let totalRegularHours = 0
-      let totalApprovedOvertimeHours = 0
-      
       try {
-        // Process each log entry directly without complex session processing
+        // Only sum up regular hours from logs
         content.timeLogsDetails.forEach(log => {
-          // Parse times
-          const timeIn = parseDateTime(log.date, log.timeIn)
-          const timeOut = parseDateTime(log.date, log.timeOut)
-          
-          // Calculate duration in hours
-          const durationMs = timeOut.getTime() - timeIn.getTime()
-          const durationHours = durationMs / (1000 * 60 * 60)
-          
           if (log.logType === "regular") {
-            // Add all regular hours directly
+            const timeIn = parseDateTime(log.date, log.timeIn)
+            const timeOut = parseDateTime(log.date, log.timeOut)
+            const durationMs = timeOut.getTime() - timeIn.getTime()
+            const durationHours = durationMs / (1000 * 60 * 60)
             totalRegularHours += durationHours
-          } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
-            // Only add approved overtime hours
-            totalApprovedOvertimeHours += durationHours
           }
-          // Skip rejected or pending overtime
         })
       } catch (error) {
         console.error('Error calculating hours summary:', error)
@@ -299,12 +289,14 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
           totalHoursRendered: content.totalHours
         }
       }
-      
-      // Format final values with proper decimal precision
+
+      // The "total hours rendered" is the internship progress (completed hours)
+      const totalRendered = typeof content.totalHours === 'number' ? content.totalHours : parseFloat(String(content.totalHours)) || 0
       const regularHoursFormatted = Number(truncateTo2Decimals(totalRegularHours))
-      const approvedOvertimeHoursFormatted = Number(truncateTo2Decimals(totalApprovedOvertimeHours))
-      const totalRendered = Number(truncateTo2Decimals(regularHoursFormatted + approvedOvertimeHoursFormatted))
-      
+      // Approved overtime is the difference between total rendered and regular hours
+      const approvedOvertimeHours = Math.max(0, totalRendered - regularHoursFormatted)
+      const approvedOvertimeHoursFormatted = Number(truncateTo2Decimals(approvedOvertimeHours))
+
       return {
         regularHours: regularHoursFormatted,
         approvedOvertimeHours: approvedOvertimeHoursFormatted,
@@ -401,7 +393,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                     ${completedHours.toFixed(2)}h / ${requiredHours}h
                     ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
+                        (+${(totalHours - requiredHours).toFixed(2)})
                       </span>` : ''
                     }
                   </span>
@@ -433,7 +425,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
             <div class="card-header">
               <h3 class="card-title">Daily Time Record</h3>
               <p style="font-size: 14px; color: #6b7280; margin: 4px 0 0 0;">
-                Document No: ${content.documentNumber} • Showing ${content.timeLogsDetails.length} time records
+                Showing ${groupedLogs.length} of ${groupedLogs.length} time records
               </p>
             </div>
             <div style="overflow-x: auto;">
@@ -591,9 +583,12 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                 <p class="text-gray-600 mb-4">This document has been officially verified and approved by:</p><br>
                 <p class="font-medium" style="font-size: 18px;">${content.adminSignature}</p>
                 <p class="text-gray-600">${content.adminTitle}</p>
-                <p class="text-gray-600 mt-4">
-                  Date Issued: ${new Date(content.issueDate).toLocaleDateString()}
+                <p class="text-gray-600 mt-10">
+                  Date Issued: ${new Date(content.issueDate).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </p>
+                <p class="text-gray-600">
+                  Document No: ${content.documentNumber}
+                </p>                
               </div>
             </div>
           </div>
@@ -830,48 +825,45 @@ function DTRPreview({ content }: { content: DTRContent }) {
     }
   })
 
-  // Use the same centralized calculation logic as intern-dtr.tsx
-  const [timeStats, setTimeStats] = useState({
-    regularHours: 0,
-    approvedOvertimeHours: 0,
-    totalHoursRendered: 0
-  })
 
-  useEffect(() => {
-    if (transformedLogs.length === 0) {
-      setTimeStats({ regularHours: 0, approvedOvertimeHours: 0, totalHoursRendered: 0 })
-      return
-    }
-    
-    let totalRegularHours = 0
-    let totalApprovedOvertimeHours = 0
-    
-    // Process each log entry directly - simplified calculation
-    content.timeLogsDetails.forEach(log => {
-      // Parse times
-      const timeIn = parseDateTime(log.date, log.timeIn)
-      const timeOut = parseDateTime(log.date, log.timeOut)
-      
-      // Calculate duration in hours
-      const durationMs = timeOut.getTime() - timeIn.getTime()
-      const durationHours = durationMs / (1000 * 60 * 60)
-      
-      if (log.logType === "regular") {
-        // Add all regular hours directly
-        totalRegularHours += durationHours
-      } else if ((log.logType === "overtime" || log.logType === "extended_overtime") && log.overtimeStatus === "approved") {
-        // Only add approved overtime hours
-        totalApprovedOvertimeHours += durationHours
+
+  // Group logs by intern and date for display count (like daily-time-record and admin dashboard)
+  const groupedLogs = groupLogsByDate(transformedLogs);
+
+  // Use centralized calculation for summary (matches dashboard/DTR logic)
+  // Regular hours calculation remains the same
+  const regularHours = Number(truncateTo2Decimals(
+    transformedLogs.reduce((acc, log) => {
+      // Only count regular logs, capped per day
+      if (log.log_type === "regular" && log.time_in && log.time_out) {
+        const dateStr = log.time_in.slice(0, 10);
+        acc.byDate[dateStr] = (acc.byDate[dateStr] || 0) + (new Date(log.time_out).getTime() - new Date(log.time_in).getTime()) / (1000 * 60 * 60);
       }
-      // Skip rejected or pending overtime
-    })
-    
-    setTimeStats({
-      regularHours: Number(truncateTo2Decimals(totalRegularHours)),
-      approvedOvertimeHours: Number(truncateTo2Decimals(totalApprovedOvertimeHours)),
-      totalHoursRendered: Number(truncateTo2Decimals(totalRegularHours + totalApprovedOvertimeHours))
-    })
-  }, [content.timeLogsDetails, requiredHours, transformedLogs.length])
+      return acc;
+    }, { byDate: {} } as { byDate: Record<string, number> }).byDate
+      ? Object.values(
+          transformedLogs.reduce((acc, log) => {
+            if (log.log_type === "regular" && log.time_in && log.time_out) {
+              const dateStr = log.time_in.slice(0, 10);
+              acc[dateStr] = (acc[dateStr] || 0) + (new Date(log.time_out).getTime() - new Date(log.time_in).getTime()) / (1000 * 60 * 60);
+            }
+            return acc;
+          }, {} as Record<string, number>)
+        ).reduce((sum, h) => sum + Math.min(h, 9), 0)
+      : 0
+  ));
+
+  // Total hours rendered is the internship progress (hours completed/submitted)
+  const totalHoursRendered = Number(truncateTo2Decimals(totalHours));
+
+  // Approved overtime is the difference between total hours rendered and regular hours
+  const approvedOvertimeHours = Number(truncateTo2Decimals(totalHoursRendered - regularHours));
+
+  const timeStats = {
+    regularHours,
+    approvedOvertimeHours,
+    totalHoursRendered,
+  };
 
   return (
     <div className="bg-white">
@@ -925,7 +917,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                   {completedHours.toFixed(2)}h / {requiredHours}h
                   {totalHours > requiredHours && (
                     <span className="text-yellow-600 ml-2 text-sm">
-                      (+{(totalHours - requiredHours).toFixed(2)}h overtime)
+                      (+{(totalHours - requiredHours).toFixed(2)})
                     </span>
                   )}
                 </span>
@@ -963,6 +955,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
         </div>
       </div>
 
+
       {/* Time Logs Table - Exact same format as daily-time-record.tsx */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
         <div className="px-6 py-4 border-b border-gray-200">
@@ -970,7 +963,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
             <div>
               <h3 className="text-lg font-medium">Daily Time Record</h3>
               <p className="text-sm text-gray-600">
-                Document No: {content.documentNumber} • Showing {content.timeLogsDetails.length} time records
+                Showing {groupedLogs.length} of {groupedLogs.length} time records
               </p>
             </div>
           </div>
@@ -1225,16 +1218,16 @@ function DTRPreview({ content }: { content: DTRContent }) {
         <div className="px-6 py-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{timeStats.regularHours.toFixed(2)}</div>
-              <div className="text-sm text-gray-600">Regular Hours</div>
+              <span className="block text-4xl font-bold text-blue-600">{timeStats.regularHours.toFixed(2)}</span>
+              <span className="block text-gray-600 mt-1">Regular Hours</span>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{timeStats.approvedOvertimeHours.toFixed(2)}</div>
-              <div className="text-sm text-gray-600">Approved Overtime</div>
+              <span className="block text-4xl font-bold text-purple-600">{timeStats.approvedOvertimeHours.toFixed(2)}</span>
+              <span className="block text-gray-600 mt-1">Approved Overtime</span>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{timeStats.totalHoursRendered.toFixed(2)}</div>
-              <div className="text-sm text-gray-600">Total Hours Rendered</div>
+              <span className="block text-4xl font-bold text-green-600">{timeStats.totalHoursRendered.toFixed(2)}</span>
+              <span className="block text-gray-600 mt-1">Total Hours Rendered</span>
             </div>
           </div>
         </div>
@@ -1250,8 +1243,11 @@ function DTRPreview({ content }: { content: DTRContent }) {
             <p className="text-sm text-gray-600 mb-4">This document has been officially verified and approved by:</p>
             <p className="font-medium text-lg">{content.adminSignature}</p>
             <p className="text-sm text-gray-600">{content.adminTitle}</p>
-            <p className="text-sm text-gray-500 mt-4">
-              Date Issued: {new Date(content.issueDate).toLocaleDateString()}
+            <p className="text-sm text-gray-500 mt-10">
+              Date Issued: {new Date(content.issueDate).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+            <p className="text-sm text-gray-500">
+              Document No: {content.documentNumber}
             </p>
           </div>
         </div>

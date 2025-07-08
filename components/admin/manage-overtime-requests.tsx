@@ -1334,8 +1334,9 @@ export function OvertimeLogsDashboard() {
                   size="sm"
                   disabled={migrationLoading}
                   className="shrink-0"
+                  title="Split long logs to manage overtime sessions."
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`}/>
                   {migrationLoading ? 'Processing...' : `Split ${migrationStatus.count} Long Logs`}
                 </Button>
               )}
@@ -1361,6 +1362,7 @@ export function OvertimeLogsDashboard() {
                     <TableHead>Duration</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Approved By</TableHead>
+                    <TableHead>Notes</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -1556,6 +1558,45 @@ export function OvertimeLogsDashboard() {
                                 <span className="text-gray-400">—</span>
                               )}
                             </TableCell>
+                            <TableCell>
+                              {(() => {
+                                // Find unique notes from any log in this session
+                                const notesFromSession = session.logs
+                                  .map(log => sortedLogs.find(l => l.id === log.id)?.notes)
+                                  .filter((note): note is string => note != null && note.trim() !== '')
+                                
+                                if (notesFromSession.length === 0) {
+                                  return <span className="text-gray-400">—</span>
+                                }
+                                
+                                // Remove duplicates for continuous sessions
+                                const uniqueNotes = Array.from(new Set(notesFromSession))
+                                const combinedNotes = uniqueNotes.join('; ')
+                                
+                                return (
+                                  <div className="text-sm max-w-xs">
+                                    <div 
+                                      className="text-gray-700 cursor-help" 
+                                      title="Tasks or notes for this overtime session."
+                                      style={{
+                                        display: '-webkit-box',
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: 'vertical',
+                                        overflow: 'hidden',
+                                        lineHeight: '1.4'
+                                      }}
+                                    >
+                                      {combinedNotes}
+                                    </div>
+                                    {combinedNotes.length > 50 && (
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        Click to view full notes
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
+                            </TableCell>
                             <TableCell className="text-right">
                               {sessionStatus === "pending" && (
                                 <div className="flex gap-2 justify-end">
@@ -1563,6 +1604,7 @@ export function OvertimeLogsDashboard() {
                                     size="sm"
                                     variant="outline"
                                     className="text-green-600 border-green-300 hover:bg-green-50"
+                                    title="Approve Overtime"
                                     onClick={async () => {
                                       // Approve all logs in this session
                                       await handleSessionStatusUpdate(session.logs, "approved")
@@ -1579,6 +1621,7 @@ export function OvertimeLogsDashboard() {
                                     size="sm"
                                     variant="outline"
                                     className="text-red-600 border-red-300 hover:bg-red-50"
+                                    title="Reject Overtime"
                                     onClick={async () => {
                                       // Reject all logs in this session
                                       await handleSessionStatusUpdate(session.logs, "rejected")
