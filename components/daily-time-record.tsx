@@ -1,3 +1,20 @@
+/**
+ * DailyTimeRecord Component
+ * 
+ * Displays daily time logs for interns, supporting admin and intern roles.
+ * - Groups logs by date and processes sessions for regular and overtime hours.
+ * - Handles edit requests, including continuous session edits.
+ * - Provides UI for sorting, editing, and deleting logs.
+ * - Applies visual indicators for pending edits and log statuses.
+ * 
+ * Props:
+ *   - logs: TimeLogDisplay[] - Array of time log entries.
+ *   - internId?: string - Optional filter for a specific intern.
+ *   - loading?: boolean - Loading state.
+ *   - error?: string | null - Error message.
+ *   - onTimeLogUpdate?: () => void - Callback after log update.
+ */
+
 "use client"
 
 import { Badge } from "@/components/ui/badge"
@@ -45,7 +62,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
   const { user } = useAuth()
   const [isUpdating, setIsUpdating] = useState(false)
   const [showActions, setShowActions] = useState(false)
-  // Sort state management - centralized
   const { sortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
   const [editRequests, setEditRequests] = useState<EditLogRequest[]>([])
   const isAdmin = user?.role === "admin"
@@ -71,12 +87,12 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     fetchEditRequestsData()
   }, [logs])
 
-  // Helper function to get pending edit request for a log
+  // Returns pending edit request for a log, if any
   const getPendingEditRequest = (logId: number): EditLogRequest | null => {
     return editRequests.find(req => req.logId === logId && req.status === "pending") || null
   }
 
-  // Helper function to get continuous session edit request that affects multiple logs
+  // Returns continuous session edit request affecting given logIds, if any
   const getContinuousSessionEditRequest = (logIds: number[]): EditLogRequest | null => {
     return editRequests.find(req => {
       if (req.status !== "pending" || !req.metadata) return false
@@ -95,7 +111,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     }) || null
   }
 
-  // Helper function to create modified log with pending request data
+  // Returns log with pending edit request data applied
   const getLogWithPendingData = (log: TimeLogDisplay): TimeLogDisplay => {
     const pendingRequest = getPendingEditRequest(log.id)
     if (pendingRequest) {
@@ -108,7 +124,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     return log
   }
 
-  // Helper function to apply continuous session edit requests to logs
+  // Applies continuous session edit requests to logs
   const getLogsWithContinuousSessionEdits = (logs: TimeLogDisplay[]): TimeLogDisplay[] => {
     const logIds = logs.map(log => log.id)
     const continuousRequest = getContinuousSessionEditRequest(logIds)
@@ -146,22 +162,10 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
     return logs.map(log => getLogWithPendingData(log))
   }
 
-  // Check if a log has pending edit request (individual or continuous session)
+  // Returns true if a log has a pending edit request (individual or continuous session)
   const hasPendingEdit = (logId: number): boolean => {
     return getPendingEditRequest(logId) !== null || getContinuousSessionEditRequest([logId]) !== null
   }
-
-  // Get yellow badge props for pending edit requests
-  // const getPendingBadgeProps = (originalBadgeProps: any, logId: number) => {
-  //   if (hasPendingEdit(logId)) {
-  //     return {
-  //       ...originalBadgeProps,
-  //       variant: "outline" as const,
-  //       className: "bg-yellow-100 text-yellow-700 border-yellow-300"
-  //     }
-  //   }
-  //   return originalBadgeProps
-  // }
 
   const handleTimeLogDelete = async (logId: number) => {
     if (!isAdmin) return
@@ -188,8 +192,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
       setIsUpdating(false)
     }
   }
-
-
 
   if (loading) {
     return <div className="text-center text-gray-500 py-8">Loading logs...</div>
@@ -309,7 +311,6 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                             // If any session is active (in progress), use minTimeIn for day and date
                             const anyActive = sessions.some(s => s.isActive)
                             if (anyActive && minTimeIn) {
-                              // Always show day above date for active sessions
                               return (
                                 <>
                                   <span className="text-xs text-gray-500">{formatDay(minTimeIn)}</span>

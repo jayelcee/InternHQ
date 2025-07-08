@@ -1,3 +1,23 @@
+/**
+ * TimeTracking component for manual and overtime tracking for interns.
+ * Handles regular, overtime, and extended overtime sessions, including confirmation dialogs and overtime notes.
+ * 
+ * Props:
+ * - isTimedIn: Is user clocked in for regular session
+ * - timeInTimestamp: Start time of current session
+ * - actionLoading: Is any action loading
+ * - loadingAction: Which action is loading
+ * - freezeSessionAt: If session calculations are frozen
+ * - autoTimeoutTriggered: If session was auto-timed out
+ * - handleTimeIn: Handler for time in
+ * - handleTimeOut: Handler for time out
+ * - onOvertimeConfirmationShow/Hide: Callbacks for overtime dialog
+ * - isOvertimeSession, isOvertimeIn, overtimeInTimestamp: Overtime session state
+ * - isExtendedOvertimeIn, extendedOvertimeInTimestamp: Extended overtime state
+ * - todayTotalHours: Total hours worked today
+ * - hasReachedDailyRequirement, hasReachedOvertimeLimit: Overtime thresholds
+ */
+
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -7,9 +27,6 @@ import { Timer } from "lucide-react"
 import { useState } from "react"
 import { DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS } from "@/lib/time-utils"
 
-/**
- * Props for the TimeTracking component
- */
 interface TimeTrackingProps {
   isTimedIn: boolean
   timeInTimestamp: Date | null
@@ -32,7 +49,7 @@ interface TimeTrackingProps {
 }
 
 /**
- * TimeTracking component handles manual time tracking functionality for interns.
+ * Main TimeTracking component.
  */
 export function TimeTracking({
   isTimedIn,
@@ -62,21 +79,19 @@ export function TimeTracking({
     hasExtendedOvertime: boolean
   } | null>(null)
   const [overtimeNote, setOvertimeNote] = useState("")
-  // Determine which session is currently active
+
+  // Session state helpers
   const currentSessionActive = isTimedIn || isOvertimeIn || isExtendedOvertimeIn
   const currentTimestamp = isExtendedOvertimeIn 
     ? extendedOvertimeInTimestamp 
     : isOvertimeIn 
       ? overtimeInTimestamp 
       : timeInTimestamp
-  
-  // Determine session type and context
+
   const isInOvertimePortion = hasReachedDailyRequirement && isTimedIn && !isOvertimeIn && !isExtendedOvertimeIn
   const isInExtendedOvertimePortion = hasReachedOvertimeLimit && (isTimedIn || isOvertimeIn) && !isExtendedOvertimeIn
-  
-  // Check if user has exceeded max standard overtime (past 12 hours total today)
   const hasPastMaxStandardOvertime = todayTotalHours > (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS)
-  
+
   const sessionType = isExtendedOvertimeIn 
     ? "extended_overtime" 
     : isOvertimeIn 
@@ -86,36 +101,31 @@ export function TimeTracking({
         : isInOvertimePortion 
           ? "overtime-portion" 
           : "regular"
-  
-  // Calculate overtime and extended overtime start times for continuous sessions
+
   const overtimeStartTime = (isInOvertimePortion || isInExtendedOvertimePortion) && timeInTimestamp 
     ? new Date(timeInTimestamp.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
     : isOvertimeIn ? overtimeInTimestamp : null
-    
+
   const extendedOvertimeStartTime = isInExtendedOvertimePortion && timeInTimestamp
     ? new Date(timeInTimestamp.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
     : isExtendedOvertimeIn ? extendedOvertimeInTimestamp : null
-  
-  // Determine if the next log would be overtime or extended overtime
-  // Consider both current active sessions and total hours worked today
-  const totalWorkedToday = todayTotalHours + (currentSessionActive ? 0 : 0) // todayTotalHours already includes active sessions
+
+  const totalWorkedToday = todayTotalHours
   const nextWillBeExtendedOvertime = totalWorkedToday >= (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) && !currentSessionActive
   const nextWillBeOvertime = totalWorkedToday >= DAILY_REQUIRED_HOURS && totalWorkedToday < (DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) && !currentSessionActive
 
-  // Handle timeout with overtime confirmation when needed
+  /**
+   * Handles time out, showing overtime confirmation dialog if needed.
+   */
   const handleTimeOutWithConfirmation = () => {
-    // Check for separate overtime session timeout
+    // Overtime session timeout
     if (isOvertimeIn && overtimeInTimestamp) {
       const sessionDurationHours = (Date.now() - overtimeInTimestamp.getTime()) / (1000 * 60 * 60)
-      
-      // Helper function to format duration
       const formatDuration = (hours: number) => {
         const h = Math.floor(hours)
         const m = Math.floor((hours % 1) * 60)
         return `${h}h ${m.toString().padStart(2, '0')}m`
       }
-
-      // Show overtime confirmation dialog for separate overtime session
       setOvertimeDialogData({ 
         sessionDuration: formatDuration(sessionDurationHours), 
         standardOvertimeDuration: formatDuration(sessionDurationHours),
@@ -124,25 +134,19 @@ export function TimeTracking({
         hasExtendedOvertime: false
       })
       setShowOvertimeDialog(true)
-      
-      // Freeze calculations at the current time
       const freezeTime = new Date()
       onOvertimeConfirmationShow?.(freezeTime)
       return
     }
 
-    // Check for separate extended overtime session timeout
+    // Extended overtime session timeout
     if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
       const sessionDurationHours = (Date.now() - extendedOvertimeInTimestamp.getTime()) / (1000 * 60 * 60)
-      
-      // Helper function to format duration
       const formatDuration = (hours: number) => {
         const h = Math.floor(hours)
         const m = Math.floor((hours % 1) * 60)
         return `${h}h ${m.toString().padStart(2, '0')}m`
       }
-
-      // Show extended overtime confirmation dialog
       setOvertimeDialogData({ 
         sessionDuration: formatDuration(sessionDurationHours), 
         standardOvertimeDuration: "0h 00m",
@@ -151,61 +155,45 @@ export function TimeTracking({
         hasExtendedOvertime: true
       })
       setShowOvertimeDialog(true)
-      
-      // Freeze calculations at the current time
       const freezeTime = new Date()
       onOvertimeConfirmationShow?.(freezeTime)
       return
     }
 
-    // Handle continuous session overtime (existing logic)
+    // Continuous session overtime
     if (isTimedIn && timeInTimestamp && todayTotalHours > DAILY_REQUIRED_HOURS) {
-      // Calculate how much of today's total time comes from the current session
       const sessionDurationHours = (Date.now() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
       const previousHoursToday = todayTotalHours - sessionDurationHours
-      
-      // Check if this single session would put them over required hours for the day
       if (previousHoursToday + sessionDurationHours > DAILY_REQUIRED_HOURS) {
         const totalOvertimeHours = Math.max(0, (previousHoursToday + sessionDurationHours) - DAILY_REQUIRED_HOURS)
-        
-        // Calculate standard overtime and extended overtime
         const standardOvertimeHours = Math.min(totalOvertimeHours, MAX_OVERTIME_HOURS)
         const extendedOvertimeHours = Math.max(0, totalOvertimeHours - MAX_OVERTIME_HOURS)
         const hasExtendedOvertime = extendedOvertimeHours > 0
-        
-        // Helper function to format duration
         const formatDuration = (hours: number) => {
           const h = Math.floor(hours)
           const m = Math.floor((hours % 1) * 60)
           return `${h}h ${m.toString().padStart(2, '0')}m`
         }
-
-        // Show dialog with overtime confirmation
-        const sessionDuration = formatDuration(sessionDurationHours)
-        const standardOvertimeDuration = formatDuration(standardOvertimeHours)
-        const extendedOvertimeDuration = formatDuration(extendedOvertimeHours)
-        const totalOvertimeDuration = formatDuration(totalOvertimeHours)
-        
         setOvertimeDialogData({ 
-          sessionDuration, 
-          standardOvertimeDuration,
-          extendedOvertimeDuration,
-          totalOvertimeDuration,
+          sessionDuration: formatDuration(sessionDurationHours), 
+          standardOvertimeDuration: formatDuration(standardOvertimeHours),
+          extendedOvertimeDuration: formatDuration(extendedOvertimeHours),
+          totalOvertimeDuration: formatDuration(totalOvertimeHours),
           hasExtendedOvertime
         })
         setShowOvertimeDialog(true)
-        
-        // Freeze calculations at the current time
         const freezeTime = new Date()
         onOvertimeConfirmationShow?.(freezeTime)
         return
       }
     }
-    
-    // Normal timeout for all other cases
+    // Normal timeout
     handleTimeOut()
   }
 
+  /**
+   * Closes overtime dialog and resets state.
+   */
   const handleDialogClose = () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
@@ -213,13 +201,14 @@ export function TimeTracking({
     onOvertimeConfirmationHide?.()
   }
 
+  /**
+   * Discards overtime for current session.
+   */
   const handleDiscardOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     setOvertimeNote("")
     onOvertimeConfirmationHide?.()
-    
-    // For separate overtime/extended overtime sessions, delete the log from database
     if (isOvertimeIn && overtimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -228,23 +217,11 @@ export function TimeTracking({
           credentials: 'include',
           body: JSON.stringify({ discardOvertime: true })
         })
-        
-        if (!response.ok) {
-          // For separate overtime sessions, a 400 error is expected when the log is successfully deleted
-          // The backend deletes the log and returns an error because there's no log to update
-          // This is the expected behavior, so we don't need to show an error
-          if (response.status === 400) {
-            console.log('Overtime session successfully discarded (log deleted)')
-          } else {
-            console.error('Failed to discard overtime session')
-          }
+        if (!response.ok && response.status !== 400) {
+          // Only log error if not expected 400
         }
-        
-        // Force a page refresh to update the UI state
         window.location.reload()
-      } catch (error) {
-        console.error('Error discarding overtime session:', error)
-      }
+      } catch {}
     } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -253,33 +230,23 @@ export function TimeTracking({
           credentials: 'include',
           body: JSON.stringify({ discardOvertime: true })
         })
-        
-        if (!response.ok) {
-          // For separate overtime sessions, a 400 error is expected when the log is successfully deleted
-          if (response.status === 400) {
-            console.log('Extended overtime session successfully discarded (log deleted)')
-          } else {
-            console.error('Failed to discard extended overtime session')
-          }
+        if (!response.ok && response.status !== 400) {
+          // Only log error if not expected 400
         }
-        
-        // Force a page refresh to update the UI state
         window.location.reload()
-      } catch (error) {
-        console.error('Error discarding extended overtime session:', error)
-      }
+      } catch {}
     } else {
-      // For continuous sessions, use the existing logic
       handleTimeOut(undefined, false, undefined, true)
     }
   }
 
+  /**
+   * Confirms only standard overtime for current session.
+   */
   const handleConfirmStandardOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     onOvertimeConfirmationHide?.()
-    
-    // For separate overtime sessions, complete with note
     if (isOvertimeIn && overtimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -291,16 +258,8 @@ export function TimeTracking({
             overtimeNote: overtimeNote.trim()
           })
         })
-        
-        if (!response.ok) {
-          console.error('Failed to complete overtime session')
-        } else {
-          // Force a page refresh to update the UI state
-          window.location.reload()
-        }
-      } catch (error) {
-        console.error('Error completing overtime session:', error)
-      }
+        if (response.ok) window.location.reload()
+      } catch {}
     } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -312,18 +271,9 @@ export function TimeTracking({
             overtimeNote: overtimeNote.trim()
           })
         })
-        
-        if (!response.ok) {
-          console.error('Failed to complete extended overtime session')
-        } else {
-          // Force a page refresh to update the UI state
-          window.location.reload()
-        }
-      } catch (error) {
-        console.error('Error completing extended overtime session:', error)
-      }
+        if (response.ok) window.location.reload()
+      } catch {}
     } else {
-      // For continuous sessions, calculate cutoff time for standard overtime (9 + 3 = 12 hours from start)
       if (timeInTimestamp) {
         const maxStandardOvertimeCutoff = new Date(timeInTimestamp.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
         handleTimeOut(maxStandardOvertimeCutoff, false, undefined, false, overtimeNote.trim())
@@ -334,12 +284,13 @@ export function TimeTracking({
     setOvertimeNote("")
   }
 
+  /**
+   * Confirms all overtime for current session.
+   */
   const handleConfirmAllOvertime = async () => {
     setShowOvertimeDialog(false)
     setOvertimeDialogData(null)
     onOvertimeConfirmationHide?.()
-    
-    // For separate overtime/extended overtime sessions, complete with note
     if (isOvertimeIn && overtimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -351,16 +302,8 @@ export function TimeTracking({
             overtimeNote: overtimeNote.trim()
           })
         })
-        
-        if (!response.ok) {
-          console.error('Failed to complete overtime session')
-        } else {
-          // Force a page refresh to update the UI state
-          window.location.reload()
-        }
-      } catch (error) {
-        console.error('Error completing overtime session:', error)
-      }
+        if (response.ok) window.location.reload()
+      } catch {}
     } else if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
       try {
         const response = await fetch('/api/time-logs/clock-out', {
@@ -372,18 +315,9 @@ export function TimeTracking({
             overtimeNote: overtimeNote.trim()
           })
         })
-        
-        if (!response.ok) {
-          console.error('Failed to complete extended overtime session')
-        } else {
-          // Force a page refresh to update the UI state
-          window.location.reload()
-        }
-      } catch (error) {
-        console.error('Error completing extended overtime session:', error)
-      }
+        if (response.ok) window.location.reload()
+      } catch {}
     } else {
-      // For continuous sessions, use existing logic
       handleTimeOut(undefined, false, undefined, false, overtimeNote.trim())
     }
     setOvertimeNote("")

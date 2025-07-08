@@ -1,3 +1,9 @@
+/**
+ * Main entry page for InternHQ.
+ * - Handles authentication and role-based dashboard rendering.
+ * - Wraps content in AuthProvider for global auth state.
+ */
+
 "use client"
 
 import { AuthProvider, useAuth } from "@/contexts/auth-context"
@@ -5,6 +11,9 @@ import { LoginForm } from "@/components/login-form"
 import { InternDashboard } from "@/components/intern/intern-dashboard"
 import { AdminDashboard } from "@/components/admin/admin-dashboard"
 
+/**
+ * AppContent handles conditional rendering based on authentication state and user role.
+ */
 function AppContent() {
   const { user, isLoading } = useAuth()
 
@@ -23,15 +32,18 @@ function AppContent() {
     return <LoginForm />
   }
 
-  // For HR Admin users, show the admin interface with navigation
+  // Render admin dashboard for HR Admin users
   if (user.role === "admin") {
     return <AdminDashboard />
   }
 
-  // For intern users, show the simple intern dashboard (no navigation tabs)
+  // Render intern dashboard for intern users
   return <InternDashboard />
 }
 
+/**
+ * App wraps the application in the AuthProvider.
+ */
 export default function App() {
   return (
     <AuthProvider>

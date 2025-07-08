@@ -1,5 +1,21 @@
 "use client"
 
+/**
+ * ThisWeekLogs Component
+ * 
+ * Displays a weekly view of time logs with session grouping and overtime calculations.
+ * Utilizes centralized session processing utilities for consistent business logic.
+ * 
+ * Props:
+ * - weeklyLogs: Array of time log entries for the week
+ * - loading: Loading state
+ * - error: Error message, if any
+ * - currentTime: Current time for session calculations
+ * - isTimedIn, isOvertimeIn: Flags for active sessions
+ * - timeInTimestamp, overtimeInTimestamp: Timestamps for active sessions
+ * - freezeAt: Optional override for current time (e.g., for reporting)
+ */
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
@@ -19,12 +35,6 @@ interface ThisWeekLogsProps {
   freezeAt?: Date | null
 }
 
-/**
- * ThisWeekLogs Component
- * 
- * Displays a weekly view of time logs with session grouping and overtime calculations.
- * Uses centralized session processing utilities for consistent business logic.
- */
 export function ThisWeekLogs({ 
   weeklyLogs, 
   loading, 
@@ -64,8 +74,8 @@ export function ThisWeekLogs({
               <TableBody>
                 {groupLogsByDate(weeklyLogs).map(([key, logsForDate]) => {
                   // Extract date part from the group key (format: "internId-YYYY-MM-DD")
-                  const datePart = key.split("-").slice(-3).join("-") // gets "YYYY-MM-DD"
-                  const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD format
+                  const datePart = key.split("-").slice(-3).join("-")
+                  const today = new Date().toLocaleDateString('en-CA')
                   const isToday = datePart === today
 
                   // Add active dashboard session if no database logs exist for today
@@ -80,7 +90,6 @@ export function ThisWeekLogs({
                         log_type: "regular"
                       })
                     }
-                    
                     if (isOvertimeIn && overtimeInTimestamp) {
                       activeLogs.push({
                         id: -2,
@@ -95,8 +104,7 @@ export function ThisWeekLogs({
                   // Process sessions using centralized logic
                   const sessionData = processTimeLogSessions(activeLogs, freezeAt || currentTime)
 
-                  // --- Date column logic copied from daily-time-record.tsx ---
-                  // Find the earliest timeIn and latest timeOut in the sessions for this date group
+                  // Date column: show range if session spans multiple days, else show single date
                   const sessions = sessionData.sessions
                   const validTimeIns = sessions.map(s => s.timeIn).filter((d): d is string => !!d)
                   const validTimeOuts = sessions.map(s => s.timeOut).filter((d): d is string => !!d)
@@ -108,7 +116,6 @@ export function ThisWeekLogs({
                   if (validTimeOuts.length) {
                     maxTimeOut = new Date(validTimeOuts.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)))
                   }
-                  // Format: MMM d, yyyy (e.g., Jun 19, 2025)
                   const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                   const formatDay = (date: Date) => date.toLocaleDateString("en-US", { weekday: "short" })
 
@@ -123,7 +130,6 @@ export function ThisWeekLogs({
                               const startDay = formatDay(minTimeIn)
                               const endDay = formatDay(maxTimeOut)
                               if (startDate !== endDate) {
-                                // Spans two dates, show as range with days above
                                 return (
                                   <>
                                     <span className="text-xs text-gray-500">{startDay} – {endDay}</span>
@@ -131,7 +137,6 @@ export function ThisWeekLogs({
                                   </>
                                 )
                               } else {
-                                // Single date, show day above
                                 return (
                                   <>
                                     <span className="text-xs text-gray-500">{startDay}</span>
@@ -140,8 +145,6 @@ export function ThisWeekLogs({
                                 )
                               }
                             } else {
-                              // Fallback to original logic
-                              // Show day above fallback date
                               const fallbackDate = new Date(datePart)
                               const fallbackDay = fallbackDate.toLocaleDateString("en-US", { weekday: "short" })
                               return (
@@ -159,7 +162,6 @@ export function ThisWeekLogs({
                           {sessionData.sessions.map((session, sessionIndex) => {
                             const timeIn = session.timeIn
                             if (!timeIn) return null
-                            
                             const badgeProps = getTimeBadgeProps(
                               timeIn, 
                               session.sessionType, 
@@ -167,7 +169,6 @@ export function ThisWeekLogs({
                               session.overtimeStatus,
                               session.isContinuousSession
                             )
-                            
                             return (
                               <Badge 
                                 key={sessionIndex} 
@@ -185,7 +186,6 @@ export function ThisWeekLogs({
                           {sessionData.sessions.map((session, sessionIndex) => {
                             const timeOut = session.timeOut
                             const isActive = session.isActive
-                            
                             if (isActive) {
                               const badgeProps = getTimeBadgeProps(null, session.sessionType, "active")
                               return (
@@ -223,22 +223,18 @@ export function ThisWeekLogs({
                           {(() => {
                             let previousRegularHours = 0
                             return sessionData.sessions.map((session, sessionIndex) => {
-                              // Use accurate calculation instead of session-utils truncation
                               const accurateCalc = calculateAccurateSessionDuration(
                                 session.logs,
                                 freezeAt || currentTime,
                                 previousRegularHours
                               )
-                              
                               const displayText = formatAccurateHours(accurateCalc.regularHours)
                               const badgeProps = {
                                 variant: "outline" as const,
                                 className: accurateCalc.regularHours > 0 ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-gray-100 text-gray-700 border-gray-300",
                                 text: displayText
                               }
-                              
                               previousRegularHours += accurateCalc.regularHours
-                              
                               return (
                                 <Badge 
                                   key={sessionIndex} 
@@ -257,13 +253,11 @@ export function ThisWeekLogs({
                           {(() => {
                             let previousRegularHours = 0
                             return sessionData.sessions.map((session, sessionIndex) => {
-                              // Use raw calculation for overtime display (shows actual time worked)
                               const rawCalc = calculateRawSessionDuration(
                                 session.logs,
                                 freezeAt || currentTime,
                                 previousRegularHours
                               )
-                              
                               const displayText = formatAccurateHours(rawCalc.overtimeHours)
                               const badgeProps = {
                                 variant: "outline" as const,
@@ -274,10 +268,7 @@ export function ThisWeekLogs({
                                   "bg-gray-100 text-gray-700 border-gray-300",
                                 text: displayText
                               }
-                              
-                              // Update previousRegularHours for next iteration using RAW hours for display consistency
                               previousRegularHours += rawCalc.regularHours
-                              
                               return (
                                 <Badge 
                                   key={sessionIndex}
