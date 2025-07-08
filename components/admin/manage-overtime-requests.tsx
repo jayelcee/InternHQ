@@ -1334,8 +1334,9 @@ export function OvertimeLogsDashboard() {
                   size="sm"
                   disabled={migrationLoading}
                   className="shrink-0"
+                  title="Split long logs to manage overtime sessions."
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 mr-2 ${migrationLoading ? 'animate-spin' : ''}`}/>
                   {migrationLoading ? 'Processing...' : `Split ${migrationStatus.count} Long Logs`}
                 </Button>
               )}
@@ -1563,6 +1564,7 @@ export function OvertimeLogsDashboard() {
                                     size="sm"
                                     variant="outline"
                                     className="text-green-600 border-green-300 hover:bg-green-50"
+                                    title="Approve Overtime"
                                     onClick={async () => {
                                       // Approve all logs in this session
                                       await handleSessionStatusUpdate(session.logs, "approved")
@@ -1579,6 +1581,7 @@ export function OvertimeLogsDashboard() {
                                     size="sm"
                                     variant="outline"
                                     className="text-red-600 border-red-300 hover:bg-red-50"
+                                    title="Reject Overtime"
                                     onClick={async () => {
                                       // Reject all logs in this session
                                       await handleSessionStatusUpdate(session.logs, "rejected")

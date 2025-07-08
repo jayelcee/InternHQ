@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { calculateTimeStatistics } from "@/lib/time-utils"
-import { useToast } from "@/hooks/use-toast"
 import { Progress } from "@/components/ui/progress"
 
 /**
@@ -70,7 +69,6 @@ type InternshipShape = {
  * Admin dashboard for managing interns: add, delete, filter, and view profiles.
  */
 export function ManageInternsDashboard() {
-  const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState("")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [selectedInternId, setSelectedInternId] = useState<string | null>(null)
@@ -82,6 +80,21 @@ export function ManageInternsDashboard() {
   const [isAlertDialogOpen, setIsAlertDialogOpen] = useState(false)
   const [alertContent, setAlertContent] = useState({ title: "", description: "" })
 
+  // States for dropdown data
+  const [departments, setDepartments] = useState<{ id: number; name: string }[]>([])
+  const [schools, setSchools] = useState<{ id: number; name: string }[]>([])
+  const [supervisors, setSupervisors] = useState<{ id: number | string; name: string; first_name?: string; last_name?: string; email?: string }[]>([])
+
+  // States for add new dialog
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [addDialogType, setAddDialogType] = useState<'school' | 'department' | 'supervisor'>('school')
+  const [addDialogData, setAddDialogData] = useState({
+    name: '',
+    firstName: '',
+    lastName: '',
+    email: ''
+  })
+
   // Form states for adding new intern
   const [newIntern, setNewIntern] = useState({
     firstName: "",
@@ -89,8 +102,13 @@ export function ManageInternsDashboard() {
     email: "",
     password: "intern123",
     school: "",
+    schoolId: "",
     degree: "",
     department: "",
+    departmentId: "",
+    supervisor: "",
+    supervisorId: "",
+    supervisorEmail: "",
     requiredHours: "",
     startDate: "",
     endDate: "",
@@ -172,10 +190,43 @@ export function ManageInternsDashboard() {
     fetchAll()
   }, [])
 
-  // Build department list from intern data
-  const departments = Array.from(new Set(interns.map(i => i.department).filter(Boolean))).map(d => ({
-    id: d,
-    name: d,
+  // Fetch dropdown data
+  useEffect(() => {
+    const fetchDropdownData = async () => {
+      try {
+        const [deptRes, schoolRes, supervisorRes] = await Promise.all([
+          fetch("/api/departments"),
+          fetch("/api/schools"),
+          fetch("/api/supervisors")
+        ])
+        
+        const deptData = deptRes.ok ? await deptRes.json() : []
+        const schoolData = schoolRes.ok ? await schoolRes.json() : []
+        const supervisorData = supervisorRes.ok ? await supervisorRes.json() : []
+        
+        setDepartments(Array.isArray(deptData) ? deptData : [])
+        setSchools(Array.isArray(schoolData) ? schoolData : [])
+        setSupervisors(Array.isArray(supervisorData) ? supervisorData.map((sup: { id: number; name?: string; first_name?: string; last_name?: string; email?: string }) => ({
+          id: sup.id,
+          name: sup.name || `${sup.first_name || ""} ${sup.last_name || ""}`.trim(),
+          first_name: sup.first_name,
+          last_name: sup.last_name,
+          email: sup.email
+        })) : [])
+      } catch (error) {
+        console.error("Error fetching dropdown data:", error)
+        setDepartments([])
+        setSchools([])
+        setSupervisors([])
+      }
+    }
+    fetchDropdownData()
+  }, [])
+
+  // Build department filter list from fetched departments
+  const departmentFilterOptions = departments.map(d => ({
+    id: d.id,
+    name: d.name,
   }))
 
   /**
@@ -184,7 +235,7 @@ export function ManageInternsDashboard() {
   const handleAddIntern = async () => {
     try {
       setIsLoading(true)
-      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.degree || !newIntern.department) {
+      if (!newIntern.firstName || !newIntern.lastName || !newIntern.email || !newIntern.school || !newIntern.degree || !newIntern.department || !newIntern.supervisor) {
         setAlertContent({
           title: "Error",
           description: "Please fill all required fields",
@@ -210,8 +261,13 @@ export function ManageInternsDashboard() {
         email: "",
         password: "intern123",
         school: "",
+        schoolId: "",
         degree: "",
         department: "",
+        departmentId: "",
+        supervisor: "",
+        supervisorId: "",
+        supervisorEmail: "",
         requiredHours: "",
         startDate: "",
         endDate: "",
@@ -227,6 +283,54 @@ export function ManageInternsDashboard() {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  /**
+   * Handle adding new entities (school, department, supervisor)
+   */
+  const handleAddNewEntity = () => {
+    if (addDialogType === 'supervisor') {
+      if (!addDialogData.firstName.trim() || !addDialogData.lastName.trim() || !addDialogData.email.trim()) {
+        return
+      }
+      const tempId = `temp_${Date.now()}`
+      const newSupervisor = { 
+        id: tempId, 
+        name: `${addDialogData.firstName.trim()} ${addDialogData.lastName.trim()}`,
+        first_name: addDialogData.firstName.trim(),
+        last_name: addDialogData.lastName.trim(),
+        email: addDialogData.email.trim()
+      }
+      setSupervisors(prev => [...prev, newSupervisor])
+      setNewIntern({ 
+        ...newIntern, 
+        supervisor: newSupervisor.name,
+        supervisorId: tempId,
+        supervisorEmail: addDialogData.email.trim()
+      })
+    } else if (addDialogType === 'school') {
+      if (!addDialogData.name.trim()) return
+      const tempId = `temp_${Date.now()}`
+      const newSchool = { id: tempId as unknown as number, name: addDialogData.name.trim() }
+      setSchools(prev => [...prev, newSchool])
+      setNewIntern({ 
+        ...newIntern, 
+        school: newSchool.name,
+        schoolId: tempId
+      })
+    } else if (addDialogType === 'department') {
+      if (!addDialogData.name.trim()) return
+      const tempId = `temp_${Date.now()}`
+      const newDept = { id: tempId as unknown as number, name: addDialogData.name.trim() }
+      setDepartments(prev => [...prev, newDept])
+      setNewIntern({ 
+        ...newIntern, 
+        department: newDept.name,
+        departmentId: tempId
+      })
+    }
+    setShowAddDialog(false)
+    setAddDialogData({ name: '', firstName: '', lastName: '', email: '' })
   }
 
   /**
@@ -320,7 +424,7 @@ export function ManageInternsDashboard() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
-                {departments.map((dept) => (
+                {departmentFilterOptions.map((dept) => (
                   <SelectItem key={dept.id} value={dept.name}>
                     {dept.name}
                   </SelectItem>
@@ -425,7 +529,7 @@ export function ManageInternsDashboard() {
                 value={newIntern.firstName}
                 onChange={(e) => setNewIntern({ ...newIntern, firstName: e.target.value })}
                 className="col-span-3"
-                placeholder="First name"
+                placeholder="First Name"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -437,7 +541,7 @@ export function ManageInternsDashboard() {
                 value={newIntern.lastName}
                 onChange={(e) => setNewIntern({ ...newIntern, lastName: e.target.value })}
                 className="col-span-3"
-                placeholder="Last name"
+                placeholder="Last Name"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
@@ -457,13 +561,36 @@ export function ManageInternsDashboard() {
               <Label htmlFor="school" className="text-left">
                 School
               </Label>
-              <Input
-                id="school"
-                value={newIntern.school}
-                onChange={(e) => setNewIntern({ ...newIntern, school: e.target.value })}
-                className="col-span-3"
-                placeholder="University/College Name"
-              />
+              <Select
+                value={newIntern.schoolId}
+                onValueChange={(value) => {
+                  if (value === "add_new") {
+                    setAddDialogType('school')
+                    setShowAddDialog(true)
+                  } else {
+                    const selected = schools.find(s => s.id.toString() === value)
+                    setNewIntern({ 
+                      ...newIntern, 
+                      school: selected?.name || "",
+                      schoolId: value
+                    })
+                  }
+                }}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select university" />
+                </SelectTrigger>
+                <SelectContent>
+                  {schools.map(school => (
+                    <SelectItem key={school.id} value={school.id.toString()}>
+                      {school.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="add_new" className="text-blue-600 font-medium">
+                    + Add New University
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="degree" className="text-left">
@@ -476,26 +603,6 @@ export function ManageInternsDashboard() {
                 className="col-span-3"
                 placeholder="Degree Program (e.g. Computer Science)"
               />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="department" className="text-left">
-                Department
-              </Label>
-              <Select
-                value={newIntern.department}
-                onValueChange={(value) => setNewIntern({ ...newIntern, department: value })}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select department" />
-                </SelectTrigger>
-                <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.name}>
-                      {dept.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="requiredHours" className="text-left">
@@ -511,6 +618,77 @@ export function ManageInternsDashboard() {
                 className="col-span-3"
                 placeholder="Hours required (e.g. 520)"
               />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="department" className="text-left">
+                Department
+              </Label>
+              <Select
+                value={newIntern.departmentId}
+                onValueChange={(value) => {
+                  if (value === "add_new") {
+                    setAddDialogType('department')
+                    setShowAddDialog(true)
+                  } else {
+                    const selected = departments.find(d => d.id.toString() === value)
+                    setNewIntern({ 
+                      ...newIntern, 
+                      department: selected?.name || "",
+                      departmentId: value
+                    })
+                  }
+                }}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select department" />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map(dept => (
+                    <SelectItem key={dept.id} value={dept.id.toString()}>
+                      {dept.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="add_new" className="text-blue-600 font-medium">
+                    + Add New Department
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="supervisor" className="text-left">
+                Supervisor
+              </Label>
+              <Select
+                value={newIntern.supervisorId}
+                onValueChange={(value) => {
+                  if (value === "add_new") {
+                    setAddDialogType('supervisor')
+                    setShowAddDialog(true)
+                  } else {
+                    const selected = supervisors.find(s => s.id.toString() === value)
+                    setNewIntern({ 
+                      ...newIntern, 
+                      supervisor: selected?.name || "",
+                      supervisorId: value,
+                      supervisorEmail: selected?.email || ""
+                    })
+                  }
+                }}
+              >
+                <SelectTrigger className="col-span-3">
+                  <SelectValue placeholder="Select supervisor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {supervisors.map(sup => (
+                    <SelectItem key={sup.id} value={sup.id.toString()}>
+                      {sup.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="add_new" className="text-blue-600 font-medium">
+                    + Add New Supervisor
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="startDate" className="text-left">
@@ -564,6 +742,85 @@ export function ManageInternsDashboard() {
             </Button>
             <Button type="button" onClick={handleAddIntern} disabled={isLoading}>
               {isLoading ? "Adding..." : "Add Intern"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add New Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Add New {addDialogType === 'school' ? 'University' : 
+                       addDialogType === 'department' ? 'Department' : 'Supervisor'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {addDialogType === 'supervisor' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="addFirstName">First Name</Label>
+                  <Input
+                    id="addFirstName"
+                    value={addDialogData.firstName}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, firstName: e.target.value }))}
+                    placeholder="Enter first name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addLastName">Last Name</Label>
+                  <Input
+                    id="addLastName"
+                    value={addDialogData.lastName}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, lastName: e.target.value }))}
+                    placeholder="Enter last name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addEmail">Email</Label>
+                  <Input
+                    id="addEmail"
+                    type="email"
+                    value={addDialogData.email}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="Enter email address"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="addName">
+                  {addDialogType === 'school' ? 'University' : 'Department'} Name
+                </Label>
+                <Input
+                  id="addName"
+                  value={addDialogData.name}
+                  onChange={(e) => setAddDialogData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder={`Enter ${addDialogType === 'school' ? 'university' : 'department'} name`}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowAddDialog(false)
+                setAddDialogData({ name: '', firstName: '', lastName: '', email: '' })
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddNewEntity}
+              disabled={
+                addDialogType === 'supervisor' 
+                  ? !addDialogData.firstName.trim() || !addDialogData.lastName.trim() || !addDialogData.email.trim()
+                  : !addDialogData.name.trim()
+              }
+            >
+              Add
             </Button>
           </DialogFooter>
         </DialogContent>

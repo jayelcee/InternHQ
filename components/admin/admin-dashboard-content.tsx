@@ -242,7 +242,17 @@ export function HRAdminDashboard() {
         intern.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         intern.school.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesDepartment = departmentFilter === "all" || intern.department === departmentFilter
-      const matchesStatus = statusFilter === "all" || intern.status === statusFilter
+      // Improved status filter logic
+      let matchesStatus = false
+      if (statusFilter === "all") {
+        matchesStatus = true
+      } else if (statusFilter === "no_sessions") {
+        matchesStatus = !intern.todayLogs || intern.todayLogs.length === 0
+      } else if (statusFilter === "in") {
+        matchesStatus = intern.status === "in" && intern.todayLogs && intern.todayLogs.length > 0
+      } else if (statusFilter === "out") {
+        matchesStatus = intern.status === "out" && intern.todayLogs && intern.todayLogs.length > 0
+      }
       return matchesSearch && matchesDepartment && matchesStatus
     })
   }, [interns, searchTerm, departmentFilter, statusFilter])
@@ -522,6 +532,7 @@ export function HRAdminDashboard() {
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="in">Clocked In</SelectItem>
                     <SelectItem value="out">Clocked Out</SelectItem>
+                    <SelectItem value="no_sessions">No sessions</SelectItem>
                   </SelectContent>
                 </Select>
               )}

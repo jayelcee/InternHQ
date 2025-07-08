@@ -85,6 +85,9 @@ export function ManageCompletionRequests() {
   const [actionRequestId, setActionRequestId] = useState<number | null>(null)
   const [adminNotes, setAdminNotes] = useState("")
   const notesInputRef = useRef<HTMLInputElement | null>(null)
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [confirmActionType, setConfirmActionType] = useState<'revert' | 'delete' | null>(null)
+  const [confirmRequestId, setConfirmRequestId] = useState<number | null>(null)
 
   // Summary statistics
   const stats = {
@@ -204,6 +207,21 @@ export function ManageCompletionRequests() {
       setActionRequestId(null)
       setActionType(null)
       setAdminNotes("")
+    }
+  }
+
+  const openConfirmDialog = (id: number, type: 'revert' | 'delete') => {
+    setConfirmRequestId(id)
+    setConfirmActionType(type)
+    setShowConfirmDialog(true)
+  }
+
+  const executeConfirmedAction = async () => {
+    if (confirmRequestId && confirmActionType) {
+      await handleProcessRequest(confirmRequestId, confirmActionType)
+      setShowConfirmDialog(false)
+      setConfirmRequestId(null)
+      setConfirmActionType(null)
     }
   }
 
@@ -410,7 +428,7 @@ export function ManageCompletionRequests() {
                                 className="text-green-600 border-green-300 hover:bg-green-50"
                                 onClick={() => openActionDialog(request.id, 'approve')}
                                 disabled={processingId === request.id}
-                                title="Approve Request"
+                                title="Approve Completion Request"
                               >
                                 {processingId === request.id ? (
                                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-green-600 border-t-transparent" />
@@ -424,7 +442,7 @@ export function ManageCompletionRequests() {
                                 className="text-red-600 border-red-300 hover:bg-red-50"
                                 onClick={() => openActionDialog(request.id, 'reject')}
                                 disabled={processingId === request.id}
-                                title="Reject Request"
+                                title="Reject Completion Request"
                               >
                                 {processingId === request.id ? (
                                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-red-600 border-t-transparent" />
@@ -447,7 +465,7 @@ export function ManageCompletionRequests() {
                                 size="sm"
                                 variant="outline"
                                 className="text-gray-600 border-gray-300 hover:bg-gray-50"
-                                onClick={() => handleProcessRequest(request.id, 'revert')}
+                                onClick={() => openConfirmDialog(request.id, 'revert')}
                                 disabled={processingId === request.id}
                                 title="Revert to pending status"
                               >
@@ -462,7 +480,7 @@ export function ManageCompletionRequests() {
                                   size="sm"
                                   variant="outline"
                                   className="text-red-600 border-red-300 hover:bg-red-50"
-                                  onClick={() => handleProcessRequest(request.id, 'delete')}
+                                  onClick={() => openConfirmDialog(request.id, 'delete')}
                                   disabled={processingId === request.id}
                                   title="Delete Request"
                                 >
@@ -514,9 +532,34 @@ export function ManageCompletionRequests() {
             <Button
               onClick={confirmAction}
               disabled={!adminNotes.trim() || processingId === actionRequestId}
-              className={actionType === 'approve' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'}
+              className={`${actionType === 'approve' ? 'bg-green-600 text-white hover:bg-green-600' : 'bg-red-600 text-white hover:bg-red-600'}`}
             >
               {processingId === actionRequestId ? 'Processing...' : (actionType === 'approve' ? 'Approve' : 'Reject')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revert/Delete Confirmation Dialog */}
+      <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Are you sure?</DialogTitle>
+            <DialogDescription>
+              {confirmActionType === 'revert' && 'This will revert the request to pending status.'}
+              {confirmActionType === 'delete' && 'This will permanently delete the request. This action cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowConfirmDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={executeConfirmedAction}
+              disabled={processingId === confirmRequestId}
+              variant={confirmActionType === 'delete' ? 'destructive' : 'default'}
+            >
+              {processingId === confirmRequestId ? 'Processing...' : (confirmActionType === 'revert' ? 'Revert' : 'Delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -537,6 +580,8 @@ function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenera
   const [showDocumentDialog, setShowDocumentDialog] = useState(false)
   const [adminSignature, setAdminSignature] = useState('')
   const [adminTitle, setAdminTitle] = useState('')
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
 
   const generateDocument = async (type: 'dtr' | 'certificate') => {
     if (!adminSignature || !adminTitle) {
@@ -559,7 +604,9 @@ function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenera
       })
 
       if (response.ok) {
-        alert(`${type === 'dtr' ? 'DTR' : 'Certificate'} generated successfully!`)
+        const message = `${type === 'dtr' ? 'DTR' : 'Certificate'} generated successfully!`
+        setSuccessMessage(message)
+        setShowSuccessDialog(true)
         setShowDocumentDialog(false)
         setAdminSignature('')
         setAdminTitle('')
@@ -578,60 +625,79 @@ function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenera
   }
 
   return (
-    <Dialog open={showDocumentDialog} onOpenChange={setShowDocumentDialog}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <FileText className="w-4 h-4" />
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Generate Official Documents</DialogTitle>
-        </DialogHeader>
-        
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="admin-signature">Admin Signature Name</Label>
-            <Input
-              id="admin-signature"
-              value={adminSignature}
-              onChange={(e) => setAdminSignature(e.target.value)}
-              placeholder="Enter your full name for signature"
-            />
-          </div>
+    <>
+      <Dialog open={showDocumentDialog} onOpenChange={setShowDocumentDialog}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            <FileText className="w-4 h-4" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Generate Official Documents</DialogTitle>
+          </DialogHeader>
           
-          <div className="space-y-2">
-            <Label htmlFor="admin-title">Admin Title</Label>
-            <Input
-              id="admin-title"
-              value={adminTitle}
-              onChange={(e) => setAdminTitle(e.target.value)}
-              placeholder="Enter your title (e.g., HR Manager, Director)"
-            />
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-signature">Admin Signature Name</Label>
+              <Input
+                id="admin-signature"
+                value={adminSignature}
+                onChange={(e) => setAdminSignature(e.target.value)}
+                placeholder="Enter your full name for signature"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="admin-title">Admin Title</Label>
+              <Input
+                id="admin-title"
+                value={adminTitle}
+                onChange={(e) => setAdminTitle(e.target.value)}
+                placeholder="Enter your title (e.g., HR Manager, Director)"
+              />
+            </div>
+            
+            <div className="flex gap-2">
+              <Button
+                onClick={() => generateDocument('dtr')}
+                disabled={isGenerating || has_dtr}
+                className="flex-1"
+                title={has_dtr ? "DTR already exists" : "Generate DTR"}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                {isGenerating ? 'Generating...' : has_dtr ? 'DTR Generated' : 'Generate DTR'}
+              </Button>
+              <Button
+                onClick={() => generateDocument('certificate')}
+                disabled={isGenerating || has_certificate}
+                className="flex-1"
+                title={has_certificate ? "Certificate already exists" : "Generate Certificate"}
+              >
+                <Award className="w-4 h-4 mr-2" />
+                {isGenerating ? 'Generating...' : has_certificate ? 'Certificate Generated' : 'Generate Certificate'}
+              </Button>
+            </div>
           </div>
-          
-          <div className="flex gap-2">
-            <Button
-              onClick={() => generateDocument('dtr')}
-              disabled={isGenerating || has_dtr}
-              className="flex-1"
-              title={has_dtr ? "DTR already exists" : "Generate DTR"}
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              {isGenerating ? 'Generating...' : has_dtr ? 'DTR Generated' : 'Generate DTR'}
-            </Button>
-            <Button
-              onClick={() => generateDocument('certificate')}
-              disabled={isGenerating || has_certificate}
-              className="flex-1"
-              title={has_certificate ? "Certificate already exists" : "Generate Certificate"}
-            >
-              <Award className="w-4 h-4 mr-2" />
-              {isGenerating ? 'Generating...' : has_certificate ? 'Certificate Generated' : 'Generate Certificate'}
-            </Button>
+        </DialogContent>
+      </Dialog>
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Document Generated</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-center">
+            <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-2" />
+            <div>{successMessage}</div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button onClick={() => setShowSuccessDialog(false)} autoFocus>
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

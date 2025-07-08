@@ -654,6 +654,12 @@ export async function updateUserProfile(
     endDate?: string | Date
     requiredHours?: number | string
     supervisorId?: number | string
+    supervisorEmail?: string
+    supervisor?: string
+    schoolId?: number | string
+    school?: string
+    departmentId?: number | string
+    department?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -731,13 +737,74 @@ export async function updateUserProfile(
       WHERE user_id = ${userIdNum}
     `
 
+    // Handle creation of new entities if they have temporary IDs
+    console.log("Profile data received:", {
+      schoolId: profileData.schoolId,
+      departmentId: profileData.departmentId,
+      supervisorId: profileData.supervisorId,
+      school: profileData.school,
+      department: profileData.department,
+      supervisor: profileData.supervisor,
+      supervisorEmail: profileData.supervisorEmail
+    })
+    
+    let finalSchoolId = profileData.schoolId ? 
+      (profileData.schoolId.toString().startsWith('temp_') ? null : Number(profileData.schoolId)) : null
+    let finalDepartmentId = profileData.departmentId ? 
+      (profileData.departmentId.toString().startsWith('temp_') ? null : Number(profileData.departmentId)) : null
+    let finalSupervisorId = profileData.supervisorId ? 
+      (profileData.supervisorId.toString().startsWith('temp_') ? null : Number(profileData.supervisorId)) : null
+
+    // Create new school if it has a temporary ID
+    if (profileData.schoolId && profileData.schoolId.toString().startsWith('temp_')) {
+      console.log("Creating new school:", profileData.school)
+      const schoolName = profileData.school || 'New School'
+      const newSchoolRes = await sql`
+        INSERT INTO schools (name) VALUES (${schoolName}) RETURNING id
+      `
+      finalSchoolId = newSchoolRes[0].id
+      console.log("New school created with ID:", finalSchoolId)
+    }
+
+    // Create new department if it has a temporary ID
+    if (profileData.departmentId && profileData.departmentId.toString().startsWith('temp_')) {
+      console.log("Creating new department:", profileData.department)
+      const deptName = profileData.department || 'New Department'
+      const newDeptRes = await sql`
+        INSERT INTO departments (name) VALUES (${deptName}) RETURNING id
+      `
+      finalDepartmentId = newDeptRes[0].id
+      console.log("New department created with ID:", finalDepartmentId)
+    }
+
+    // Create new supervisor if it has a temporary ID
+    if (profileData.supervisorId && profileData.supervisorId.toString().startsWith('temp_')) {
+      console.log("Creating new supervisor:", profileData.supervisor, "with email:", profileData.supervisorEmail)
+      const supervisorName = profileData.supervisor || 'New Supervisor'
+      const nameParts = supervisorName.split(' ')
+      const firstName = nameParts[0] || 'First'
+      const lastName = nameParts.slice(1).join(' ') || 'Last'
+      const email = profileData.supervisorEmail || `${firstName.toLowerCase()}.${lastName.toLowerCase()}@company.com`
+      
+      const newSupervisorRes = await sql`
+        INSERT INTO supervisors (first_name, last_name, email) 
+        VALUES (${firstName}, ${lastName}, ${email}) 
+        RETURNING id
+      `
+      finalSupervisorId = newSupervisorRes[0].id
+      console.log("New supervisor created with ID:", finalSupervisorId)
+    }
+
+    // Update internship_programs table with the final IDs
     await sql`
       UPDATE internship_programs
       SET
         start_date = ${toDateString(profileData.startDate)},
         end_date = ${toDateString(profileData.endDate)},
         required_hours = ${profileData.requiredHours ? Number(profileData.requiredHours) : 0},
-        supervisor_id = ${profileData.supervisorId ? Number(profileData.supervisorId) : null},
+        supervisor_id = ${finalSupervisorId},
+        school_id = ${finalSchoolId},
+        department_id = ${finalDepartmentId},
         updated_at = NOW()
       WHERE user_id = ${userIdNum}
     `
@@ -980,6 +1047,8 @@ export async function createIntern(data: {
   school: string
   degree: string
   department: string
+  supervisor?: string
+  supervisorEmail?: string
   requiredHours: number
   startDate: string
   endDate: string
@@ -1067,6 +1136,29 @@ export async function createIntern(data: {
       deptId = deptRes[0].id
     }
 
+    // Find or create supervisor
+    let supervisorId: number | null = null
+    if (data.supervisor && data.supervisorEmail) {
+      const supervisorRes = await sql`
+        SELECT id FROM supervisors WHERE email = ${data.supervisorEmail}
+      `
+      if (supervisorRes.length === 0) {
+        // Parse supervisor name to get first and last name
+        const supervisorParts = data.supervisor.trim().split(' ')
+        const firstName = supervisorParts[0] || ''
+        const lastName = supervisorParts.slice(1).join(' ') || ''
+        
+        const insertSupervisor = await sql`
+          INSERT INTO supervisors (email, first_name, last_name)
+          VALUES (${data.supervisorEmail}, ${firstName}, ${lastName})
+          RETURNING id
+        `
+        supervisorId = insertSupervisor[0].id
+      } else {
+        supervisorId = supervisorRes[0].id
+      }
+    }
+
     // Create user account
     const userRes = await sql`
       INSERT INTO users (email, password_hash, first_name, last_name, role, work_schedule)
@@ -1085,11 +1177,12 @@ export async function createIntern(data: {
     // Create internship program
     await sql`
       INSERT INTO internship_programs (
-        user_id, school_id, department_id, required_hours, start_date, end_date
+        user_id, school_id, department_id, supervisor_id, required_hours, start_date, end_date
       ) VALUES (
         ${userId},
         ${schoolId},
         ${deptId},
+        ${supervisorId},
         ${Number(data.requiredHours)},
         ${data.startDate ?? ""},
         ${data.endDate ?? ""}

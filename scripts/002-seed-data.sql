@@ -22,6 +22,14 @@ INSERT INTO users (email, password_hash, first_name, last_name, role, work_sched
         'wednesday', jsonb_build_object('start', '09:00', 'end', '18:00'),
         'thursday',  jsonb_build_object('start', '09:00', 'end', '18:00'),
         'friday',    jsonb_build_object('start', '09:00', 'end', '18:00')
+     )),
+    ('giro.manzano@cybersoftbpo.com', crypt('intern123', gen_salt('bf')), 'Giro', 'Manzano', 'intern',
+     jsonb_build_object(
+        'monday',    jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'tuesday',   jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'wednesday', jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'thursday',  jsonb_build_object('start', '09:00', 'end', '18:00'),
+        'friday',    jsonb_build_object('start', '09:00', 'end', '18:00')
      ))
 ON CONFLICT (email) DO NOTHING;
 
@@ -39,7 +47,8 @@ ON CONFLICT (email) DO NOTHING;
 -- DEPARTMENTS
 INSERT INTO departments (name, description, supervisor_id) VALUES
     ('MIS', 'IT infrastructure and development', (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com')),
-    ('HR', 'Employee relations and development', (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'))
+    ('Data Engineering', 'Data pipelines and analytics', (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com')),
+    ('TSA', 'Technical Support and Assistance', (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'))
 ON CONFLICT (name) DO NOTHING;
 
 -- PROJECTS
@@ -47,9 +56,9 @@ INSERT INTO projects (name, description, department_id, status, start_date, end_
     ('InternHQ Development', 'InternHQ system development',
      (SELECT id FROM departments WHERE name = 'MIS'), 'active', '2025-04-01', '2025-08-31'),
     ('Database Optimization', 'Database performance optimization',
-     (SELECT id FROM departments WHERE name = 'MIS'), 'active', '2025-05-01', '2025-07-31'),
+     (SELECT id FROM departments WHERE name = 'Data Engineering'), 'active', '2025-05-01', '2025-07-31'),
     ('Employee Onboarding System', 'Digital onboarding process',
-     (SELECT id FROM departments WHERE name = 'HR'), 'active', '2025-04-15', '2025-09-15')
+     (SELECT id FROM departments WHERE name = 'TSA'), 'active', '2025-04-15', '2025-09-15')
 ON CONFLICT (name) DO NOTHING;
 
 -- INTERNSHIP PROGRAMS
@@ -61,9 +70,14 @@ INSERT INTO internship_programs (user_id, school_id, department_id, supervisor_i
      520, '2025-04-24', '2025-07-18', 'active'),
     ((SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
      (SELECT id FROM schools WHERE name = 'University of Caloocan'),
-     (SELECT id FROM departments WHERE name = 'MIS'),
+     (SELECT id FROM departments WHERE name = 'Data Engineering'),
      (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'),
-     480, '2025-05-01', '2025-07-25', 'active')
+     480, '2025-05-01', '2025-07-25', 'active'),
+    ((SELECT id FROM users WHERE email = 'giro.manzano@cybersoftbpo.com'),
+     (SELECT id FROM schools WHERE name = 'FEU Institute of Technology'),
+     (SELECT id FROM departments WHERE name = 'TSA'),
+     (SELECT id FROM supervisors WHERE email = 'carlo.lagrama@cybersoftbpo.com'),
+     500, '2025-05-10', '2025-08-10', 'active')
 ON CONFLICT DO NOTHING;
 
 -- USER PROFILES
@@ -75,7 +89,11 @@ INSERT INTO user_profiles (user_id, degree, phone, bio) VALUES
     ((SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
      'Bachelor of Science in Information Technology',
      '+63-923-456-7890',
-     'IT student focused on database management and system optimization.')
+     'IT student focused on database management and system optimization.'),
+    ((SELECT id FROM users WHERE email = 'giro.manzano@cybersoftbpo.com'),
+     'Bachelor of Science in Information Systems',
+     '+63-900-111-2222',
+     'Information Systems student interested in support and automation.')
 ON CONFLICT (user_id) DO NOTHING;
 
 -- PROJECT ASSIGNMENTS
@@ -85,51 +103,74 @@ INSERT INTO intern_project_assignments (user_id, project_id, assigned_date, role
      '2025-04-24', 'Frontend Developer'),
     ((SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
      (SELECT id FROM projects WHERE name = 'Database Optimization'),
-     '2025-05-01', 'Database Assistant')
+     '2025-05-01', 'Database Assistant'),
+    ((SELECT id FROM users WHERE email = 'giro.manzano@cybersoftbpo.com'),
+     (SELECT id FROM projects WHERE name = 'Employee Onboarding System'),
+     '2025-05-10', 'Support Specialist')
 ON CONFLICT (user_id, project_id) DO NOTHING;
 
 -- TIME LOGS (last 2 weeks June 2025)
--- These logs are intentionally created as long logs to test the migration system
--- They will be split by the migration function into proper regular/overtime/extended_overtime segments
-
+-- Jasmine (MIS)
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type) 
 SELECT 
     (SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com'),
     (date_value || ' ' || time_in)::timestamptz,
     (date_value || ' ' || time_out)::timestamptz,
     'completed',
-    'regular'  -- All logs start as regular, migration will split them appropriately
+    'regular'
 FROM (VALUES
-    ('2025-06-11', '09:00:00', '18:37:00'),  -- 9h 37m → regular + overtime
-    ('2025-06-12', '09:00:00', '18:33:00'),  -- 9h 33m → regular + overtime
-    ('2025-06-13', '09:00:00', '21:12:00'),  -- 12h 12m → regular + overtime + extended_overtime
-    ('2025-06-16', '09:04:00', '20:11:00'),  -- 11h 7m → regular + overtime
-    ('2025-06-17', '09:00:00', '21:00:00'),  -- 12h → regular + overtime
-    ('2025-06-18', '09:01:00', '18:10:00'),  -- 9h 9m → regular + overtime
-    ('2025-06-19', '09:00:00', '21:09:00'),  -- 12h 9m → regular + overtime + extended_overtime
-    ('2025-06-20', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-23', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-24', '09:00:00', '18:00:00')   -- 9h → regular only
+    ('2025-06-11', '09:00:00', '18:37:00'),
+    ('2025-06-12', '09:00:00', '18:33:00'),
+    ('2025-06-13', '09:00:00', '21:12:00'),
+    ('2025-06-16', '09:04:00', '20:11:00'),
+    ('2025-06-17', '09:00:00', '21:00:00'),
+    ('2025-06-18', '09:01:00', '18:10:00'),
+    ('2025-06-19', '09:00:00', '21:09:00'),
+    ('2025-06-20', '09:00:00', '18:00:00'),
+    ('2025-06-23', '09:00:00', '18:00:00'),
+    ('2025-06-24', '09:00:00', '18:00:00')
 ) AS logs(date_value, time_in, time_out);
 
+-- Jireh (Data Engineering)
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
 SELECT 
     (SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
     (date_value || ' ' || time_in)::timestamptz,
     (date_value || ' ' || time_out)::timestamptz,
     'completed',
-    'regular'  -- All logs start as regular for consistency
+    'regular'
 FROM (VALUES
-    ('2025-06-11', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-12', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-13', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-16', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-17', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-18', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-19', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-20', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-23', '09:00:00', '18:00:00'),  -- 9h → regular only
-    ('2025-06-24', '09:00:00', '18:00:00')   -- 9h → regular only
+    ('2025-06-11', '09:00:00', '18:00:00'),
+    ('2025-06-12', '09:00:00', '18:00:00'),
+    ('2025-06-13', '09:00:00', '18:00:00'),
+    ('2025-06-16', '09:00:00', '18:00:00'),
+    ('2025-06-17', '09:00:00', '18:00:00'),
+    ('2025-06-18', '09:00:00', '18:00:00'),
+    ('2025-06-19', '09:00:00', '18:00:00'),
+    ('2025-06-20', '09:00:00', '18:00:00'),
+    ('2025-06-23', '09:00:00', '18:00:00'),
+    ('2025-06-24', '09:00:00', '18:00:00')
+) AS logs(date_value, time_in, time_out);
+
+-- Giro (TSA)
+INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
+SELECT 
+    (SELECT id FROM users WHERE email = 'giro.manzano@cybersoftbpo.com'),
+    (date_value || ' ' || time_in)::timestamptz,
+    (date_value || ' ' || time_out)::timestamptz,
+    'completed',
+    'regular'
+FROM (VALUES
+    ('2025-06-11', '09:00:00', '18:00:00'),
+    ('2025-06-12', '09:00:00', '18:00:00'),
+    ('2025-06-13', '09:00:00', '18:00:00'),
+    ('2025-06-16', '09:00:00', '18:00:00'),
+    ('2025-06-17', '09:00:00', '18:00:00'),
+    ('2025-06-18', '09:00:00', '18:00:00'),
+    ('2025-06-19', '09:00:00', '18:00:00'),
+    ('2025-06-20', '09:00:00', '18:00:00'),
+    ('2025-06-23', '09:00:00', '18:00:00'),
+    ('2025-06-24', '09:00:00', '18:00:00')
 ) AS logs(date_value, time_in, time_out);
 
 -- Remove the old overtime status update since it's not needed anymore

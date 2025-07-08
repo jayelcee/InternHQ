@@ -114,6 +114,7 @@ export function InternshipCompletion() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
   const [timeStats, setTimeStats] = useState({
     internshipProgress: 0,
     progressPercentage: 0,
@@ -183,7 +184,7 @@ export function InternshipCompletion() {
         const data = await response.json()
         setCompletionRequest(data.request)
         setShowConfirmDialog(false)
-        alert('Completion request submitted successfully!')
+        setShowSuccessDialog(true)
       } else {
         const error = await response.json()
         alert(error.error || 'Failed to submit completion request')
@@ -368,6 +369,23 @@ export function InternshipCompletion() {
 
   return (
     <div className="space-y-6">
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Completion request submitted successfully!</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-center">
+            <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-2" />
+            <div>Your completion request has been submitted and is awaiting review by the HR Manager.</div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowSuccessDialog(false)} autoFocus>
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Progress Overview + Completion Request Status/Request/Encouragement side by side */}
       <div className="flex flex-col md:flex-row gap-6">
         {/* Progress Overview (always left) */}
