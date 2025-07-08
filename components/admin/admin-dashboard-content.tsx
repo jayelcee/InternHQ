@@ -355,7 +355,7 @@ export function HRAdminDashboard() {
     })
 
     return groupsWithInternInfo
-  }, [filteredLogs, sortDirection, currentTime])
+  }, [filteredLogs, sortDirection])
 
   // --- Intern Profile Modal ---
   function handleViewInternDetails(internId: number) {
@@ -876,8 +876,8 @@ export function HRAdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Intern</TableHead>
-                      <TableHead>Date</TableHead>
+                      <TableHead className="w-50 whitespace-nowrap pr-16">Intern</TableHead>
+                      <TableHead className="w-45 whitespace-nowrap pr-16">Date</TableHead>
                       <TableHead>Time In</TableHead>
                       <TableHead>Time Out</TableHead>
                       <TableHead>Regular Shift</TableHead>
@@ -904,12 +904,62 @@ export function HRAdminDashboard() {
                             </div>
                           </TableCell>
                           {/* Date */}
-                          <TableCell className="font-medium">
+                          <TableCell className="font-medium w-45 whitespace-nowrap pr-16">
                             <div className="flex flex-col items-start">
-                              <span className="text-xs text-gray-500">
-                                {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
-                              </span>
-                              <span>{formatLogDate(datePart)}</span>
+                              {(() => {
+                                // Find the earliest timeIn and latest timeOut in the sessions for this date group
+                                const validTimeIns = sessions.map(s => s.timeIn).filter((d): d is string => !!d)
+                                const validTimeOuts = sessions.map(s => s.timeOut).filter((d): d is string => !!d)
+                                let minTimeIn: Date | null = null
+                                let maxTimeOut: Date | null = null
+                                if (validTimeIns.length) {
+                                  minTimeIn = new Date(validTimeIns.reduce((a, b) => (new Date(a) < new Date(b) ? a : b)))
+                                }
+                                if (validTimeOuts.length) {
+                                  maxTimeOut = new Date(validTimeOuts.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)))
+                                }
+                                // Format: MMM d, yyyy (e.g., Jun 19, 2025)
+                                const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                const formatDay = (date: Date) => date.toLocaleDateString("en-US", { weekday: "short" })
+                                // If any session is active (in progress), use minTimeIn for day and date
+                                const anyActive = sessions.some(s => s.isActive)
+                                if (anyActive && minTimeIn) {
+                                  // Always show day above date for active sessions
+                                  return (
+                                    <>
+                                      <span className="text-xs text-gray-500">{formatDay(minTimeIn)}</span>
+                                      <span>{formatDate(minTimeIn)}</span>
+                                    </>
+                                  )
+                                } else if (minTimeIn && maxTimeOut) {
+                                  const startDate = formatDate(minTimeIn)
+                                  const endDate = formatDate(maxTimeOut)
+                                  const startDay = formatDay(minTimeIn)
+                                  const endDay = formatDay(maxTimeOut)
+                                  if (startDate !== endDate) {
+                                    // Spans two dates, show as range with days above
+                                    return (
+                                      <>
+                                        <span className="text-xs text-gray-500">{startDay} – {endDay}</span>
+                                        <span>{startDate} – {endDate}</span>
+                                      </>
+                                    )
+                                  } else {
+                                    // Single date, show day above
+                                    return (
+                                      <>
+                                        <span className="text-xs text-gray-500">{startDay}</span>
+                                        <span>{startDate}</span>
+                                      </>
+                                    )
+                                  }
+                                } else {
+                                  // Fallback to original logic
+                                  return (
+                                    <span>{formatLogDate(datePart)}</span>
+                                  )
+                                }
+                              })()}
                             </div>
                           </TableCell>
                           {/* Time In - Group continuous sessions */}

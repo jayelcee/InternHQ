@@ -573,7 +573,7 @@ export function EditLogRequestsAdmin() {
                               disabled={actionLoading === req.id}
                               // onClick={() => handleAction(req.id.toString(), "revert")}
                               onClick={() => setConfirmAction({ action: "revert", req })}
-                              title="Revert to pending status"
+                              title="Revert to pending status."
                             >
                               {actionLoading === req.id && confirmAction.action === "revert" ? (
                                 <div className="h-3 w-3 animate-spin rounded-full border-2 border-gray-600 border-t-transparent" />

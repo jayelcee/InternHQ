@@ -1290,6 +1290,13 @@ export async function updateTimeLog(timeLogId: number, updates: {
  */
 export async function deleteTimeLog(timeLogId: number): Promise<{ success: boolean; error?: string }> {
   try {
+    // First, delete all edit requests referencing this log
+    await sql`
+      DELETE FROM time_log_edit_requests
+      WHERE log_id = ${timeLogId}
+    `
+
+    // Now delete the time log itself
     const res = await sql`
       DELETE FROM time_logs 
       WHERE id = ${timeLogId}
@@ -2072,10 +2079,11 @@ export async function updateTimeLogEditRequest(
 
       // Calculate new duration
       const timeIn = new Date(requestedTimeIn)
-      const timeOut = new Date(requestedTimeOut)
+      const hasTimeOut = !!requestedTimeOut
+      const timeOut = hasTimeOut ? new Date(requestedTimeOut) : null
       timeIn.setSeconds(0, 0)
-      timeOut.setSeconds(0, 0)
-      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+      if (timeOut) timeOut.setSeconds(0, 0)
+      const totalHours = hasTimeOut && timeOut ? (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60) : 0
 
       console.log(`Single edit request approval - Total hours: ${totalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}, MAX_OVERTIME_HOURS: ${MAX_OVERTIME_HOURS}`)
 
@@ -2101,7 +2109,7 @@ export async function updateTimeLogEditRequest(
             INSERT INTO time_logs (
               user_id, time_in, time_out, status, log_type, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              ${userId}, ${truncateToMinute(timeIn)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
               'completed', 'regular', ${createdAt}, NOW()
             )
             RETURNING id
@@ -2131,8 +2139,24 @@ export async function updateTimeLogEditRequest(
         // Now create the new logs with the approved time range
         const newLogIds: number[] = []
 
-        // Split into regular, overtime, and potentially extended overtime based on total hours
-        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+        if (!hasTimeOut) {
+          // In-progress log: only create a single log with time_out as NULL
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId},
+              ${truncateToMinute(timeIn)},
+              NULL,
+              'pending',
+              'regular',
+              ${createdAt},
+              NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+        } else if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
           // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
           console.log(`Creating regular + overtime + extended overtime logs for ${totalHours} hours (discarding original overtime if any)`)
           const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
@@ -2155,10 +2179,10 @@ export async function updateTimeLogEditRequest(
           // Insert normal overtime log (3 hours) with automatic approval
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -2167,10 +2191,10 @@ export async function updateTimeLogEditRequest(
           // Insert extended overtime log (remainder) with automatic approval
           const extendedOvertimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
+              'completed', 'extended_overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -2196,10 +2220,10 @@ export async function updateTimeLogEditRequest(
           // Insert overtime log with automatic approval since admin approved the edit
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
+              'completed', 'overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -2213,7 +2237,7 @@ export async function updateTimeLogEditRequest(
             ) VALUES (
               ${userId},
               ${truncateToMinute(timeIn)},
-              ${truncateToMinute(timeOut)},
+              ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
               'completed',
               'regular',
               ${createdAt},
@@ -2484,10 +2508,10 @@ async function approveContinuousEditRequests(requestIds: number[], reviewerId?: 
           // Insert normal overtime log (3 hours) with automatic approval
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'overtime', 'approved', ${reviewerId ?? null}, NOW(), ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -2496,10 +2520,10 @@ async function approveContinuousEditRequests(requestIds: number[], reviewerId?: 
           // Insert extended overtime log (remainder) with automatic approval
           const extendedOvertimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'extended_overtime', 'approved', ${reviewerId ?? null}, NOW(), ${createdAt}, NOW()
             )
             RETURNING id
           `

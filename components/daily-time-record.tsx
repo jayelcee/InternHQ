@@ -252,7 +252,7 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
+                <TableHead className="w-45 whitespace-nowrap pr-16">Date</TableHead>
                 <TableHead>Time In</TableHead>
                 <TableHead>Time Out</TableHead>
                 <TableHead>Regular Shift</TableHead>
@@ -277,18 +277,71 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                   
                   // Check if any log in this date has pending edit requests
                   const hasAnyPendingEdit = logsForDate.some(log => hasPendingEdit(log.id))
+
+                  // Check if any log in this date is active/pending (status === 'pending')
+                  const hasAnyPendingLog = logsForDate.some(log => log.status === 'pending')
                   
                   // Use centralized session processing with modified logs
                   const { sessions } = processTimeLogSessions(logsWithPendingData)
 
                   return (
                     <TableRow key={key}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium w-45 whitespace-nowrap pr-16">
                         <div className="flex flex-col items-start">
-                          <span className="text-xs text-gray-500">
-                            {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
-                          </span>
-                          <span>{formatLogDate(datePart)}</span>
+                          {(() => {
+                            // Find the earliest timeIn and latest timeOut in the sessions for this date group
+                            const validTimeIns = sessions.map(s => s.timeIn).filter((d): d is string => !!d)
+                            const validTimeOuts = sessions.map(s => s.timeOut).filter((d): d is string => !!d)
+                            let minTimeIn: Date | null = null
+                            let maxTimeOut: Date | null = null
+                            if (validTimeIns.length) {
+                              minTimeIn = new Date(validTimeIns.reduce((a, b) => (new Date(a) < new Date(b) ? a : b)))
+                            }
+                            if (validTimeOuts.length) {
+                              maxTimeOut = new Date(validTimeOuts.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)))
+                            }
+                            // Format: MMM d, yyyy (e.g., Jun 19, 2025)
+                            const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                            const formatDay = (date: Date) => date.toLocaleDateString("en-US", { weekday: "short" })
+                            // If any session is active (in progress), use minTimeIn for day and date
+                            const anyActive = sessions.some(s => s.isActive)
+                            if (anyActive && minTimeIn) {
+                              // Always show day above date for active sessions
+                              return (
+                                <>
+                                  <span className="text-xs text-gray-500">{formatDay(minTimeIn)}</span>
+                                  <span>{formatDate(minTimeIn)}</span>
+                                </>
+                              )
+                            } else if (minTimeIn && maxTimeOut) {
+                              const startDate = formatDate(minTimeIn)
+                              const endDate = formatDate(maxTimeOut)
+                              const startDay = formatDay(minTimeIn)
+                              const endDay = formatDay(maxTimeOut)
+                              if (startDate !== endDate) {
+                                // Spans two dates, show as range with days above
+                                return (
+                                  <>
+                                    <span className="text-xs text-gray-500">{startDay} – {endDay}</span>
+                                    <span>{startDate} – {endDate}</span>
+                                  </>
+                                )
+                              } else {
+                                // Single date, show day above
+                                return (
+                                  <>
+                                    <span className="text-xs text-gray-500">{startDay}</span>
+                                    <span>{startDate}</span>
+                                  </>
+                                )
+                              }
+                            } else {
+                              // Fallback to original logic
+                              return (
+                                <span>{formatLogDate(datePart)}</span>
+                              )
+                            }
+                          })()}
                         </div>
                       </TableCell>
                       
@@ -421,16 +474,27 @@ export function DailyTimeRecord({ logs, internId, loading, error, onTimeLogUpdat
                       {((isAdmin && showActions) || (isIntern && showActions)) && (
                         <TableCell className="text-right align-center" title="Edit Log">
                           <div className="flex justify-end">
-                          <EditTimeLogDialog
-                            key={key}
-                            logs={logsForDate}
-                            onDelete={handleTimeLogDelete}
-                            isLoading={isUpdating}
-                            isAdmin={isAdmin}
-                            isIntern={isIntern}
-                            disabled={hasAnyPendingEdit}
-                            disabledReason={hasAnyPendingEdit ? "Cannot edit logs with pending edit requests" : ""}
-                          />
+                            <EditTimeLogDialog
+                              key={key}
+                              logs={logsForDate}
+                              onDelete={handleTimeLogDelete}
+                              isLoading={isUpdating}
+                              isAdmin={isAdmin}
+                              isIntern={isIntern}
+                              // For interns, disable if any log is pending (active/in-progress) OR has a pending edit request
+                              disabled={isIntern ? (hasAnyPendingLog || hasAnyPendingEdit) : hasAnyPendingEdit}
+                              disabledReason={
+                                isIntern
+                                  ? hasAnyPendingLog
+                                    ? "Cannot edit logs while in progress. Do it after time out."
+                                    : hasAnyPendingEdit
+                                      ? "Cannot edit logs with pending edit requests."
+                                      : ""
+                                  : hasAnyPendingEdit
+                                    ? "Cannot edit logs with pending edit requests"
+                                    : ""
+                              }
+                            />
                           </div>
                         </TableCell>
                       )}
