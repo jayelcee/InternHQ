@@ -1,3 +1,24 @@
+/**
+ * HRAdminDashboard (Admin Dashboard)
+ *
+ * This component provides a comprehensive dashboard for HR/Admin users to:
+ * - View summary statistics of interns and their progress
+ * - Filter and search interns and logs by department, status, and date
+ * - Switch between overview and detailed logs (DTR-style) views
+ * - View, edit, and manage intern time logs and profiles
+ * - Real-time updates for active sessions and log changes
+ *
+ * Main Features:
+ * - Summary cards for total interns, active, hours, and progress
+ * - Overview table: intern details, status, shift/overtime, progress, actions
+ * - Logs table: grouped by intern/date, DTR-style, edit/delete logs
+ * - Filters: search, department, status, date
+ * - Modals for intern profile and DTR view
+ * - Centralized time/session processing and statistics
+ *
+ * Dependencies: UI components, hooks, and utilities from /components/ui and /lib
+ */
+
 "use client"
 
 import { useState, useMemo, useEffect, useRef } from "react"
@@ -19,9 +40,7 @@ import { calculateTimeStatistics, getLocalDateString } from "@/lib/time-utils"
 import { formatLogDate, groupLogsByDate, TimeLogDisplay, useSortDirection } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps, createDurationBadges } from "@/lib/session-utils"
 
-/**
- * Types for intern logs and intern records
- */
+// --- Types ---
 type TodayLog = {
   timeIn: string | null
   timeOut: string | null
@@ -67,9 +86,7 @@ type TimeLog = {
   overtime_status?: "pending" | "approved" | "rejected"
 }
 
-/**
- * Utility: Get unique departments from interns
- */
+// --- Utility: Get unique departments from interns ---
 function getDepartments(interns: InternRecord[]): string[] {
   const set = new Set<string>()
   interns.forEach((intern) => {
@@ -79,8 +96,7 @@ function getDepartments(interns: InternRecord[]): string[] {
 }
 
 /**
- * HRAdminDashboard
- * Main dashboard component for HR/Admins to view and manage interns and logs.
+ * HRAdminDashboard: Main dashboard component for HR/Admins
  */
 export function HRAdminDashboard() {
   // --- State ---
@@ -91,11 +107,8 @@ export function HRAdminDashboard() {
   const [selectedInternId, setSelectedInternId] = useState<number | null>(null)
   const [selectedDTRInternId, setSelectedDTRInternId] = useState<number | null>(null)
   const [viewMode, setViewMode] = useState<"overview" | "logs">("overview")
-  // Sort state management - centralized
   const { sortDirection, setSortDirection, toggleSort, sortButtonText } = useSortDirection("desc")
-  // Add state for controlling edit actions column visibility
   const [showEditActions, setShowEditActions] = useState(false)
-
   const [interns, setInterns] = useState<InternRecord[]>([])
   const [logs, setLogs] = useState<TimeLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -103,7 +116,7 @@ export function HRAdminDashboard() {
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isUpdatingTimeLog, setIsUpdatingTimeLog] = useState(false)
 
-  // --- Live time updates for "active" sessions ---
+  // --- Live time updates for active sessions ---
   useEffect(() => {
     const interval = setInterval(() => setCurrentTime(new Date()), 1000)
     return () => clearInterval(interval)
@@ -112,7 +125,6 @@ export function HRAdminDashboard() {
   // --- Fetch interns and logs data ---
   useEffect(() => {
     let isFirstLoad = true
-
     const fetchData = async () => {
       if (isFirstLoad) setLoading(true)
       setError(null)
@@ -120,23 +132,16 @@ export function HRAdminDashboard() {
         const internsRes = await fetch("/api/interns")
         if (!internsRes.ok) throw new Error("Failed to fetch interns")
         const internsData: InternRecord[] = await internsRes.json()
-
         const logsRes = await fetch("/api/time-logs")
         if (!logsRes.ok) throw new Error("Failed to fetch time logs")
         const logsData = await logsRes.json()
         const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
-
-        // Map interns with their completed hours using centralized calculation
         const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
-          const internLogs = logsArray.filter(
-            (log) => log.internId === intern.id
-          )
-          // Use centralized calculation with edit request support for consistent progress tracking
+          const internLogs = logsArray.filter(log => log.internId === intern.id)
           const stats = await calculateTimeStatistics(internLogs, intern.id, {
             includeEditRequests: true,
             requiredHours: intern.internshipDetails?.requiredHours || 0
           })
-          
           return {
             ...intern,
             internshipDetails: {
@@ -145,7 +150,6 @@ export function HRAdminDashboard() {
             },
           }
         }))
-
         setInterns(internsWithLogHours)
         setLogs(logsArray)
       } catch (err: unknown) {
@@ -156,9 +160,8 @@ export function HRAdminDashboard() {
         isFirstLoad = false
       }
     }
-
     fetchData()
-    const interval = setInterval(fetchData, 30000) // Refresh every 30s
+    const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -170,26 +173,17 @@ export function HRAdminDashboard() {
         method: "DELETE",
         credentials: "include",
       })
-
-      if (!response.ok) {
-        throw new Error("Failed to delete time log")
-      }
-
-      // Refresh the data
+      if (!response.ok) throw new Error("Failed to delete time log")
       const logsRes = await fetch("/api/time-logs")
       if (logsRes.ok) {
         const logsData = await logsRes.json()
         const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
         setLogs(logsArray)
-
-        // Also refresh interns data to update completed hours
         const internsRes = await fetch("/api/interns")
         if (internsRes.ok) {
           const internsData: InternRecord[] = await internsRes.json()
           const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
-            const internLogs = logsArray.filter(
-              (log: TimeLog) => log.internId === intern.id
-            )
+            const internLogs = logsArray.filter((log: TimeLog) => log.internId === intern.id)
             const stats = await calculateTimeStatistics(internLogs, intern.id, {
               includeEditRequests: true,
               requiredHours: intern.internshipDetails?.requiredHours || 0
@@ -205,9 +199,8 @@ export function HRAdminDashboard() {
           setInterns(internsWithLogHours)
         }
       }
-    } catch (error) {
-      console.error("Error deleting time log:", error)
-      // You could add a toast notification here
+    } catch {
+      // Optionally add a toast notification here
     } finally {
       setIsUpdatingTimeLog(false)
     }
@@ -242,17 +235,11 @@ export function HRAdminDashboard() {
         intern.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         intern.school.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesDepartment = departmentFilter === "all" || intern.department === departmentFilter
-      // Improved status filter logic
       let matchesStatus = false
-      if (statusFilter === "all") {
-        matchesStatus = true
-      } else if (statusFilter === "no_sessions") {
-        matchesStatus = !intern.todayLogs || intern.todayLogs.length === 0
-      } else if (statusFilter === "in") {
-        matchesStatus = intern.status === "in" && intern.todayLogs && intern.todayLogs.length > 0
-      } else if (statusFilter === "out") {
-        matchesStatus = intern.status === "out" && intern.todayLogs && intern.todayLogs.length > 0
-      }
+      if (statusFilter === "all") matchesStatus = true
+      else if (statusFilter === "no_sessions") matchesStatus = !intern.todayLogs || intern.todayLogs.length === 0
+      else if (statusFilter === "in") matchesStatus = intern.status === "in" && intern.todayLogs && intern.todayLogs.length > 0
+      else if (statusFilter === "out") matchesStatus = intern.status === "out" && intern.todayLogs && intern.todayLogs.length > 0
       return matchesSearch && matchesDepartment && matchesStatus
     })
   }, [interns, searchTerm, departmentFilter, statusFilter])
@@ -267,26 +254,20 @@ export function HRAdminDashboard() {
       const matchesDepartment = departmentFilter === "all" || log.department === departmentFilter
       return matchesSearch && matchesDepartment
     }
-
     let result = logs.filter(filterBySearchAndDept)
-
     if (viewMode === "overview") {
       const todayLocal = getLocalDateString(new Date().toISOString())
-      result = result.filter(
-        log => {
-          // Use timeIn as the primary source for date
-          const logDate = log.timeIn 
-            ? getLocalDateString(log.timeIn)
-            : log.date
-              ? getLocalDateString(log.date)
-              : ""
-          return logDate === todayLocal
-        }
-      )
+      result = result.filter(log => {
+        const logDate = log.timeIn 
+          ? getLocalDateString(log.timeIn)
+          : log.date
+            ? getLocalDateString(log.date)
+            : ""
+        return logDate === todayLocal
+      })
     } else if (viewMode === "logs" && selectedDate) {
       const selectedLocal = getLocalDateString(selectedDate.toISOString())
       result = result.filter(log => {
-        // Use timeIn as the primary source for date
         const logDate = log.timeIn
           ? getLocalDateString(log.timeIn)
           : log.date
@@ -302,23 +283,17 @@ export function HRAdminDashboard() {
   const lastViewMode = useRef(viewMode)
   useEffect(() => {
     if (lastViewMode.current !== viewMode) {
-      // Always start with descending (newest first) for both modes
       setSortDirection("desc")
       lastViewMode.current = viewMode
     }
   }, [viewMode, setSortDirection])
 
-  /**
-   * Optimized grouping by intern and date for DTR-style display
-   * Using the same groupLogsByDate function as DTR for consistency
-   */
+  // --- Group logs for DTR-style display ---
   const groupedLogsForDTR = useMemo(() => {
-    // Convert TimeLog[] to TimeLogDisplay[] first
     const dtrStyleLogs: TimeLogDisplay[] = filteredLogs.map(log => ({
       id: log.id,
       time_in: log.timeIn,
       time_out: log.timeOut,
-      // Set status to pending if time_out is null (active session)
       status: log.timeOut ? "completed" as const : "pending" as const,
       log_type: log.log_type,
       overtime_status: log.overtime_status,
@@ -327,11 +302,7 @@ export function HRAdminDashboard() {
       hoursWorked: log.hoursWorked,
       duration: log.duration,
     }))
-
-    // Use the same grouping logic as DTR
     const grouped = groupLogsByDate(dtrStyleLogs)
-    
-    // Add intern info to each group and sort by date
     const groupsWithInternInfo = grouped.map(([key, logs]) => {
       const datePart = key.split("-").slice(-3).join("-")
       const firstOriginalLog = filteredLogs.find(originalLog => 
@@ -346,14 +317,11 @@ export function HRAdminDashboard() {
         department: firstOriginalLog?.department || "Unknown"
       }
     })
-
-    // Sort by date using centralized logic
     groupsWithInternInfo.sort((a, b) => {
       const aTime = new Date(a.datePart).getTime()
       const bTime = new Date(b.datePart).getTime()
       return sortDirection === "desc" ? bTime - aTime : aTime - bTime
     })
-
     return groupsWithInternInfo
   }, [filteredLogs, sortDirection])
 
@@ -375,21 +343,16 @@ export function HRAdminDashboard() {
   // --- Daily Time Record Modal ---
   if (selectedDTRInternId) {
     const refreshData = async () => {
-      // Refresh logs data after deletion/update
       const logsRes = await fetch("/api/time-logs")
       if (logsRes.ok) {
         const logsData = await logsRes.json()
         const logsArray: TimeLog[] = Array.isArray(logsData) ? logsData : logsData.logs
         setLogs(logsArray)
-
-        // Also refresh interns data to update completed hours
         const internsRes = await fetch("/api/interns")
         if (internsRes.ok) {
           const internsData: InternRecord[] = await internsRes.json()
           const internsWithLogHours = await Promise.all(internsData.map(async (intern) => {
-            const internLogs = logsArray.filter(
-              (log: TimeLog) => log.internId === intern.id
-            )
+            const internLogs = logsArray.filter((log: TimeLog) => log.internId === intern.id)
             const stats = await calculateTimeStatistics(internLogs, intern.id, {
               includeEditRequests: true,
               requiredHours: intern.internshipDetails?.requiredHours || 0
@@ -406,7 +369,6 @@ export function HRAdminDashboard() {
         }
       }
     }
-
     return (
       <div>
         <Button variant="outline" onClick={() => setSelectedDTRInternId(null)} className="mb-4">

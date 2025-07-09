@@ -1,3 +1,16 @@
+/**
+ * ManageInternsDashboard
+ *
+ * Admin dashboard for managing interns:
+ * - View, filter, and search all interns
+ * - Add, delete, and view intern profiles
+ * - Manage departments, schools, and supervisors
+ * - Displays progress and internship details for each intern
+ *
+ * Context:
+ * - Only accessible to admins
+ */
+
 "use client"
 
 import { useState, useEffect } from "react"
@@ -9,15 +22,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog"
 import { InternProfile } from "@/components/intern/intern-profile"
 import { calculateTimeStatistics } from "@/lib/time-utils"
 import { Progress } from "@/components/ui/progress"
@@ -714,27 +719,6 @@ export function ManageInternsDashboard() {
                 className="col-span-3"
               />
             </div>
-            {/* <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="workSchedule" className="text-left">
-                Work Schedule
-              </Label>
-              <Select
-                value={newIntern.workSchedule}
-                onValueChange={(value) => setNewIntern({ ...newIntern, workSchedule: value })}
-              >
-                <SelectTrigger className="col-span-3">
-                  <SelectValue placeholder="Select work schedule" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No specific schedule</SelectItem>
-                  <SelectItem value="Monday-Friday, 9AM-6PM">Monday-Friday, 9AM-6PM</SelectItem>
-                  <SelectItem value="Monday-Friday, 8AM-5PM">Monday-Friday, 8AM-5PM</SelectItem>
-                  <SelectItem value="Monday-Friday, 10AM-7PM">Monday-Friday, 10AM-7PM</SelectItem>
-                  <SelectItem value="Monday-Saturday, 9AM-6PM">Monday-Saturday, 9AM-6PM</SelectItem>
-                  <SelectItem value="Flexible hours">Flexible hours</SelectItem>
-                </SelectContent>
-              </Select>
-            </div> */}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setIsAddInternDialogOpen(false)}>

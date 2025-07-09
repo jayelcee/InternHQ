@@ -1,3 +1,17 @@
+/**
+ * OvertimeLogsDashboard
+ *
+ * Admin interface for reviewing and managing overtime logs.
+ * - View, filter, and search all overtime logs
+ * - Approve, reject, revert, or delete overtime sessions (individually or in bulk)
+ * - Bulk actions for auto-approve/reject/revert/delete based on session duration
+ * - One-time migration tool for splitting long logs
+ * - Displays summary statistics and supports department/status/date filtering
+ *
+ * Context:
+ * - Only accessible to admins
+ */
+
 "use client"
 
 import { useState, useEffect, useCallback, useMemo } from "react"
@@ -688,39 +702,6 @@ export function OvertimeLogsDashboard() {
     }
   }
 
-  /**
-   * Get status badge component based on overtime status
-   */
-  /* const getStatusBadge = (overtime_status: string) => {
-    const statusConfig = {
-      approved: {
-        className: "bg-green-50 text-green-700 border-green-300",
-        icon: CheckCircle,
-        label: "Approved"
-      },
-      rejected: {
-        className: "bg-red-50 text-red-700 border-red-300",
-        icon: XCircle,
-        label: "Rejected"
-      },
-      pending: {
-        className: "bg-yellow-50 text-yellow-700 border-yellow-300",
-        icon: Clock,
-        label: "Pending"
-      }
-    }
-
-    const config = statusConfig[overtime_status as keyof typeof statusConfig] || statusConfig.pending
-    const Icon = config.icon
-
-    return (
-      <Badge variant="outline" className={config.className}>
-        <Icon className="w-3 h-3 mr-1" />
-        {config.label}
-      </Badge>
-    )
-  } */
-
   // Get departments for filter
   const departments = useMemo(() => {
     const depts = new Set<string>()
@@ -891,7 +872,6 @@ export function OvertimeLogsDashboard() {
   }
 
   // Sort filtered logs by date
-  // Sort logs using centralized logic
   const sortedLogs = sortLogsByDate(filteredLogs, sortDirection)
 
   if (loading) {
