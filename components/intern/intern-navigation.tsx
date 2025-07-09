@@ -1,3 +1,14 @@
+/**
+ * InternNavigation
+ *
+ * Sidebar and mobile navigation for the intern dashboard.
+ *
+ * Props:
+ * - activeTab: string — currently active tab key
+ * - onTabChange: (tab: string) => void — callback to change tab
+ * - tabs: { key: string; label: string }[] — list of tab keys and labels
+ */
+
 "use client"
 
 import { useState } from "react"
@@ -23,24 +34,26 @@ const tabIcons: Record<string, React.ReactNode> = {
 export function InternNavigation({ activeTab, onTabChange, tabs }: InternNavigationProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
+  // Navigation items for sidebar and mobile
   const NavItems = ({ mobile = false }: { mobile?: boolean }) => (
     <nav className={cn("space-y-2", mobile && "px-4")}>
-      {tabs.map((item) => {
-        return (
-          <Button
-            key={item.key}
-            variant={activeTab === item.key ? "default" : "ghost"}
-            className={cn("w-full justify-start", activeTab === item.key && "bg-blue-600 text-white hover:bg-blue-700")}
-            onClick={() => {
-              onTabChange(item.key)
-              if (mobile) setIsMobileMenuOpen(false)
-            }}
-          >
-            {tabIcons[item.key] ?? null}
-            {item.label}
-          </Button>
-        )
-      })}
+      {tabs.map((item) => (
+        <Button
+          key={item.key}
+          variant={activeTab === item.key ? "default" : "ghost"}
+          className={cn(
+            "w-full justify-start",
+            activeTab === item.key && "bg-blue-600 text-white hover:bg-blue-700"
+          )}
+          onClick={() => {
+            onTabChange(item.key)
+            if (mobile) setIsMobileMenuOpen(false)
+          }}
+        >
+          {tabIcons[item.key] ?? null}
+          {item.label}
+        </Button>
+      ))}
     </nav>
   )
 
@@ -58,7 +71,6 @@ export function InternNavigation({ activeTab, onTabChange, tabs }: InternNavigat
           </div>
         </div>
       </div>
-
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">

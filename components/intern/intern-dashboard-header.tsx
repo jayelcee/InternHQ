@@ -1,3 +1,14 @@
+/**
+ * DashboardHeader
+ *
+ * Displays the header for the intern dashboard, including:
+ * - Current tab title and description
+ * - User avatar and dropdown menu (profile, logout)
+ *
+ * Props:
+ * - activeTab: string (optional) — the current active tab key
+ */
+
 "use client"
 
 import { LogOut } from "lucide-react"
