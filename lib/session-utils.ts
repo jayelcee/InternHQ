@@ -66,12 +66,47 @@ export function processTimeLogSessions(
   })
 
   // Group logs into continuous sessions
-  const sessions = groupLogsByContinuousSessions(allLogs, endTime)
+  const rawSessions = groupLogsByContinuousSessions(allLogs, endTime)
+  
+  // Apply daily limit across all sessions for correct display
+  const sessions = applyDailyLimitToSessions(rawSessions)
   
   // Calculate session totals
   const totals = calculateSessionTotals(sessions)
 
   return { sessions, totals }
+}
+
+/**
+ * Applies daily limit logic across all sessions to ensure proper regular/overtime split
+ */
+function applyDailyLimitToSessions(sessions: ProcessedSession[]): ProcessedSession[] {
+  let accumulatedRegularHours = 0
+  
+  return sessions.map(session => {
+    const totalSessionHours = session.regularHours + session.overtimeHours
+    
+    // Calculate how many regular hours this session can contribute
+    const availableRegularHours = Math.max(0, DAILY_REQUIRED_HOURS - accumulatedRegularHours)
+    const sessionRegularHours = Math.min(totalSessionHours, availableRegularHours)
+    const sessionOvertimeHours = totalSessionHours - sessionRegularHours
+    
+    // Update accumulated regular hours
+    accumulatedRegularHours += sessionRegularHours
+    
+    // Determine overtime status based on whether we have overtime hours
+    let overtimeStatus = session.overtimeStatus
+    if (sessionOvertimeHours > 0 && overtimeStatus === "none") {
+      overtimeStatus = "pending"
+    }
+    
+    return {
+      ...session,
+      regularHours: sessionRegularHours,
+      overtimeHours: sessionOvertimeHours,
+      overtimeStatus
+    }
+  })
 }
 
 /**
@@ -147,16 +182,44 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
   let regularHours = 0
   let overtimeHours = 0
 
-  for (const log of logs) {
-    if (log.time_in) {
-      const endTimeStr = log.time_out || endTime.toISOString()
-      const result = calculateTimeWorked(log.time_in, endTimeStr)
-      const logHours = result.hoursWorked
+  // For continuous sessions, calculate total duration from first time_in to last time_out
+  if (isContinuousSession && timeIn) {
+    const endTimeStr = timeOut || endTime.toISOString()
+    const result = calculateTimeWorked(timeIn, endTimeStr)
+    const totalSessionHours = result.hoursWorked
+    
+    // Debug logging for continuous sessions
+    console.log(`[DEBUG] Continuous session: ${timeIn} to ${endTimeStr} = ${totalSessionHours} hours`)
+    
+    // Split the total duration based on daily limit
+    if (totalSessionHours <= DAILY_REQUIRED_HOURS) {
+      regularHours = totalSessionHours
+      overtimeHours = 0
+    } else {
+      regularHours = DAILY_REQUIRED_HOURS
+      overtimeHours = totalSessionHours - DAILY_REQUIRED_HOURS
+    }
+    
+    console.log(`[DEBUG] Split: ${regularHours} regular + ${overtimeHours} overtime`)
+  } else {
+    // For single log sessions or separate sessions, use original logic
+    for (const log of logs) {
+      if (log.time_in) {
+        const endTimeStr = log.time_out || endTime.toISOString()
+        const result = calculateTimeWorked(log.time_in, endTimeStr)
+        const logHours = result.hoursWorked
 
-      if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
-        overtimeHours += logHours
-      } else {
-        regularHours += logHours
+        if (log.log_type === "overtime" || log.log_type === "extended_overtime") {
+          overtimeHours += logHours
+        } else {
+          // Regular session, but check if it exceeds daily limit (edit request case)
+          if (logHours <= DAILY_REQUIRED_HOURS) {
+            regularHours += logHours
+          } else {
+            regularHours += DAILY_REQUIRED_HOURS
+            overtimeHours += logHours - DAILY_REQUIRED_HOURS
+          }
+        }
       }
     }
   }
@@ -183,41 +246,22 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
 }
 
 /**
- * Calculates total hours across all sessions with real-time overflow handling
- * For active sessions, excess regular hours are immediately shown as overtime
+ * Calculates total hours across all sessions with proper daily limit application
+ * This ensures regular hours are capped at DAILY_REQUIRED_HOURS per day
  */
 function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
   let totalRegularHours = 0
   let totalOvertimeHours = 0
   let overallOvertimeStatus: "none" | "pending" | "approved" | "rejected" = "none"
 
-  // Sum up all hours with real-time overflow for active sessions
+  // First pass: sum all hours as calculated by individual sessions
+  let dailyRegularHours = 0
+  let dailyOvertimeHours = 0
+  
   for (const session of sessions) {
-    let sessionRegularHours = session.regularHours
-    let sessionOvertimeHours = session.overtimeHours
-
-    // For active sessions or completed sessions, apply real-time overflow
-    if (session.isActive || session.regularHours + session.overtimeHours > 0) {
-      const currentTotalRegular = totalRegularHours + sessionRegularHours
-      
-      // If adding this session's regular hours exceeds the daily limit
-      if (currentTotalRegular > DAILY_REQUIRED_HOURS) {
-        const availableRegularHours = Math.max(0, DAILY_REQUIRED_HOURS - totalRegularHours)
-        const excessRegularHours = sessionRegularHours - availableRegularHours
-        
-        sessionRegularHours = availableRegularHours
-        sessionOvertimeHours += excessRegularHours
-        
-        // Set overtime status to pending if we have excess and no explicit overtime status
-        if (excessRegularHours > 0 && session.overtimeStatus === "none") {
-          session.overtimeStatus = "pending"
-        }
-      }
-    }
-
-    totalRegularHours += sessionRegularHours
-    totalOvertimeHours += sessionOvertimeHours
-
+    dailyRegularHours += session.regularHours
+    dailyOvertimeHours += session.overtimeHours
+    
     // Aggregate overtime status
     if (session.overtimeStatus === "rejected") {
       overallOvertimeStatus = "rejected"
@@ -228,15 +272,19 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
     }
   }
 
-  // Final safety cap on regular hours
-  const hasExcessRegularHours = totalRegularHours > DAILY_REQUIRED_HOURS
-  if (hasExcessRegularHours) {
-    const excess = totalRegularHours - DAILY_REQUIRED_HOURS
+  // Second pass: apply daily limit across all sessions
+  if (dailyRegularHours > DAILY_REQUIRED_HOURS) {
+    const excess = dailyRegularHours - DAILY_REQUIRED_HOURS
     totalRegularHours = DAILY_REQUIRED_HOURS
-    totalOvertimeHours += excess
+    totalOvertimeHours = dailyOvertimeHours + excess
+    
+    // If we have excess regular hours, set overtime status to pending if not already set
     if (overallOvertimeStatus === "none") {
       overallOvertimeStatus = "pending"
     }
+  } else {
+    totalRegularHours = dailyRegularHours
+    totalOvertimeHours = dailyOvertimeHours
   }
 
   // Handle rejected overtime
@@ -244,6 +292,8 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
     totalRegularHours = Math.min(totalRegularHours, DAILY_REQUIRED_HOURS)
     totalOvertimeHours = 0
   }
+
+  const hasExcessRegularHours = dailyRegularHours > DAILY_REQUIRED_HOURS
 
   return {
     totalRegularHours,
@@ -338,7 +388,7 @@ export function getTimeBadgeProps(
  */
 export function getDurationBadgeProps(
   hours: number,
-  type: "regular" | "overtime" = "regular",
+  type: "regular" | "overtime" | "extended_overtime" = "regular",
   overtimeStatus?: "pending" | "approved" | "rejected" | "none"
 ): BadgeProps {
   const displayHours = Math.floor(hours)
@@ -353,7 +403,7 @@ export function getDurationBadgeProps(
     }
   }
 
-  if (type === "overtime") {
+  if (type === "overtime" || type === "extended_overtime") {
     if (overtimeStatus === "approved") {
       return {
         className: "bg-purple-100 text-purple-700 border-purple-300",
@@ -386,7 +436,7 @@ export function getDurationBadgeProps(
 /**
  * Gets total badge properties for summary display
  */
-export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" = "regular"): BadgeProps {
+export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" | "extended_overtime" = "regular"): BadgeProps {
   const text = `${truncateTo2Decimals(hours)}h`
   
   if (hours === 0) {
@@ -397,7 +447,7 @@ export function getTotalBadgeProps(hours: number, type: "regular" | "overtime" =
     }
   }
 
-  if (type === "overtime") {
+  if (type === "overtime" || type === "extended_overtime") {
     return {
       className: "bg-purple-200 text-purple-800 border-purple-400 font-medium",
       text,

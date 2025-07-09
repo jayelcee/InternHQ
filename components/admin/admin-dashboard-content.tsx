@@ -242,7 +242,17 @@ export function HRAdminDashboard() {
         intern.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         intern.school.toLowerCase().includes(searchTerm.toLowerCase())
       const matchesDepartment = departmentFilter === "all" || intern.department === departmentFilter
-      const matchesStatus = statusFilter === "all" || intern.status === statusFilter
+      // Improved status filter logic
+      let matchesStatus = false
+      if (statusFilter === "all") {
+        matchesStatus = true
+      } else if (statusFilter === "no_sessions") {
+        matchesStatus = !intern.todayLogs || intern.todayLogs.length === 0
+      } else if (statusFilter === "in") {
+        matchesStatus = intern.status === "in" && intern.todayLogs && intern.todayLogs.length > 0
+      } else if (statusFilter === "out") {
+        matchesStatus = intern.status === "out" && intern.todayLogs && intern.todayLogs.length > 0
+      }
       return matchesSearch && matchesDepartment && matchesStatus
     })
   }, [interns, searchTerm, departmentFilter, statusFilter])
@@ -308,7 +318,8 @@ export function HRAdminDashboard() {
       id: log.id,
       time_in: log.timeIn,
       time_out: log.timeOut,
-      status: "completed" as const,
+      // Set status to pending if time_out is null (active session)
+      status: log.timeOut ? "completed" as const : "pending" as const,
       log_type: log.log_type,
       overtime_status: log.overtime_status,
       user_id: log.internId,
@@ -522,6 +533,7 @@ export function HRAdminDashboard() {
                     <SelectItem value="all">All Status</SelectItem>
                     <SelectItem value="in">Clocked In</SelectItem>
                     <SelectItem value="out">Clocked Out</SelectItem>
+                    <SelectItem value="no_sessions">No sessions</SelectItem>
                   </SelectContent>
                 </Select>
               )}
@@ -529,18 +541,23 @@ export function HRAdminDashboard() {
               {/* Date filter (only in logs mode) */}
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full sm:w-48"
-                    disabled={viewMode === "overview"}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {viewMode === "overview"
-                      ? format(new Date(), "MMM dd, yyyy")
-                      : selectedDate
-                        ? format(selectedDate, "MMM dd, yyyy")
-                        : "All Dates"}
-                  </Button>
+                  <div className="relative" data-tooltip-id="date-filter-tooltip">
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-48"
+                      disabled={viewMode === "overview"}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {viewMode === "overview"
+                        ? format(new Date(), "MMM dd, yyyy")
+                        : selectedDate
+                          ? format(selectedDate, "MMM dd, yyyy")
+                          : "All Dates"}
+                    </Button>
+                    {viewMode === "overview" && (
+                      <div className="absolute inset-0 cursor-help" title="Overview only displays today's sessions." />
+                    )}
+                  </div>
                 </PopoverTrigger>
                 {viewMode !== "overview" && (
                   <PopoverContent className="w-auto p-0" align="start">
@@ -654,17 +671,17 @@ export function HRAdminDashboard() {
                                     displaySessions.push(
                                       <span key={i} className="flex items-center gap-2">
                                         {session.timeIn && showTimeIn && (
-                                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                                          <Badge variant="outline" className="bg-green-100 text-green-700 border-green-300">
                                             In: {new Date(session.timeIn).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                           </Badge>
                                         )}
                                         {session.timeOut && showTimeOut && (
-                                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300">
+                                          <Badge variant="outline" className="bg-red-100 text-red-700 border-red-300">
                                             Out: {new Date(session.timeOut).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                           </Badge>
                                         )}
                                         {session.isActive && (
-                                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-300">
+                                          <Badge variant="outline" className="bg-yellow-100 text-yellow-700 border-yellow-300">
                                             In Progress
                                           </Badge>
                                         )}
@@ -859,8 +876,8 @@ export function HRAdminDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Intern</TableHead>
-                      <TableHead>Date</TableHead>
+                      <TableHead className="w-50 whitespace-nowrap pr-16">Intern</TableHead>
+                      <TableHead className="w-45 whitespace-nowrap pr-16">Date</TableHead>
                       <TableHead>Time In</TableHead>
                       <TableHead>Time Out</TableHead>
                       <TableHead>Regular Shift</TableHead>
@@ -872,8 +889,8 @@ export function HRAdminDashboard() {
                     {groupedLogsForDTR.map((group) => {
                       const { key, logs: logsForDate, datePart, internName, department } = group
                       
-                      // Use centralized session processing
-                      const { sessions } = processTimeLogSessions(logsForDate)
+                      // Use centralized session processing with real-time updates
+                      const { sessions } = processTimeLogSessions(logsForDate, currentTime)
 
                       return (
                         <TableRow key={key}>
@@ -887,12 +904,62 @@ export function HRAdminDashboard() {
                             </div>
                           </TableCell>
                           {/* Date */}
-                          <TableCell className="font-medium">
+                          <TableCell className="font-medium w-45 whitespace-nowrap pr-16">
                             <div className="flex flex-col items-start">
-                              <span className="text-xs text-gray-500">
-                                {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
-                              </span>
-                              <span>{formatLogDate(datePart)}</span>
+                              {(() => {
+                                // Find the earliest timeIn and latest timeOut in the sessions for this date group
+                                const validTimeIns = sessions.map(s => s.timeIn).filter((d): d is string => !!d)
+                                const validTimeOuts = sessions.map(s => s.timeOut).filter((d): d is string => !!d)
+                                let minTimeIn: Date | null = null
+                                let maxTimeOut: Date | null = null
+                                if (validTimeIns.length) {
+                                  minTimeIn = new Date(validTimeIns.reduce((a, b) => (new Date(a) < new Date(b) ? a : b)))
+                                }
+                                if (validTimeOuts.length) {
+                                  maxTimeOut = new Date(validTimeOuts.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)))
+                                }
+                                // Format: MMM d, yyyy (e.g., Jun 19, 2025)
+                                const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                const formatDay = (date: Date) => date.toLocaleDateString("en-US", { weekday: "short" })
+                                // If any session is active (in progress), use minTimeIn for day and date
+                                const anyActive = sessions.some(s => s.isActive)
+                                if (anyActive && minTimeIn) {
+                                  // Always show day above date for active sessions
+                                  return (
+                                    <>
+                                      <span className="text-xs text-gray-500">{formatDay(minTimeIn)}</span>
+                                      <span>{formatDate(minTimeIn)}</span>
+                                    </>
+                                  )
+                                } else if (minTimeIn && maxTimeOut) {
+                                  const startDate = formatDate(minTimeIn)
+                                  const endDate = formatDate(maxTimeOut)
+                                  const startDay = formatDay(minTimeIn)
+                                  const endDay = formatDay(maxTimeOut)
+                                  if (startDate !== endDate) {
+                                    // Spans two dates, show as range with days above
+                                    return (
+                                      <>
+                                        <span className="text-xs text-gray-500">{startDay} – {endDay}</span>
+                                        <span>{startDate} – {endDate}</span>
+                                      </>
+                                    )
+                                  } else {
+                                    // Single date, show day above
+                                    return (
+                                      <>
+                                        <span className="text-xs text-gray-500">{startDay}</span>
+                                        <span>{startDate}</span>
+                                      </>
+                                    )
+                                  }
+                                } else {
+                                  // Fallback to original logic
+                                  return (
+                                    <span>{formatLogDate(datePart)}</span>
+                                  )
+                                }
+                              })()}
                             </div>
                           </TableCell>
                           {/* Time In - Group continuous sessions */}
@@ -974,11 +1041,11 @@ export function HRAdminDashboard() {
                               })()}
                             </div>
                           </TableCell>
-                          {/* Regular Shift - Show per session with accurate calculation */}
+                          {/* Regular Shift - Show per session with accurate real-time calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                const durationBadges = createDurationBadges(sessions, new Date(), "regular")
+                                const durationBadges = createDurationBadges(sessions, currentTime, "regular")
                                 return durationBadges.map((badge, i) => (
                                   <Badge key={i} variant={badge.variant} className={badge.className}>
                                     {badge.text}
@@ -987,11 +1054,11 @@ export function HRAdminDashboard() {
                               })()}
                             </div>
                           </TableCell>
-                          {/* Overtime - Show per session with accurate calculation */}
+                          {/* Overtime - Show per session with accurate real-time calculation */}
                           <TableCell>
                             <div className="flex flex-col gap-1">
                               {(() => {
-                                const durationBadges = createDurationBadges(sessions, new Date(), "overtime")
+                                const durationBadges = createDurationBadges(sessions, currentTime, "overtime")
                                 return durationBadges.map((badge, i) => (
                                   <Badge key={i} variant={badge.variant} className={badge.className}>
                                     {badge.text}

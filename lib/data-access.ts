@@ -472,7 +472,7 @@ export async function clockOut(userId: string, time?: string, discardOvertime?: 
  * @param logType Optional filter by log type (regular, overtime, or null for all)
  * @returns Array of time logs ordered by time_in descending
  */
-export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | null = null): Promise<TimeLog[]> {
+export async function getTimeLogsForUser(userId: string, logType: "regular" | "overtime" | "extended_overtime" | null = null): Promise<TimeLog[]> {
   try {
     const userIdNum = Number(userId)
     const res = logType
@@ -505,7 +505,7 @@ export async function getTimeLogsForUser(userId: string, logType: "regular" | "o
  * @param logType The type of log to retrieve (regular or overtime)
  * @returns The most recent time log for today or null if none found
  */
-export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" = "regular"): Promise<TimeLog | null> {
+export async function getTodayTimeLog(userId: string, logType: "regular" | "overtime" | "extended_overtime" = "regular"): Promise<TimeLog | null> {
   try {
     const userIdNum = Number(userId)
     const today = new Date().toISOString().split("T")[0]
@@ -654,6 +654,12 @@ export async function updateUserProfile(
     endDate?: string | Date
     requiredHours?: number | string
     supervisorId?: number | string
+    supervisorEmail?: string
+    supervisor?: string
+    schoolId?: number | string
+    school?: string
+    departmentId?: number | string
+    department?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
@@ -731,13 +737,74 @@ export async function updateUserProfile(
       WHERE user_id = ${userIdNum}
     `
 
+    // Handle creation of new entities if they have temporary IDs
+    console.log("Profile data received:", {
+      schoolId: profileData.schoolId,
+      departmentId: profileData.departmentId,
+      supervisorId: profileData.supervisorId,
+      school: profileData.school,
+      department: profileData.department,
+      supervisor: profileData.supervisor,
+      supervisorEmail: profileData.supervisorEmail
+    })
+    
+    let finalSchoolId = profileData.schoolId ? 
+      (profileData.schoolId.toString().startsWith('temp_') ? null : Number(profileData.schoolId)) : null
+    let finalDepartmentId = profileData.departmentId ? 
+      (profileData.departmentId.toString().startsWith('temp_') ? null : Number(profileData.departmentId)) : null
+    let finalSupervisorId = profileData.supervisorId ? 
+      (profileData.supervisorId.toString().startsWith('temp_') ? null : Number(profileData.supervisorId)) : null
+
+    // Create new school if it has a temporary ID
+    if (profileData.schoolId && profileData.schoolId.toString().startsWith('temp_')) {
+      console.log("Creating new school:", profileData.school)
+      const schoolName = profileData.school || 'New School'
+      const newSchoolRes = await sql`
+        INSERT INTO schools (name) VALUES (${schoolName}) RETURNING id
+      `
+      finalSchoolId = newSchoolRes[0].id
+      console.log("New school created with ID:", finalSchoolId)
+    }
+
+    // Create new department if it has a temporary ID
+    if (profileData.departmentId && profileData.departmentId.toString().startsWith('temp_')) {
+      console.log("Creating new department:", profileData.department)
+      const deptName = profileData.department || 'New Department'
+      const newDeptRes = await sql`
+        INSERT INTO departments (name) VALUES (${deptName}) RETURNING id
+      `
+      finalDepartmentId = newDeptRes[0].id
+      console.log("New department created with ID:", finalDepartmentId)
+    }
+
+    // Create new supervisor if it has a temporary ID
+    if (profileData.supervisorId && profileData.supervisorId.toString().startsWith('temp_')) {
+      console.log("Creating new supervisor:", profileData.supervisor, "with email:", profileData.supervisorEmail)
+      const supervisorName = profileData.supervisor || 'New Supervisor'
+      const nameParts = supervisorName.split(' ')
+      const firstName = nameParts[0] || 'First'
+      const lastName = nameParts.slice(1).join(' ') || 'Last'
+      const email = profileData.supervisorEmail || `${firstName.toLowerCase()}.${lastName.toLowerCase()}@company.com`
+      
+      const newSupervisorRes = await sql`
+        INSERT INTO supervisors (first_name, last_name, email) 
+        VALUES (${firstName}, ${lastName}, ${email}) 
+        RETURNING id
+      `
+      finalSupervisorId = newSupervisorRes[0].id
+      console.log("New supervisor created with ID:", finalSupervisorId)
+    }
+
+    // Update internship_programs table with the final IDs
     await sql`
       UPDATE internship_programs
       SET
         start_date = ${toDateString(profileData.startDate)},
         end_date = ${toDateString(profileData.endDate)},
         required_hours = ${profileData.requiredHours ? Number(profileData.requiredHours) : 0},
-        supervisor_id = ${profileData.supervisorId ? Number(profileData.supervisorId) : null},
+        supervisor_id = ${finalSupervisorId},
+        school_id = ${finalSchoolId},
+        department_id = ${finalDepartmentId},
         updated_at = NOW()
       WHERE user_id = ${userIdNum}
     `
@@ -978,15 +1045,66 @@ export async function createIntern(data: {
   email: string
   password?: string
   school: string
+  degree: string
   department: string
+  supervisor?: string
+  supervisorEmail?: string
   requiredHours: number
   startDate: string
   endDate: string
+  workSchedule?: string
 }) {
   try {
     const first_name = data.firstName.trim()
     const last_name = data.lastName.trim()
     const password = data.password || "intern123"
+
+    // Convert work schedule to JSONB format for common schedules
+    let workScheduleJson = null
+    if (data.workSchedule && data.workSchedule !== "none") {
+      switch (data.workSchedule) {
+        case "Monday-Friday, 9AM-6PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "09:00", end: "18:00" },
+            tuesday: { start: "09:00", end: "18:00" },
+            wednesday: { start: "09:00", end: "18:00" },
+            thursday: { start: "09:00", end: "18:00" },
+            friday: { start: "09:00", end: "18:00" }
+          })
+          break
+        case "Monday-Friday, 8AM-5PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "08:00", end: "17:00" },
+            tuesday: { start: "08:00", end: "17:00" },
+            wednesday: { start: "08:00", end: "17:00" },
+            thursday: { start: "08:00", end: "17:00" },
+            friday: { start: "08:00", end: "17:00" }
+          })
+          break
+        case "Monday-Friday, 10AM-7PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "10:00", end: "19:00" },
+            tuesday: { start: "10:00", end: "19:00" },
+            wednesday: { start: "10:00", end: "19:00" },
+            thursday: { start: "10:00", end: "19:00" },
+            friday: { start: "10:00", end: "19:00" }
+          })
+          break
+        case "Monday-Saturday, 9AM-6PM":
+          workScheduleJson = JSON.stringify({
+            monday: { start: "09:00", end: "18:00" },
+            tuesday: { start: "09:00", end: "18:00" },
+            wednesday: { start: "09:00", end: "18:00" },
+            thursday: { start: "09:00", end: "18:00" },
+            friday: { start: "09:00", end: "18:00" },
+            saturday: { start: "09:00", end: "18:00" }
+          })
+          break
+        default:
+          // For other schedules, just store as a simple string description
+          workScheduleJson = JSON.stringify({ description: data.workSchedule })
+      }
+    }
 
     // Check for existing user
     const existing = await sql`SELECT id FROM users WHERE email = ${data.email}`
@@ -1018,15 +1136,39 @@ export async function createIntern(data: {
       deptId = deptRes[0].id
     }
 
+    // Find or create supervisor
+    let supervisorId: number | null = null
+    if (data.supervisor && data.supervisorEmail) {
+      const supervisorRes = await sql`
+        SELECT id FROM supervisors WHERE email = ${data.supervisorEmail}
+      `
+      if (supervisorRes.length === 0) {
+        // Parse supervisor name to get first and last name
+        const supervisorParts = data.supervisor.trim().split(' ')
+        const firstName = supervisorParts[0] || ''
+        const lastName = supervisorParts.slice(1).join(' ') || ''
+        
+        const insertSupervisor = await sql`
+          INSERT INTO supervisors (email, first_name, last_name)
+          VALUES (${data.supervisorEmail}, ${firstName}, ${lastName})
+          RETURNING id
+        `
+        supervisorId = insertSupervisor[0].id
+      } else {
+        supervisorId = supervisorRes[0].id
+      }
+    }
+
     // Create user account
     const userRes = await sql`
-      INSERT INTO users (email, password_hash, first_name, last_name, role)
+      INSERT INTO users (email, password_hash, first_name, last_name, role, work_schedule)
       VALUES (
         ${data.email},
         crypt(${password}, gen_salt('bf')),
         ${first_name},
         ${last_name},
-        'intern'
+        'intern',
+        ${workScheduleJson}
       )
       RETURNING id
     `
@@ -1035,15 +1177,22 @@ export async function createIntern(data: {
     // Create internship program
     await sql`
       INSERT INTO internship_programs (
-        user_id, school_id, department_id, required_hours, start_date, end_date
+        user_id, school_id, department_id, supervisor_id, required_hours, start_date, end_date
       ) VALUES (
         ${userId},
         ${schoolId},
         ${deptId},
+        ${supervisorId},
         ${Number(data.requiredHours)},
         ${data.startDate ?? ""},
         ${data.endDate ?? ""}
       )
+    `
+
+    // Create user profile with degree
+    await sql`
+      INSERT INTO user_profiles (user_id, degree)
+      VALUES (${userId}, ${data.degree})
     `
 
     return { success: true, intern: { id: userId, email: data.email, first_name, last_name } }
@@ -1141,6 +1290,13 @@ export async function updateTimeLog(timeLogId: number, updates: {
  */
 export async function deleteTimeLog(timeLogId: number): Promise<{ success: boolean; error?: string }> {
   try {
+    // First, delete all edit requests referencing this log
+    await sql`
+      DELETE FROM time_log_edit_requests
+      WHERE log_id = ${timeLogId}
+    `
+
+    // Now delete the time log itself
     const res = await sql`
       DELETE FROM time_logs 
       WHERE id = ${timeLogId}
@@ -1294,17 +1450,22 @@ export async function updateOvertimeStatus(
 }
 
 /**
- * One-time migration to split existing long logs into regular and overtime portions.
+ * One-time migration to split existing long logs into the proper 3-tier time tracking system.
  * 
- * This migration function finds all time logs longer than the daily required hours
+ * This migration function finds all time logs that exceed their designated time boundaries
  * and automatically splits them into appropriate segments:
- * - Regular time (first 9 hours)
- * - Overtime (hours 9-12, marked as pending approval)
- * - Extended overtime (hours 12+, marked as pending approval)
+ * - Regular time: 0-9 hours per day
+ * - Overtime: 9-12 hours per day (3 hours max, requires approval)
+ * - Extended overtime: 12+ hours per day (requires approval)
+ * 
+ * Migration Logic:
+ * - Regular logs >9h: Split into regular + overtime/extended_overtime
+ * - Overtime logs >3h: Split into overtime + extended_overtime  
+ * - Extended overtime logs >12h total: Split into regular + overtime + extended_overtime
  * 
  * The migration preserves original timestamps and maintains data integrity
- * through database transactions. It processes both regular logs that became
- * too long and overtime logs that exceed the maximum allowed duration.
+ * through database transactions. It processes logs that exceed their
+ * designated time boundaries and splits them appropriately.
  * 
  * @returns Migration result with success status, processed count, and any errors
  */
@@ -1317,17 +1478,22 @@ export async function migrateExistingLongLogs(): Promise<{
   let processed = 0
 
   try {
-    // Find all logs that need splitting
+    // Find all logs that need splitting with 3-tier system
     const longLogs = await sql`
       SELECT id, user_id, time_in, time_out, created_at, log_type
       FROM time_logs 
       WHERE status = 'completed' 
         AND time_in IS NOT NULL 
         AND time_out IS NOT NULL
-        AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS}
         AND (
-          log_type = 'regular' 
-          OR (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+          -- Regular logs > 9 hours (should be split)
+          (log_type = 'regular' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS})
+          OR 
+          -- Overtime logs > 3 hours (should be split into overtime + extended_overtime)
+          (log_type = 'overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${MAX_OVERTIME_HOURS})
+          OR
+          -- Extended overtime logs > 12 hours total (should be split into regular + overtime + extended_overtime)
+          (log_type = 'extended_overtime' AND EXTRACT(EPOCH FROM (time_out - time_in)) / 3600 > ${DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS})
         )
       ORDER BY created_at ASC
     `
@@ -1340,22 +1506,106 @@ export async function migrateExistingLongLogs(): Promise<{
         timeIn.setSeconds(0, 0)
         timeOut.setSeconds(0, 0)
         const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
-        if (totalHours <= DAILY_REQUIRED_HOURS) continue
-
-        // Calculate split points
+        
+        // Calculate split points for 3-tier system
         const regularEndTime = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
+        const overtimeEndTime = new Date(timeIn.getTime() + ((DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) * 60 * 60 * 1000))
         regularEndTime.setSeconds(0, 0)
-        const overtimeStartTime = new Date(regularEndTime.getTime())
-        overtimeStartTime.setSeconds(0, 0)
+        overtimeEndTime.setSeconds(0, 0)
+        
+        // Skip logs that don't actually need splitting
+        if (log.log_type === 'regular' && totalHours <= DAILY_REQUIRED_HOURS) {
+          continue
+        }
+        if (log.log_type === 'overtime' && totalHours <= MAX_OVERTIME_HOURS) {
+          continue
+        }
+        if (log.log_type === 'extended_overtime' && totalHours <= DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+          continue
+        }
+
         await sql.begin(async (tx) => {
           if (log.log_type === 'regular') {
-            // Update original log to regular hours only, create new overtime log
+            // Handle regular logs that need splitting
+            
+            // Update original log to regular hours only (0-9 hours)
             await tx`
               UPDATE time_logs
               SET time_out = ${truncateToMinute(regularEndTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
+            
+            if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+              // 3-tier split: Create both overtime (9-12h) and extended_overtime (12h+)
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(regularEndTime)}, 
+                  ${truncateToMinute(overtimeEndTime)}, 
+                  'completed', 
+                  'overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(overtimeEndTime)}, 
+                  ${truncateToMinute(timeOut)}, 
+                  'completed', 
+                  'extended_overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+            } else {
+              // 2-tier split: Create only overtime (9-12h)
+              await tx`
+                INSERT INTO time_logs (
+                  user_id, time_in, time_out, status, 
+                  log_type, overtime_status, created_at, updated_at
+                )
+                VALUES (
+                  ${log.user_id}, 
+                  ${truncateToMinute(regularEndTime)}, 
+                  ${truncateToMinute(timeOut)}, 
+                  'completed', 
+                  'overtime', 
+                  'pending', 
+                  ${log.created_at}, 
+                  NOW()
+                )
+              `
+            }
+          } else if (log.log_type === 'overtime') {
+            // Handle overtime logs that are too long (>3 hours)
+            
+            // Split overtime into proper overtime (3h max) + extended_overtime  
+            const overtimeStartTime = new Date(timeIn.getTime())
+            const overtimeEndTime = new Date(overtimeStartTime.getTime() + (MAX_OVERTIME_HOURS * 60 * 60 * 1000))
+            overtimeEndTime.setSeconds(0, 0)
+            
+            // Update original overtime log to max 3 hours
+            await tx`
+              UPDATE time_logs
+              SET time_out = ${truncateToMinute(overtimeEndTime)}, 
+                  updated_at = NOW()
+              WHERE id = ${log.id}
+            `
+            
+            // Create extended_overtime log for remaining time
             await tx`
               INSERT INTO time_logs (
                 user_id, time_in, time_out, status, 
@@ -1363,17 +1613,20 @@ export async function migrateExistingLongLogs(): Promise<{
               )
               VALUES (
                 ${log.user_id}, 
-                ${truncateToMinute(overtimeStartTime)}, 
+                ${truncateToMinute(overtimeEndTime)}, 
                 ${truncateToMinute(timeOut)}, 
                 'completed', 
-                'overtime', 
+                'extended_overtime', 
                 'pending', 
                 ${log.created_at}, 
                 NOW()
               )
             `
-          } else if (log.log_type === 'overtime') {
-            // For overtime logs that are too long: Create regular log, update overtime log
+          } else if (log.log_type === 'extended_overtime') {
+            // Handle extended_overtime logs that span the full day (>12 hours total)
+            // This means they should be split into regular + overtime + extended_overtime
+            
+            // Create regular log (0-9 hours)
             await tx`
               INSERT INTO time_logs (
                 user_id, time_in, time_out, status, 
@@ -1389,9 +1642,29 @@ export async function migrateExistingLongLogs(): Promise<{
                 NOW()
               )
             `
+            
+            // Create overtime log (9-12 hours)
+            await tx`
+              INSERT INTO time_logs (
+                user_id, time_in, time_out, status, 
+                log_type, overtime_status, created_at, updated_at
+              )
+              VALUES (
+                ${log.user_id}, 
+                ${truncateToMinute(regularEndTime)}, 
+                ${truncateToMinute(overtimeEndTime)}, 
+                'completed', 
+                'overtime', 
+                'pending', 
+                ${log.created_at}, 
+                NOW()
+              )
+            `
+            
+            // Update original extended_overtime log to start at 12 hours
             await tx`
               UPDATE time_logs
-              SET time_in = ${truncateToMinute(overtimeStartTime)}, 
+              SET time_in = ${truncateToMinute(overtimeEndTime)}, 
                   updated_at = NOW()
               WHERE id = ${log.id}
             `
@@ -1806,10 +2079,11 @@ export async function updateTimeLogEditRequest(
 
       // Calculate new duration
       const timeIn = new Date(requestedTimeIn)
-      const timeOut = new Date(requestedTimeOut)
+      const hasTimeOut = !!requestedTimeOut
+      const timeOut = hasTimeOut ? new Date(requestedTimeOut) : null
       timeIn.setSeconds(0, 0)
-      timeOut.setSeconds(0, 0)
-      const totalHours = (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60)
+      if (timeOut) timeOut.setSeconds(0, 0)
+      const totalHours = hasTimeOut && timeOut ? (timeOut.getTime() - timeIn.getTime()) / (1000 * 60 * 60) : 0
 
       console.log(`Single edit request approval - Total hours: ${totalHours}, DAILY_REQUIRED_HOURS: ${DAILY_REQUIRED_HOURS}, MAX_OVERTIME_HOURS: ${MAX_OVERTIME_HOURS}`)
 
@@ -1835,7 +2109,7 @@ export async function updateTimeLogEditRequest(
             INSERT INTO time_logs (
               user_id, time_in, time_out, status, log_type, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(timeIn)}, ${truncateToMinute(timeOut)},
+              ${userId}, ${truncateToMinute(timeIn)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
               'completed', 'regular', ${createdAt}, NOW()
             )
             RETURNING id
@@ -1865,8 +2139,24 @@ export async function updateTimeLogEditRequest(
         // Now create the new logs with the approved time range
         const newLogIds: number[] = []
 
-        // Split into regular, overtime, and potentially extended overtime based on total hours
-        if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
+        if (!hasTimeOut) {
+          // In-progress log: only create a single log with time_out as NULL
+          const regularLogRes = await tx`
+            INSERT INTO time_logs (
+              user_id, time_in, time_out, status, log_type, created_at, updated_at
+            ) VALUES (
+              ${userId},
+              ${truncateToMinute(timeIn)},
+              NULL,
+              'pending',
+              'regular',
+              ${createdAt},
+              NOW()
+            )
+            RETURNING id
+          `
+          newLogIds.push(regularLogRes[0].id)
+        } else if (totalHours > DAILY_REQUIRED_HOURS + MAX_OVERTIME_HOURS) {
           // Extended overtime scenario: regular (9h) + overtime (3h) + extended overtime (remainder)
           console.log(`Creating regular + overtime + extended overtime logs for ${totalHours} hours (discarding original overtime if any)`)
           const regularCutoff = new Date(timeIn.getTime() + (DAILY_REQUIRED_HOURS * 60 * 60 * 1000))
@@ -1889,10 +2179,10 @@ export async function updateTimeLogEditRequest(
           // Insert normal overtime log (3 hours) with automatic approval
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -1901,10 +2191,10 @@ export async function updateTimeLogEditRequest(
           // Insert extended overtime log (remainder) with automatic approval
           const extendedOvertimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+              ${userId}, ${truncateToMinute(overtimeCutoff)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
+              'completed', 'extended_overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -1930,10 +2220,10 @@ export async function updateTimeLogEditRequest(
           // Insert overtime log with automatic approval since admin approved the edit
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, notes, created_at, updated_at
             ) VALUES (
-              ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              ${userId}, ${truncateToMinute(regularCutoff)}, ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
+              'completed', 'overtime', 'approved', ${reviewerId !== undefined ? reviewerId : null}, NOW(), 'Added from log edit.', ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -1947,7 +2237,7 @@ export async function updateTimeLogEditRequest(
             ) VALUES (
               ${userId},
               ${truncateToMinute(timeIn)},
-              ${truncateToMinute(timeOut)},
+              ${(hasTimeOut && timeOut) ? truncateToMinute(timeOut) : null},
               'completed',
               'regular',
               ${createdAt},
@@ -2218,10 +2508,10 @@ async function approveContinuousEditRequests(requestIds: number[], reviewerId?: 
           // Insert normal overtime log (3 hours) with automatic approval
           const overtimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(regularCutoff)}, ${truncateToMinute(overtimeCutoff)},
-              'completed', 'overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'overtime', 'approved', ${reviewerId ?? null}, NOW(), ${createdAt}, NOW()
             )
             RETURNING id
           `
@@ -2230,10 +2520,10 @@ async function approveContinuousEditRequests(requestIds: number[], reviewerId?: 
           // Insert extended overtime log (remainder) with automatic approval
           const extendedOvertimeLogRes = await tx`
             INSERT INTO time_logs (
-              user_id, time_in, time_out, status, log_type, overtime_status, created_at, updated_at
+              user_id, time_in, time_out, status, log_type, overtime_status, approved_by, approved_at, created_at, updated_at
             ) VALUES (
               ${userId}, ${truncateToMinute(overtimeCutoff)}, ${truncateToMinute(timeOut)},
-              'completed', 'extended_overtime', 'approved', ${createdAt}, NOW()
+              'completed', 'extended_overtime', 'approved', ${reviewerId ?? null}, NOW(), ${createdAt}, NOW()
             )
             RETURNING id
           `

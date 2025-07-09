@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
         r.requested_time_out as "requestedTimeOut",
         r.original_time_in as "originalTimeIn", 
         r.original_time_out as "originalTimeOut",
+        r.metadata,
         r.status, 
         r.created_at as "requestedAt"
       FROM time_log_edit_requests r

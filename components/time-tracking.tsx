@@ -45,8 +45,6 @@ export function TimeTracking({
   handleTimeOut,
   onOvertimeConfirmationShow,
   onOvertimeConfirmationHide,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  isOvertimeSession = false,
   isOvertimeIn = false,
   overtimeInTimestamp = null,
   isExtendedOvertimeIn = false,

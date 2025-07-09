@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate } from "@/lib/ui-utils"
 import { processTimeLogSessions, getTimeBadgeProps } from "@/lib/session-utils"
-import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration } from "@/lib/time-utils"
+import { calculateAccurateSessionDuration, formatAccurateHours, calculateRawSessionDuration, truncateToMinute } from "@/lib/time-utils"
 
 interface ThisWeekLogsProps {
   weeklyLogs: TimeLogDisplay[]
@@ -54,7 +54,7 @@ export function ThisWeekLogs({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
+                  <TableHead className="w-45 whitespace-nowrap pr-16">Date</TableHead>
                   <TableHead>Time In</TableHead>
                   <TableHead>Time Out</TableHead>
                   <TableHead>Regular Shift</TableHead>
@@ -74,7 +74,7 @@ export function ThisWeekLogs({
                     if (isTimedIn && timeInTimestamp) {
                       activeLogs.push({
                         id: -1,
-                        time_in: timeInTimestamp.toISOString(),
+                        time_in: truncateToMinute(timeInTimestamp),
                         time_out: null,
                         status: "pending",
                         log_type: "regular"
@@ -84,7 +84,7 @@ export function ThisWeekLogs({
                     if (isOvertimeIn && overtimeInTimestamp) {
                       activeLogs.push({
                         id: -2,
-                        time_in: overtimeInTimestamp.toISOString(),
+                        time_in: truncateToMinute(overtimeInTimestamp),
                         time_out: null,
                         status: "pending",
                         log_type: "overtime"
@@ -95,14 +95,63 @@ export function ThisWeekLogs({
                   // Process sessions using centralized logic
                   const sessionData = processTimeLogSessions(activeLogs, freezeAt || currentTime)
 
+                  // --- Date column logic copied from daily-time-record.tsx ---
+                  // Find the earliest timeIn and latest timeOut in the sessions for this date group
+                  const sessions = sessionData.sessions
+                  const validTimeIns = sessions.map(s => s.timeIn).filter((d): d is string => !!d)
+                  const validTimeOuts = sessions.map(s => s.timeOut).filter((d): d is string => !!d)
+                  let minTimeIn: Date | null = null
+                  let maxTimeOut: Date | null = null
+                  if (validTimeIns.length) {
+                    minTimeIn = new Date(validTimeIns.reduce((a, b) => (new Date(a) < new Date(b) ? a : b)))
+                  }
+                  if (validTimeOuts.length) {
+                    maxTimeOut = new Date(validTimeOuts.reduce((a, b) => (new Date(a) > new Date(b) ? a : b)))
+                  }
+                  // Format: MMM d, yyyy (e.g., Jun 19, 2025)
+                  const formatDate = (date: Date) => date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                  const formatDay = (date: Date) => date.toLocaleDateString("en-US", { weekday: "short" })
+
                   return (
                     <TableRow key={key}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium w-45 whitespace-nowrap pr-16">
                         <div className="flex flex-col items-start">
-                          <span className="text-xs text-gray-500">
-                            {new Date(datePart).toLocaleDateString("en-US", { weekday: "short" })}
-                          </span>
-                          <span>{formatLogDate(datePart)}</span>
+                          {(() => {
+                            if (minTimeIn && maxTimeOut) {
+                              const startDate = formatDate(minTimeIn)
+                              const endDate = formatDate(maxTimeOut)
+                              const startDay = formatDay(minTimeIn)
+                              const endDay = formatDay(maxTimeOut)
+                              if (startDate !== endDate) {
+                                // Spans two dates, show as range with days above
+                                return (
+                                  <>
+                                    <span className="text-xs text-gray-500">{startDay} – {endDay}</span>
+                                    <span>{startDate} – {endDate}</span>
+                                  </>
+                                )
+                              } else {
+                                // Single date, show day above
+                                return (
+                                  <>
+                                    <span className="text-xs text-gray-500">{startDay}</span>
+                                    <span>{startDate}</span>
+                                  </>
+                                )
+                              }
+                            } else {
+                              // Fallback to original logic
+                              // Show day above fallback date
+                              const fallbackDate = new Date(datePart)
+                              const fallbackDay = fallbackDate.toLocaleDateString("en-US", { weekday: "short" })
+                              return (
+                                <>
+                                  <span className="text-xs text-gray-500">{fallbackDay}</span>
+                                  <span>{formatLogDate(datePart)}</span>
+                                </>
+                              )
+                            }
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell>

@@ -15,7 +15,15 @@ import { Popover, PopoverTrigger } from "@/components/ui/popover"
 import { format, isValid, parseISO } from "date-fns"
 import { CalendarIcon, Pencil, Save, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { calculateTimeStatistics, calculateTimeWorked } from "@/lib/time-utils"
+import { calculateTimeWorked, calculateInternshipProgress } from "@/lib/time-utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog"
 
 /**
  * InternProfile component displays and manages intern profile information.
@@ -67,6 +75,7 @@ interface ProfileData {
   schoolId: string
   supervisor: string
   supervisorId: string
+  supervisorEmail: string
   startDate: string
   endDate: string
   requiredHours: number
@@ -112,6 +121,19 @@ export function InternProfile({
   const [logsLoading, setLogsLoading] = useState(true)
   const [supervisors, setSupervisors] = useState<Supervisor[]>([])
   const [workSchedule, setWorkSchedule] = useState<{ start: string; end: string; days: number[] } | null>(null)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [successMessage, setSuccessMessage] = useState("Profile saved successfully!")
+  const [showAddDialog, setShowAddDialog] = useState(false)
+  const [addDialogType, setAddDialogType] = useState<'school' | 'department' | 'supervisor'>('school')
+  const [addDialogData, setAddDialogData] = useState({
+    name: '',
+    firstName: '',
+    lastName: '',
+    email: ''
+  })
+
+  const [departments, setDepartments] = useState<{ id: number | string; name: string }[]>([])
+  const [schools, setSchools] = useState<{ id: number | string; name: string }[]>([])
 
   // Fetch profile data from API
   useEffect(() => {
@@ -168,7 +190,7 @@ export function InternProfile({
           zipCode: data.profile?.zip_code || "",
           dateOfBirth: data.profile?.date_of_birth || "",
           bio: data.profile?.bio || "",
-          school: data.internship?.school?.name || data.internship?.school_name || "",
+          school: data.internship?.school?.name || "",
           degree: data.profile?.degree || "",
           gpa: data.profile?.gpa?.toString() || "",
           graduationDate: data.profile?.graduation_date || "",
@@ -178,17 +200,18 @@ export function InternProfile({
           emergencyContactName: data.profile?.emergency_contact_name || "",
           emergencyContactRelation: data.profile?.emergency_contact_relation || "",
           emergencyContactPhone: data.profile?.emergency_contact_phone || "",
-          department: data.internship?.department?.name || data.internship?.department_name || "",
-          departmentId: data.internship?.department_id || "",
-          schoolId: data.internship?.school_id || "",
+          department: data.internship?.department?.name || "",
+          departmentId: data.internship?.department_id?.toString() || "",
+          schoolId: data.internship?.school_id?.toString() || "",
           supervisor: data.internship?.supervisor_name || "",
-          supervisorId: data.internship?.supervisor_id || "",
+          supervisorId: data.internship?.supervisor_id?.toString() || "",
+          supervisorEmail: "",
           startDate: data.internship?.start_date || "",
           endDate: data.internship?.end_date || "",
           requiredHours: data.internship?.required_hours || 0,
           completedHours: Number(data.completedHours) || 0,
           internshipStatus: data.internship?.status || "",
-          internshipId: data.internship?.id || "",
+          internshipId: data.internship?.id?.toString() || "",
           todayStatus: data.todayStatus || "",
           projects: data.projects || [],
         })
@@ -208,18 +231,40 @@ export function InternProfile({
       try {
         const url = internId ? `/api/time-logs?userId=${internId}` : "/api/time-logs"
         const res = await fetch(url)
+        if (!res.ok) {
+          throw new Error("Failed to fetch time logs")
+        }
         const data = await res.json()
+        
+        // Handle both array and object responses
         const logsArr: LogEntry[] = (Array.isArray(data) ? data : data.logs || []).map((log: Record<string, unknown>) => {
           const time_in = (log.time_in as string) || (log.timeIn as string) || null
           const time_out = (log.time_out as string) || (log.timeOut as string) || null
           let hoursWorked = 0
+          
           if (time_in && time_out) {
-            const result = calculateTimeWorked(time_in, time_out)
-            hoursWorked = result.hoursWorked
+            try {
+              const result = calculateTimeWorked(time_in, time_out)
+              hoursWorked = result.hoursWorked
+            } catch (error) {
+              console.warn("Error calculating hours for log:", log.id, error)
+            }
           }
-          return { ...log, time_in, time_out, hoursWorked }
+          
+          return { 
+            ...log, 
+            id: Number(log.id), 
+            time_in, 
+            time_out, 
+            hoursWorked,
+            status: log.status as string || "pending"
+          }
         })
+        
         setLogs(logsArr)
+      } catch (error) {
+        console.error("Error fetching time logs:", error)
+        setLogs([])
       } finally {
         setLogsLoading(false)
       }
@@ -230,17 +275,52 @@ export function InternProfile({
   // Fetch supervisors for dropdown
   useEffect(() => {
     if (!isEditing) return
-    fetch("/api/supervisors")
-      .then(res => res.json())
-      .then((data: Supervisor[]) => {
+    
+    const fetchSupervisors = async () => {
+      try {
+        const res = await fetch("/api/supervisors")
+        if (!res.ok) {
+          throw new Error("Failed to fetch supervisors")
+        }
+        const data: Supervisor[] = await res.json()
+        
         setSupervisors(
           data.map((sup) => ({
             id: sup.id,
-            name: `${sup.first_name ?? ""} ${sup.last_name ?? ""}`.trim(),
+            name: sup.name || `${sup.first_name || ""} ${sup.last_name || ""}`.trim(),
+            first_name: sup.first_name,
+            last_name: sup.last_name
           }))
         )
-      })
-      .catch(() => setSupervisors([]))
+      } catch (error) {
+        console.error("Error fetching supervisors:", error)
+        setSupervisors([])
+      }
+    }
+    
+    fetchSupervisors()
+  }, [isEditing])
+
+  // Fetch departments and schools for dropdowns
+  useEffect(() => {
+    if (!isEditing) return
+    const fetchDepartmentsAndSchools = async () => {
+      try {
+        const [deptRes, schoolRes] = await Promise.all([
+          fetch("/api/departments"),
+          fetch("/api/schools"),
+        ])
+        // Defensive: ensure array, fallback to []
+        const deptData = deptRes.ok ? await deptRes.json() : []
+        const schoolData = schoolRes.ok ? await schoolRes.json() : []
+        setDepartments(Array.isArray(deptData) ? deptData : [])
+        setSchools(Array.isArray(schoolData) ? schoolData : [])
+      } catch {
+        setDepartments([])
+        setSchools([])
+      }
+    }
+    fetchDepartmentsAndSchools()
   }, [isEditing])
 
   // Helper for formatting date input value as yyyy-MM-dd or empty string
@@ -259,23 +339,24 @@ export function InternProfile({
 
   useEffect(() => {
     const updateStats = async () => {
-      if (logsLoading || !profileData || !logs.length) {
+      if (logsLoading || !profileData) {
         setTimeStats({ 
           completedHours: profileData?.completedHours || 0, 
-          progressPercentage: 0 
+          progressPercentage: profileData?.requiredHours ? 
+            ((profileData.completedHours || 0) / profileData.requiredHours) * 100 : 0
         })
         return
       }
       
       const requiredHours = profileData.requiredHours || 0
-      const stats = await calculateTimeStatistics(logs, currentInternId, {
-        includeEditRequests: true,
-        requiredHours
-      })
+      
+      // Use the centralized function to calculate hours
+      const totalHours = calculateInternshipProgress(logs, currentInternId)
+      const progressPercentage = requiredHours > 0 ? (totalHours / requiredHours) * 100 : 0
       
       setTimeStats({
-        completedHours: stats.internshipProgress,
-        progressPercentage: stats.progressPercentage
+        completedHours: totalHours,
+        progressPercentage: Math.min(progressPercentage, 100)
       })
     }
     
@@ -287,7 +368,7 @@ export function InternProfile({
   const progressPercentage = timeStats.progressPercentage
 
   // Handle input changes for profile fields
-  const handleInputChange = (field: keyof ProfileData, value: string | string[]) => {
+  const handleInputChange = (field: keyof ProfileData, value: string | string[] | number) => {
     setProfileData((prev) =>
       prev
         ? {
@@ -300,42 +381,87 @@ export function InternProfile({
 
   // Save profile changes
   const handleSave = async () => {
-    setIsEditing(false)
+    if (!profileData) return
+    
     setLoading(true)
     setError(null)
+    
     try {
       // Save profile data first
       console.log("Saving profile data:", profileData)
+      
+      const profileUpdateData = {
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        email: profileData.email,
+        phone: profileData.phone,
+        address: profileData.address,
+        city: profileData.city,
+        country: profileData.country,
+        zipCode: profileData.zipCode,
+        dateOfBirth: profileData.dateOfBirth,
+        bio: profileData.bio,
+        degree: profileData.degree,
+        gpa: profileData.gpa ? parseFloat(profileData.gpa) : undefined,
+        graduationDate: profileData.graduationDate,
+        skills: profileData.skills,
+        interests: profileData.interests,
+        languages: profileData.languages,
+        emergencyContactName: profileData.emergencyContactName,
+        emergencyContactRelation: profileData.emergencyContactRelation,
+        emergencyContactPhone: profileData.emergencyContactPhone,
+        startDate: profileData.startDate,
+        endDate: profileData.endDate,
+        requiredHours: profileData.requiredHours ? Number(profileData.requiredHours) : undefined,
+        supervisorId: profileData.supervisorId?.toString().startsWith('temp_') ? profileData.supervisorId : (profileData.supervisorId ? Number(profileData.supervisorId) : undefined),
+        supervisorEmail: profileData.supervisorEmail,
+        supervisor: profileData.supervisor,
+        schoolId: profileData.schoolId?.toString().startsWith('temp_') ? profileData.schoolId : (profileData.schoolId ? Number(profileData.schoolId) : undefined),
+        school: profileData.school,
+        departmentId: profileData.departmentId?.toString().startsWith('temp_') ? profileData.departmentId : (profileData.departmentId ? Number(profileData.departmentId) : undefined),
+        department: profileData.department,
+      }
+      
       const res = await fetch(`/api/profile${internId ? `?userId=${internId}` : ""}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(profileData),
+        body: JSON.stringify(profileUpdateData),
       })
       
       if (!res.ok) {
         const errorData = await res.json()
-        throw new Error(`Failed to save profile: ${errorData.error || res.statusText}`)
+        throw new Error(errorData.error || `Failed to save profile: ${res.statusText}`)
       }
 
-      // Save work schedule
+      // Save work schedule if available
       if (workSchedule) {
         const scheduleRes = await fetch("/api/user/schedule", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ schedule: workSchedule }),
+          body: JSON.stringify({ userId: currentInternId, schedule: workSchedule }),
         })
         
         if (!scheduleRes.ok) {
           const errorData = await scheduleRes.json()
-          throw new Error(`Failed to save work schedule: ${errorData.error || scheduleRes.statusText}`)
+          console.warn("Failed to save work schedule:", errorData.error)
+          // Don't throw here - profile was saved successfully
         }
       }
 
-      await refreshUser()
-      alert("Profile saved successfully!")
+      // Refresh user data
+      if (refreshUser) {
+        await refreshUser()
+      }
+      setIsEditing(false)
+      setSuccessMessage(
+        internId && internId !== user?.id?.toString()
+          ? "Intern profile saved successfully!"
+          : "Profile saved successfully!"
+      )
+      setShowSuccessDialog(true)
     } catch (err) {
+      console.error("Error saving profile:", err)
       setError((err as Error).message || "Failed to save profile")
-      setIsEditing(true) // Re-enable editing on error
     } finally {
       setLoading(false)
     }
@@ -354,19 +480,199 @@ export function InternProfile({
   }
 
   if (!user) return null
-  if (loading) return <div className="p-8 text-center text-gray-500">Loading profile...</div>
-  if (error) return <div className="p-8 text-center text-red-500">{error}</div>
-  if (!profileData) return null
+  
+  if (loading) {
+    return (
+      <div className="p-8 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+        <p className="text-gray-500">Loading profile...</p>
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="p-8 text-center">
+        <div className="text-red-500 mb-4">
+          <p className="font-medium">Error loading profile</p>
+          <p className="text-sm">{error}</p>
+        </div>
+        <Button onClick={() => window.location.reload()}>
+          Try Again
+        </Button>
+      </div>
+    )
+  }
+  
+  if (!profileData) {
+    return (
+      <div className="p-8 text-center">
+        <p className="text-gray-500">Profile not found</p>
+      </div>
+    )
+  }
 
-  const initials = `${profileData.firstName[0] ?? ""}${profileData.lastName[0] ?? ""}`.toUpperCase()
+  const initials = `${profileData.firstName?.[0] || ""}${profileData.lastName?.[0] || ""}`.toUpperCase() || "??"
 
   return (
     <div className="space-y-6">
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{successMessage}</DialogTitle>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button onClick={() => setShowSuccessDialog(false)} autoFocus>
+                OK
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add New Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Add New {addDialogType === 'school' ? 'University' : 
+                       addDialogType === 'department' ? 'Department' : 'Supervisor'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {addDialogType === 'supervisor' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="addFirstName">First Name</Label>
+                  <Input
+                    id="addFirstName"
+                    value={addDialogData.firstName}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, firstName: e.target.value }))}
+                    placeholder="Enter first name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addLastName">Last Name</Label>
+                  <Input
+                    id="addLastName"
+                    value={addDialogData.lastName}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, lastName: e.target.value }))}
+                    placeholder="Enter last name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="addEmail">Email</Label>
+                  <Input
+                    id="addEmail"
+                    type="email"
+                    value={addDialogData.email}
+                    onChange={(e) => setAddDialogData(prev => ({ ...prev, email: e.target.value }))}
+                    placeholder="Enter email address"
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="addName">
+                  {addDialogType === 'school' ? 'University' : 'Department'} Name
+                </Label>
+                <Input
+                  id="addName"
+                  value={addDialogData.name}
+                  onChange={(e) => setAddDialogData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder={`Enter ${addDialogType === 'school' ? 'university' : 'department'} name`}
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowAddDialog(false)
+                setAddDialogData({ name: '', firstName: '', lastName: '', email: '' })
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => {
+                if (addDialogType === 'supervisor') {
+                  if (!addDialogData.firstName.trim() || !addDialogData.lastName.trim() || !addDialogData.email.trim()) {
+                    return
+                  }
+                  const tempId = `temp_${Date.now()}`
+                  const newSupervisor: Supervisor = { 
+                    id: tempId as unknown as number, // Temp string ID
+                    name: `${addDialogData.firstName.trim()} ${addDialogData.lastName.trim()}`,
+                    first_name: addDialogData.firstName.trim(),
+                    last_name: addDialogData.lastName.trim()
+                  }
+                  setSupervisors(prev => [...prev, newSupervisor])
+                  handleInputChange("supervisor", newSupervisor.name ?? "")
+                  handleInputChange("supervisorId", tempId)
+                  handleInputChange("supervisorEmail", addDialogData.email.trim())
+                } else if (addDialogType === 'school') {
+                  if (!addDialogData.name.trim()) return
+                  const tempId = `temp_${Date.now()}`
+                  const newSchool = { id: tempId, name: addDialogData.name.trim() }
+                  setSchools(prev => [...prev, newSchool])
+                  handleInputChange("school", newSchool.name)
+                  handleInputChange("schoolId", tempId)
+                } else if (addDialogType === 'department') {
+                  if (!addDialogData.name.trim()) return
+                  const tempId = `temp_${Date.now()}`
+                  const newDept = { id: tempId, name: addDialogData.name.trim() }
+                  setDepartments(prev => [...prev, newDept])
+                  handleInputChange("department", newDept.name)
+                  handleInputChange("departmentId", tempId)
+                }
+                setShowAddDialog(false)
+                setAddDialogData({ name: '', firstName: '', lastName: '', email: '' })
+              }}
+              disabled={
+                addDialogType === 'supervisor' 
+                  ? !addDialogData.firstName.trim() || !addDialogData.lastName.trim() || !addDialogData.email.trim()
+                  : !addDialogData.name.trim()
+              }
+            >
+              Add
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
       {onBack && (
         <Button variant="outline" onClick={onBack} className="mb-4">
           ← Back to Dashboard
         </Button>
       )}
+      
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="flex-shrink-0">
+              <X className="h-5 w-5 text-red-400" />
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium text-red-800">Error</p>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            <div className="ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setError(null)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Profile Header Card */}
       <Card>
         <CardContent className="p-6">
@@ -568,14 +874,16 @@ export function InternProfile({
               </div>
               <div className="space-y-2">
                 <Label htmlFor="bio">Bio</Label>
-                <Textarea
-                  id="bio"
-                  value={profileData.bio}
-                  onChange={(e) => handleInputChange("bio", e.target.value)}
-                  disabled={!isEditing}
-                  className="min-h-32"
-                  placeholder="Tell us about yourself..."
-                />
+                <div className={!isEditing ? "pointer-events-none" : ""}>
+                  <Textarea
+                    id="bio"
+                    value={profileData.bio}
+                    onChange={(e) => handleInputChange("bio", e.target.value)}
+                    disabled={!isEditing}
+                    className="min-h-32"
+                    placeholder="Tell us about yourself..."
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -592,13 +900,42 @@ export function InternProfile({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="school">University</Label>
-                  <Input
-                    id="school"
-                    value={profileData.school}
-                    onChange={(e) => handleInputChange("school", e.target.value)}
-                    disabled={!isEditing}
-                    placeholder="School/University"
-                  />
+                  {isEditing ? (
+                    <Select
+                      value={profileData.schoolId}
+                      onValueChange={value => {
+                        if (value === "add_new") {
+                          setAddDialogType('school')
+                          setShowAddDialog(true)
+                        } else {
+                          const selected = schools.find(s => s.id.toString() === value)
+                          handleInputChange("school", selected?.name ?? "")
+                          handleInputChange("schoolId", value)
+                        }
+                      }}
+                    >
+                      <SelectTrigger id="school">
+                        <SelectValue placeholder="Select university" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {schools.map(school => (
+                          <SelectItem key={school.id} value={school.id.toString()}>
+                            {school.name}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="add_new" className="text-blue-600 font-medium">
+                          + Add New University
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      id="school"
+                      value={profileData.school}
+                      disabled
+                      placeholder="School/University"
+                    />
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="degree">Degree Program</Label>
@@ -654,13 +991,42 @@ export function InternProfile({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="department">Department</Label>
-                    <Input
-                      id="department"
-                      value={profileData.department}
-                      onChange={(e) => handleInputChange("department", e.target.value)}
-                      disabled={!isEditing}
-                      placeholder="Department"
-                    />
+                    {isEditing ? (
+                      <Select
+                        value={profileData.departmentId}
+                        onValueChange={value => {
+                          if (value === "add_new") {
+                            setAddDialogType('department')
+                            setShowAddDialog(true)
+                          } else {
+                            const selected = departments.find(d => d.id.toString() === value)
+                            handleInputChange("department", selected?.name ?? "")
+                            handleInputChange("departmentId", value)
+                          }
+                        }}
+                      >
+                        <SelectTrigger id="department">
+                          <SelectValue placeholder="Select department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {departments.map(dept => (
+                            <SelectItem key={dept.id} value={dept.id.toString()}>
+                              {dept.name}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="add_new" className="text-blue-600 font-medium">
+                            + Add New Department
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id="department"
+                        value={profileData.department}
+                        disabled
+                        placeholder="Department"
+                      />
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="supervisor">Supervisor</Label>
@@ -668,9 +1034,16 @@ export function InternProfile({
                       <Select
                         value={profileData.supervisorId?.toString() || ""}
                         onValueChange={value => {
-                          const selected = supervisors.find(s => s.id.toString() === value)
-                          handleInputChange("supervisor", selected?.name ?? "")
-                          handleInputChange("supervisorId", value)
+                          if (value === "add_new") {
+                            setAddDialogType('supervisor')
+                            setShowAddDialog(true)
+                          } else {
+                            const selected = supervisors.find(s => s.id.toString() === value)
+                            handleInputChange("supervisor", selected?.name ?? "")
+                            handleInputChange("supervisorId", value)
+                            // Clear supervisor email when selecting existing supervisor
+                            handleInputChange("supervisorEmail", "")
+                          }
                         }}
                       >
                         <SelectTrigger id="supervisor">
@@ -682,6 +1055,9 @@ export function InternProfile({
                               {sup.name}
                             </SelectItem>
                           ))}
+                          <SelectItem value="add_new" className="text-blue-600 font-medium">
+                            + Add New Supervisor
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     ) : (
@@ -747,151 +1123,32 @@ export function InternProfile({
                     </div>
                   <div className="space-y-2">
                     <Label htmlFor="requiredHours">Required Hours</Label>
-                    <Input
-                      id="requiredHours"
-                      type="number"
-                      min={0}
-                      value={Number(profileData.requiredHours).toFixed(0)}
-                      onChange={(e) => handleInputChange("requiredHours", e.target.value)}
-                      disabled={!isEditing}
-                      placeholder="Required Hours"
-                    />
+                    <div title={isEditing && !(user?.role === "admin") ? "Only admins can edit required hours." : ""}>
+                      <Input
+                        id="requiredHours"
+                        type="number"
+                        min={0}
+                        value={profileData.requiredHours || ""}
+                        onChange={(e) => handleInputChange("requiredHours", e.target.value ? Number(e.target.value) : 0)}
+                        disabled={!isEditing || !(user?.role === "admin")}
+                        placeholder="Required Hours"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="completedHours">Completed Hours</Label>
-                    <Input
-                      id="completedHours"
-                      value={completedHours.toFixed(2)}
-                      disabled
-                      readOnly
-                    />
+                    <div title={isEditing ? "Completed hours are automatically calculated in the system." : ""}>
+                      <Input
+                        id="completedHours"
+                        value={completedHours.toFixed(2)}
+                        disabled
+                        readOnly
+                      />
+                    </div>
                   </div>
                 </div>
 
-                {/* Work Schedule */}
-                <div className="pt-6 mt-6 border-t">
-                  <h3 className="text-lg font-medium mb-4">Work Schedule</h3>
-                  {workSchedule ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="start-time">Start Time</Label>
-                        {isEditing ? (
-                          <Input
-                            id="start-time"
-                            type="time"
-                            value={workSchedule.start || "09:00"}
-                            onChange={(e) => {
-                              setWorkSchedule(prev => prev ? { ...prev, start: e.target.value } : { start: e.target.value, end: "18:00", days: [] })
-                            }}
-                          />
-                        ) : (
-                          <Input
-                            value={(() => {
-                              const time = workSchedule.start || "09:00"
-                              const [hours, minutes] = time.split(':')
-                              const hour = parseInt(hours)
-                              const ampm = hour >= 12 ? 'PM' : 'AM'
-                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
-                              return `${displayHour}:${minutes} ${ampm}`
-                            })()}
-                            disabled
-                          />
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="end-time">End Time</Label>
-                        {isEditing ? (
-                          <Input
-                            id="end-time"
-                            type="time"
-                            value={workSchedule.end || "18:00"}
-                            onChange={(e) => {
-                              setWorkSchedule(prev => prev ? { ...prev, end: e.target.value } : { start: "09:00", end: e.target.value, days: [] })
-                            }}
-                          />
-                        ) : (
-                          <Input
-                            value={(() => {
-                              const time = workSchedule.end || "18:00"
-                              const [hours, minutes] = time.split(':')
-                              const hour = parseInt(hours)
-                              const ampm = hour >= 12 ? 'PM' : 'AM'
-                              const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour
-                              return `${displayHour}:${minutes} ${ampm}`
-                            })()}
-                            disabled
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-gray-500 text-sm">No work schedule set</div>
-                  )}
-                  
-                  {workSchedule && (
-                    <div className="space-y-2 mt-4">
-                      <Label>Work Days</Label>
-                      {isEditing ? (
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            { value: 1, label: "Mon" },
-                            { value: 2, label: "Tue" },
-                            { value: 3, label: "Wed" },
-                            { value: 4, label: "Thu" },
-                            { value: 5, label: "Fri" },
-                            { value: 6, label: "Sat" },
-                            { value: 7, label: "Sun" }
-                          ].map((day) => (
-                            <label key={day.value} className={cn(
-                              "flex items-center gap-2 px-3 py-2 border rounded-md text-sm transition-colors",
-                              "cursor-pointer hover:bg-gray-50",
-                              workSchedule.days?.includes(day.value) && "bg-green-50 border-green-200 text-green-700"
-                            )}>
-                              <input
-                                type="checkbox"
-                                checked={workSchedule.days?.includes(day.value) || false}
-                                onChange={(e) => {
-                                  const currentDays = workSchedule.days || []
-                                  const newDays = e.target.checked 
-                                    ? [...currentDays, day.value]
-                                    : currentDays.filter((d: number) => d !== day.value)
-                                  setWorkSchedule(prev => prev ? { ...prev, days: newDays } : { start: "09:00", end: "18:00", days: newDays })
-                                }}
-                                className="rounded border-gray-300"
-                              />
-                              <span>{day.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="flex gap-2 flex-wrap">
-                          {[
-                            { value: 1, label: "Mon" },
-                            { value: 2, label: "Tue" },
-                            { value: 3, label: "Wed" },
-                            { value: 4, label: "Thu" },
-                            { value: 5, label: "Fri" },
-                            { value: 6, label: "Sat" },
-                            { value: 7, label: "Sun" }
-                          ].map((day) => (
-                            <Badge 
-                              key={day.value} 
-                              variant={workSchedule.days?.includes(day.value) ? "default" : "outline"}
-                              className={cn(
-                                "text-sm",
-                                workSchedule.days?.includes(day.value) 
-                                  ? "bg-green-100 text-green-800 hover:bg-green-200" 
-                                  : "text-gray-400"
-                              )}
-                            >
-                              {day.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {/* Work Schedule removed as per requirements */}
               </div>
             </CardContent>
           </Card>
@@ -916,7 +1173,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-gray-500 hover:text-gray-700"
                             onClick={() => {
-                              const newSkills = [...profileData.skills]
+                              const newSkills = [...(profileData.skills || [])]
                               newSkills.splice(index, 1)
                               handleInputChange("skills", newSkills)
                             }}
@@ -937,7 +1194,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("skills", [...profileData.skills, input.value.trim()])
+                                  handleInputChange("skills", [...(profileData.skills || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -947,8 +1204,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newSkill") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("skills", [...profileData.skills, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("skills", [...(profileData.skills || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}
@@ -972,7 +1229,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-gray-500 hover:text-gray-700"
                             onClick={() => {
-                              const newInterests = [...profileData.interests]
+                              const newInterests = [...(profileData.interests || [])]
                               newInterests.splice(index, 1)
                               handleInputChange("interests", newInterests)
                             }}
@@ -993,7 +1250,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("interests", [...profileData.interests, input.value.trim()])
+                                  handleInputChange("interests", [...(profileData.interests || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -1003,8 +1260,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newInterest") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("interests", [...profileData.interests, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("interests", [...(profileData.interests || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}
@@ -1027,7 +1284,7 @@ export function InternProfile({
                           <button
                             className="ml-1 text-blue-600 hover:text-blue-800"
                             onClick={() => {
-                              const newLanguages = [...profileData.languages]
+                              const newLanguages = [...(profileData.languages || [])]
                               newLanguages.splice(index, 1)
                               handleInputChange("languages", newLanguages)
                             }}
@@ -1048,7 +1305,7 @@ export function InternProfile({
                                 e.preventDefault()
                                 const input = e.currentTarget
                                 if (input.value.trim()) {
-                                  handleInputChange("languages", [...profileData.languages, input.value.trim()])
+                                  handleInputChange("languages", [...(profileData.languages || []), input.value.trim()])
                                   input.value = ""
                                 }
                               }
@@ -1058,8 +1315,8 @@ export function InternProfile({
                             type="button"
                             onClick={() => {
                               const input = document.getElementById("newLanguage") as HTMLInputElement
-                              if (input.value.trim()) {
-                                handleInputChange("languages", [...profileData.languages, input.value.trim()])
+                              if (input?.value.trim()) {
+                                handleInputChange("languages", [...(profileData.languages || []), input.value.trim()])
                                 input.value = ""
                               }
                             }}
@@ -1097,24 +1354,26 @@ export function InternProfile({
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="emergencyContactRelation">Relationship</Label>
-                  <Select
-                    value={profileData.emergencyContactRelation}
-                    onValueChange={(value) => handleInputChange("emergencyContactRelation", value)}
-                    disabled={!isEditing}
-                  >
-                    <SelectTrigger id="emergencyContactRelation">
-                      <SelectValue placeholder="Select" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Mother">Mother</SelectItem>
-                      <SelectItem value="Father">Father</SelectItem>
-                      <SelectItem value="Sibling">Sibling</SelectItem>
-                      <SelectItem value="Spouse">Spouse</SelectItem>
-                      <SelectItem value="Relative">Relative</SelectItem>
-                      <SelectItem value="Friend">Friend</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className={!isEditing ? "pointer-events-none" : ""}>
+                    <Select
+                      value={profileData.emergencyContactRelation}
+                      onValueChange={(value) => handleInputChange("emergencyContactRelation", value)}
+                      disabled={!isEditing}
+                    >
+                      <SelectTrigger id="emergencyContactRelation">
+                        <SelectValue placeholder="Select" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Mother">Mother</SelectItem>
+                        <SelectItem value="Father">Father</SelectItem>
+                        <SelectItem value="Sibling">Sibling</SelectItem>
+                        <SelectItem value="Spouse">Spouse</SelectItem>
+                        <SelectItem value="Relative">Relative</SelectItem>
+                        <SelectItem value="Friend">Friend</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="emergencyContactPhone">Phone Number</Label>

@@ -496,6 +496,13 @@ export async function fetchEditRequests(internId?: string | number): Promise<Arr
   requestedTimeIn?: string | null
   requestedTimeOut?: string | null
 }>> {
+  // Check if we're in a server environment (Node.js) vs browser
+  if (typeof window === 'undefined') {
+    // Server-side: skip fetching edit requests for now, return empty array
+    console.log('Server-side execution: skipping edit requests fetch')
+    return []
+  }
+
   try {
     const url = internId 
       ? `/api/admin/time-log-edit-requests?internId=${internId}`
@@ -947,4 +954,24 @@ export function formatAccurateHours(hours: number): string {
   const displayHours = Math.floor(totalMinutes / 60)
   const displayMinutes = totalMinutes % 60
   return formatDuration(displayHours, displayMinutes)
+}
+
+/**
+ * Truncates a Date or ISO string to minute precision for consistent time storage.
+ * 
+ * This utility function ensures all time values are stored with minute precision
+ * by setting seconds and milliseconds to zero. This prevents timestamp precision
+ * issues and maintains consistency across the application.
+ * 
+ * @param date Date object or ISO string to truncate
+ * @returns ISO string truncated to minute precision
+ * @throws Error if the provided date is invalid
+ */
+export function truncateToMinute(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date
+  if (isNaN(d.getTime())) {
+    throw new Error(`Invalid date: ${date}`)
+  }
+  d.setSeconds(0, 0)
+  return d.toISOString()
 }

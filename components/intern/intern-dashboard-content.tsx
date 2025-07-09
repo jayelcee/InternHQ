@@ -17,6 +17,7 @@ import {
   formatDuration,
   calculateTimeStatistics,
   calculateTodayProgressAccurate,
+  truncateToMinute,
   DAILY_REQUIRED_HOURS,
   MAX_OVERTIME_HOURS
 } from "@/lib/time-utils"
@@ -63,9 +64,12 @@ function getTodayTotalDuration(logs: TimeLogDisplay[], isTimedIn: boolean, timeI
   if (isTimedIn && timeInTimestamp) {
     const end = freezeAt ? freezeAt : (currentTime || new Date())
     
-    // Safeguard: Prevent unrealistic session durations (more than 24 hours)
+    // Safeguard: Prevent unrealistic session durations (more than 24 hours or negative)
     const sessionDurationHours = (end.getTime() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
-    if (sessionDurationHours > 24) {
+    if (sessionDurationHours < 0) {
+      console.warn(`Negative session duration detected: ${sessionDurationHours.toFixed(2)}h. Using 0h.`)
+      // Don't add any time for negative duration
+    } else if (sessionDurationHours > 24) {
       console.warn(`Unrealistic session duration detected: ${sessionDurationHours.toFixed(2)}h. Capping at 24h.`)
       const cappedEnd = new Date(timeInTimestamp.getTime() + (24 * 60 * 60 * 1000))
       const activeResult = calculateTimeWorked(timeInTimestamp, cappedEnd)
@@ -168,9 +172,12 @@ function getTodayOvertimeByStatus(logs: TimeLogDisplay[], isTimedIn: boolean, ti
     if (isTimedIn && timeInTimestamp) {
       const end = currentTime || new Date()
       
-      // Safeguard: Prevent unrealistic session durations (more than 24 hours)
+      // Safeguard: Prevent unrealistic session durations (more than 24 hours or negative)
       const sessionDurationHours = (end.getTime() - timeInTimestamp.getTime()) / (1000 * 60 * 60)
-      if (sessionDurationHours > 24) {
+      if (sessionDurationHours < 0) {
+        console.warn(`Negative active regular session duration detected: ${sessionDurationHours.toFixed(2)}h. Using 0h.`)
+        // Don't add any time for negative duration
+      } else if (sessionDurationHours > 24) {
         console.warn(`Unrealistic active regular session duration detected: ${sessionDurationHours.toFixed(2)}h. Capping at 24h.`)
         const cappedEnd = new Date(timeInTimestamp.getTime() + (24 * 60 * 60 * 1000))
         const activeResult = calculateTimeWorked(timeInTimestamp, cappedEnd)
@@ -245,15 +252,27 @@ function getTodayTotalHours(logs: TimeLogDisplay[], isTimedIn: boolean, timeInTi
   // Add current active overtime session if any
   if (isOvertimeIn && overtimeInTimestamp) {
     const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(overtimeInTimestamp, end)
-    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
+    const sessionDurationHours = (end.getTime() - overtimeInTimestamp.getTime()) / (1000 * 60 * 60)
+    if (sessionDurationHours < 0) {
+      console.warn(`Negative overtime session duration detected: ${sessionDurationHours.toFixed(2)}h. Using 0h.`)
+      // Don't add any time for negative duration
+    } else {
+      const activeResult = calculateTimeWorked(overtimeInTimestamp, end)
+      totalMs += activeResult.hoursWorked * 60 * 60 * 1000
+    }
   }
 
   // Add current active extended overtime session if any
   if (isExtendedOvertimeIn && extendedOvertimeInTimestamp) {
     const end = freezeAt ? freezeAt : (currentTime || new Date())
-    const activeResult = calculateTimeWorked(extendedOvertimeInTimestamp, end)
-    totalMs += activeResult.hoursWorked * 60 * 60 * 1000
+    const sessionDurationHours = (end.getTime() - extendedOvertimeInTimestamp.getTime()) / (1000 * 60 * 60)
+    if (sessionDurationHours < 0) {
+      console.warn(`Negative extended overtime session duration detected: ${sessionDurationHours.toFixed(2)}h. Using 0h.`)
+      // Don't add any time for negative duration
+    } else {
+      const activeResult = calculateTimeWorked(extendedOvertimeInTimestamp, end)
+      totalMs += activeResult.hoursWorked * 60 * 60 * 1000
+    }
   }
 
   return totalMs / (1000 * 60 * 60) // Convert to hours
@@ -371,6 +390,12 @@ export function InternDashboardContent() {
     setActionLoading(true)
     setLoadingAction("timein")
     const now = new Date()
+    // Truncate the timestamp to minute precision for consistent display
+    const truncatedNow = new Date(truncateToMinute(now))
+    
+    // Ensure current time is at least as recent as the truncated timestamp
+    // This prevents negative duration calculations
+    setCurrentTime(new Date(Math.max(now.getTime(), truncatedNow.getTime())))
     
     // Calculate total hours worked today to determine if this will be an overtime session
     const totalHoursToday = getTodayTotalHours(allLogs, false, null, false, null, undefined, now)
@@ -379,11 +404,11 @@ export function InternDashboardContent() {
     if (willBeOvertime) {
       // Set overtime state
       setIsOvertimeIn(true)
-      setOvertimeInTimestamp(now)
+      setOvertimeInTimestamp(truncatedNow)
     } else {
       // Set regular state
       setIsTimedIn(true)
-      setTimeInTimestamp(now)
+      setTimeInTimestamp(truncatedNow)
     }
     setAutoTimeoutTriggered(false)
     
@@ -392,7 +417,10 @@ export function InternDashboardContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: getCurrentDateString() }),
+        body: JSON.stringify({ 
+          date: getCurrentDateString(),
+          time: truncateToMinute(truncatedNow)
+        }),
       })
       if (!res.ok) throw new Error("Failed to clock in")
       await fetchLogs(false)
@@ -419,8 +447,12 @@ export function InternDashboardContent() {
     setLoadingAction("timeout")
     const today = getCurrentDateString()
     
-    // Use cutoffTime if provided (for forgotten timeout scenario)
-    const timeoutTime = cutoffTime || freezeAt
+    // Use cutoffTime if provided (for forgotten timeout scenario), otherwise use current time
+    let timeoutTime = cutoffTime || freezeAt || new Date()
+    
+    // Always truncate timeoutTime to minute precision (discard seconds and milliseconds)
+    timeoutTime = new Date(timeoutTime)
+    timeoutTime.setSeconds(0, 0) // Set seconds and milliseconds to 0
     
     // Calculate total hours worked today (including current session)
     let totalMs = 0
@@ -482,7 +514,7 @@ export function InternDashboardContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           date: today, 
-          time: timeoutTime ? timeoutTime.toISOString() : undefined,
+          time: timeoutTime ? truncateToMinute(timeoutTime) : undefined,
           discardOvertime,
           overtimeNote 
         }),
@@ -598,13 +630,12 @@ export function InternDashboardContent() {
             return { ...log, hoursWorked: 0, duration: null }
           }))
 
-          // Find the latest active regular log (no time_out) FOR TODAY ONLY
-          const todayStr = getTodayDateString()
+          // --- NEW: Find the latest active session (regardless of date) ---
+          // Find the latest active regular log (no time_out)
           const activeLog = logsArr
             .filter((log: Record<string, unknown>) =>
               log.time_out === null &&
               log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
               (log.log_type === "regular" || !log.log_type)
             )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
@@ -612,9 +643,8 @@ export function InternDashboardContent() {
             const timeInDate = new Date(activeLog.time_in as string)
             const now = new Date()
             const sessionDurationHours = (now.getTime() - timeInDate.getTime()) / (1000 * 60 * 60)
-            
-            // Safeguard: If session duration is unrealistic (more than 24 hours), don't restore timed-in state
-            if (sessionDurationHours > 24) {
+            if (sessionDurationHours > 48) {
+              // Safeguard: If session duration is unrealistic (more than 48 hours), don't restore timed-in state
               console.warn(`Unrealistic session duration detected during restoration: ${sessionDurationHours.toFixed(2)}h. Not restoring timed-in state.`)
               setIsTimedIn(false)
               setTimeInTimestamp(null)
@@ -627,36 +657,27 @@ export function InternDashboardContent() {
             setTimeInTimestamp(null)
           }
 
-          // Find the latest active overtime log (no time_out) FOR TODAY ONLY
+          // Find the latest active overtime log (no time_out)
           const activeOvertimeLog = logsArr
             .filter((log: Record<string, unknown>) =>
               log.time_out === null &&
               log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
-              log.log_type === "overtime"
+              (log.log_type === "overtime" || log.log_type === "extended_overtime")
             )
             .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
           if (activeOvertimeLog) {
             setIsOvertimeIn(true)
             setOvertimeInTimestamp(new Date(activeOvertimeLog.time_in as string))
+            if (activeOvertimeLog.log_type === "extended_overtime") {
+              setIsExtendedOvertimeIn(true)
+              setExtendedOvertimeInTimestamp(new Date(activeOvertimeLog.time_in as string))
+            } else {
+              setIsExtendedOvertimeIn(false)
+              setExtendedOvertimeInTimestamp(null)
+            }
           } else {
             setIsOvertimeIn(false)
             setOvertimeInTimestamp(null)
-          }
-
-          // Find the latest active extended overtime log (no time_out) FOR TODAY ONLY
-          const activeExtendedOvertimeLog = logsArr
-            .filter((log: Record<string, unknown>) =>
-              log.time_out === null &&
-              log.time_in &&
-              safeGetDateString(log.time_in as string) === todayStr &&
-              log.log_type === "extended_overtime"
-            )
-            .sort((a: Record<string, unknown>, b: Record<string, unknown>) => new Date(b.time_in as string).getTime() - new Date(a.time_in as string).getTime())[0]
-          if (activeExtendedOvertimeLog) {
-            setIsExtendedOvertimeIn(true)
-            setExtendedOvertimeInTimestamp(new Date(activeExtendedOvertimeLog.time_in as string))
-          } else {
             setIsExtendedOvertimeIn(false)
             setExtendedOvertimeInTimestamp(null)
           }
