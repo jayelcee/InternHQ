@@ -226,7 +226,7 @@ function generatePDFContent(document: DocumentData): Buffer {
         <div class="title">
           ${document.type === 'dtr' ? 'Official Daily Time Record' : 'Certificate of Completion'}
         </div>
-        <div>InternHQ - Internship Management System</div>
+        <div>Cybersoft DTR - Internship Management System</div>
       </div>
       
       <div class="document-info">

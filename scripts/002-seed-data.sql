@@ -1,4 +1,4 @@
--- InternHQ Seed Data
+-- Cybersoft DTR Seed Data
 -- Minimal seed for development/testing
 
 -- EXTENSIONS
@@ -53,7 +53,7 @@ ON CONFLICT (name) DO NOTHING;
 
 -- PROJECTS
 INSERT INTO projects (name, description, department_id, status, start_date, end_date) VALUES
-    ('InternHQ Development', 'InternHQ system development',
+    ('Cybersoft DTR Development', 'Cybersoft DTR system development',
      (SELECT id FROM departments WHERE name = 'MIS'), 'active', '2025-04-01', '2025-08-31'),
     ('Database Optimization', 'Database performance optimization',
      (SELECT id FROM departments WHERE name = 'Data Engineering'), 'active', '2025-05-01', '2025-07-31'),
@@ -99,7 +99,7 @@ ON CONFLICT (user_id) DO NOTHING;
 -- PROJECT ASSIGNMENTS
 INSERT INTO intern_project_assignments (user_id, project_id, assigned_date, role) VALUES
     ((SELECT id FROM users WHERE email = 'jasmine.camasura@cybersoftbpo.com'),
-     (SELECT id FROM projects WHERE name = 'InternHQ Development'),
+     (SELECT id FROM projects WHERE name = 'Cybersoft DTR Development'),
      '2025-04-24', 'Frontend Developer'),
     ((SELECT id FROM users WHERE email = 'jireh.sodsod@cybersoftbpo.com'),
      (SELECT id FROM projects WHERE name = 'Database Optimization'),
@@ -245,7 +245,7 @@ BEGIN
     SELECT COUNT(*) INTO assignment_count FROM intern_project_assignments;
     SELECT COUNT(*) INTO time_log_count FROM time_logs;
     
-    RAISE NOTICE 'InternHQ Database Seeded:';
+    RAISE NOTICE 'Cybersoft DTR Database Seeded:';
     RAISE NOTICE '  Users: %', user_count;
     RAISE NOTICE '  Schools: %', school_count;
     RAISE NOTICE '  Supervisors: %', supervisor_count;
