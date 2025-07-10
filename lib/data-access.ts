@@ -1,3 +1,40 @@
+/**
+ * Data access layer for the application.
+ *
+ * This module provides robust database operations for the DTR system,
+ * supporting user management, time logging, overtime/extended overtime handling,
+ * edit request workflows, and migration utilities.
+ *
+ * Key Features:
+ * - User, profile, and internship program management
+ * - Time tracking with automatic splitting into regular, overtime, and extended overtime logs
+ * - Overtime approval and audit workflow (admin review, status management)
+ * - Edit request system for time log modifications, including continuous session edits
+ * - Transactional operations for data integrity and foreign key constraint handling
+ * - Migration utilities for splitting legacy long logs into 3-tier time tracking
+ * - Comprehensive reporting with user, department, and school joins
+ *
+ * Time Tracking & Overtime Rules:
+ * - Regular time: up to 9 hours per day
+ * - Overtime: 9–12 hours per day (requires approval)
+ * - Extended overtime: over 12 hours per day (requires approval)
+ * - Automatic splitting and migration of logs that exceed these boundaries
+ * - Edit requests and admin actions always maintain 3-tier log structure
+ *
+ * Edit Request System:
+ * - Supports both single-log and multi-log (continuous session) edit requests
+ * - Handles merging, splitting, and reverting logs with full audit trail
+ * - Ensures referential integrity during log recreation and edit request updates
+ *
+ * Architecture Notes:
+ * - PostgreSQL database with SQL query builder for type safety
+ * - All time values truncated to minute precision for consistency
+ * - Transactional logic for all destructive or multi-step operations
+ * - Designed for timezone-aware, auditable, and scalable time tracking
+ *
+ * @module DataAccess
+ */
+
 import type {
   UserWithDetails,
   TimeLog,
@@ -12,34 +49,6 @@ import type {
 } from "./database"
 import { sql } from "./database"
 import { calculateInternshipProgress, calculateTimeWorked, DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS } from "./time-utils"
-
-/**
- * Data access layer for InternHQ application.
- * 
- * This module provides comprehensive database operations for the InternHQ system,
- * including user management, time logging, overtime tracking, and edit request processing.
- * 
- * Key Features:
- * - User profile and internship management
- * - Time tracking with automatic regular/overtime splitting
- * - Edit request system for time log modifications
- * - Continuous session handling for complex time edits
- * - Migration utilities for data cleanup
- * 
- * Architecture Notes:
- * - Uses PostgreSQL with the @vercel/postgres driver
- * - Implements transactional operations for data integrity
- * - Handles timezone-aware time calculations
- * - Provides foreign key constraint management for complex operations
- * - Supports both single and batch edit request processing
- * 
- * Overtime Rules:
- * - Regular time: 0-9 hours per day
- * - Overtime: 9-12 hours per day (requires approval)
- * - Extended overtime: 12+ hours per day (requires approval)
- * 
- * @module DataAccess
- */
 
 /**
  * Retrieves a project by its ID

@@ -1,8 +1,10 @@
 /**
- * Document generation service that matches the exact format and styling of DocumentViewer
- * Uses the same session processing logic and badge designs for consistency
+ * DocumentGenerationService: Generates DTR and certificate HTML content for PDF export, matching the format and logic of DocumentViewer.
+ *
+ * Exports:
+ * - DocumentGenerationService: Main class for generating DTR and certificate HTML
+ * - Internal helpers for time log and badge processing
  */
-
 import { DocumentContent, CertificateContent } from './completion-service'
 import { TimeLogDisplay, groupLogsByDate, sortGroupedLogsByDate } from './ui-utils'
 import { processTimeLogSessions, getTimeBadgeProps } from './session-utils'
@@ -23,31 +25,18 @@ interface TimeLogEntry {
 function parseDateTime(dateStr: string, timeStr: string): Date {
   try {
     const date = new Date(dateStr)
-    if (isNaN(date.getTime())) {
-      throw new Error('Invalid date')
-    }
-    
+    if (isNaN(date.getTime())) throw new Error('Invalid date')
     const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)/i)
-    if (!timeMatch) {
-      throw new Error('Invalid time format')
-    }
-    
+    if (!timeMatch) throw new Error('Invalid time format')
     let hours = parseInt(timeMatch[1], 10)
     const minutes = parseInt(timeMatch[2], 10)
     const ampm = timeMatch[3].toUpperCase()
-    
-    if (ampm === 'PM' && hours !== 12) {
-      hours += 12
-    } else if (ampm === 'AM' && hours === 12) {
-      hours = 0
-    }
-    
+    if (ampm === 'PM' && hours !== 12) hours += 12
+    else if (ampm === 'AM' && hours === 12) hours = 0
     const result = new Date(date)
     result.setHours(hours, minutes, 0, 0)
-    
     return result
-  } catch (error) {
-    console.error('Error parsing date/time:', { dateStr, timeStr, error })
+  } catch {
     return new Date()
   }
 }
@@ -64,39 +53,30 @@ const mapBadgeClassToPDF = (className: string): string => {
 }
 
 export class DocumentGenerationService {
-  
   /**
    * Generates DTR HTML content using the exact same format as DocumentViewer
    */
   static generateDTRHTML(content: DocumentContent & { timeLogsDetails: TimeLogEntry[] }): string {
-    // Ensure numeric values are properly converted
     const totalHours = typeof content.totalHours === 'number' ? content.totalHours : parseFloat(String(content.totalHours)) || 0
     const requiredHours = typeof content.requiredHours === 'number' ? content.requiredHours : parseFloat(String(content.requiredHours)) || 0
-    
     const completedHours = Math.min(totalHours, requiredHours)
     const progressPercentage = requiredHours > 0 ? (completedHours / requiredHours) * 100 : 0
-    
     // Transform timeLogsDetails to TimeLogDisplay format for session processing
     const transformedLogs: TimeLogDisplay[] = content.timeLogsDetails.map((log, index) => {
       const timeInDate = parseDateTime(log.date, log.timeIn)
       const timeOutDate = parseDateTime(log.date, log.timeOut)
-      
       return {
         id: index + 1,
         time_in: timeInDate.toISOString(),
         time_out: timeOutDate.toISOString(),
-        log_type: log.logType as "regular" | "overtime" | "extended_overtime",
+        log_type: log.logType,
         status: log.status as "pending" | "completed",
         overtime_status: log.overtimeStatus as "pending" | "approved" | "rejected" | undefined,
         user_id: 1,
         internId: 1
       }
     })
-    
-    // Calculate hours summary using the same logic as DocumentViewer
-    const hoursSummary = this.calculateHoursSummary(content.timeLogsDetails)
-    
-    return this.getDTRTemplate(content, completedHours, progressPercentage, hoursSummary, transformedLogs, totalHours, requiredHours)
+    return this.getDTRTemplate(content, completedHours, progressPercentage, this.calculateHoursSummary(content.timeLogsDetails), transformedLogs, totalHours, requiredHours)
   }
 
   /**
@@ -114,28 +94,20 @@ export class DocumentGenerationService {
     approvedOvertimeHours: number
     totalHoursRendered: number
   } {
-    let totalRegularHours = 0;
+    let totalRegularHours = 0
     for (const log of timeLogsDetails) {
       try {
         if (log.logType === "regular") {
-          const timeIn = parseDateTime(log.date, log.timeIn);
-          const timeOut = parseDateTime(log.date, log.timeOut);
-          const durationMs = timeOut.getTime() - timeIn.getTime();
-          const durationHours = durationMs / (1000 * 60 * 60);
-          totalRegularHours += durationHours;
+          const timeIn = parseDateTime(log.date, log.timeIn)
+          const timeOut = parseDateTime(log.date, log.timeOut)
+          const durationMs = timeOut.getTime() - timeIn.getTime()
+          const durationHours = durationMs / (1000 * 60 * 60)
+          totalRegularHours += durationHours
         }
-      } catch (error) {
-        console.warn('Error processing log entry:', error);
-      }
+      } catch {}
     }
-    const regularHours = Number(truncateTo2Decimals(totalRegularHours));
-    // totalHoursRendered should be provided externally (see getDTRTemplate usage)
-    // For this static method, return 0 for totalHoursRendered and approvedOvertimeHours as placeholder
-    return {
-      regularHours,
-      approvedOvertimeHours: 0,
-      totalHoursRendered: 0
-    };
+    const regularHours = Number(truncateTo2Decimals(totalRegularHours))
+    return { regularHours, approvedOvertimeHours: 0, totalHoursRendered: 0 }
   }
 
   /**
@@ -575,8 +547,7 @@ export class DocumentGenerationService {
             </tr>
           `
         }).join('')
-    } catch (error) {
-      console.error('Error processing sessions:', error)
+    } catch {
       // Fallback to simple table generation
       return this.generateFallbackTableRows(transformedLogs)
     }
