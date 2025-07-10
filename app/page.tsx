@@ -1,5 +1,5 @@
 /**
- * Main entry page for InternHQ.
+ * Main entry page for Cybersoft DTR.
  * - Handles authentication and role-based dashboard rendering.
  * - Wraps content in AuthProvider for global auth state.
  */

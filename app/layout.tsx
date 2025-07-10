@@ -1,5 +1,5 @@
 /**
- * Root layout for the InternHQ Next.js application.
+ * Root layout for the Cybersoft DTR Next.js application.
  * - Applies global fonts (Geist Sans & Mono) and styles.
  * - Sets up HTML structure and metadata.
  */
@@ -22,7 +22,7 @@ const geistMono = Geist_Mono({
 
 // Application metadata for SEO and browser context
 export const metadata: Metadata = {
-  title: "InternHQ",
+  title: "Cybersoft DTR",
   description: "A time tracking and management system for interns.",
 };
 

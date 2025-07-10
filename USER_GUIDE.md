@@ -1,6 +1,6 @@
-# InternHQ User Guide
+# Cybersoft DTR User Guide
 
-Welcome to InternHQ! This guide will help you understand how to use the system for intern time tracking, overtime management, and related features. It is designed for both interns and administrators.
+Welcome to Cybersoft DTR! This guide will help you understand how to use the system for intern time tracking, overtime management, and related features. It is designed for both interns and administrators.
 
 ---
 
@@ -31,7 +31,7 @@ Welcome to InternHQ! This guide will help you understand how to use the system f
 ---
 
 ## 1. Getting Started
-- Access InternHQ via your organization’s provided URL.
+- Access Cybersoft DTR via your organization’s provided URL.
 - Use your assigned email and password to log in.
 
 ## 2. Logging In

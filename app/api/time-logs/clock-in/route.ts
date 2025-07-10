@@ -31,6 +31,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    return handleApiError(error, "Clock in")
+    return handleApiError(error)
   }
 }

@@ -426,7 +426,7 @@ export class DocumentGenerationService {
                 <p class="font-medium" style="font-size: 18px;">${content.adminSignature}</p>
                 <p class="text-gray-600">${content.adminTitle}</p><br>
                 <p class="text-gray-500 mt-10">
-                  Date Issued: ${new Date(content.issueDate).toLocaleDateString()}
+                  Date Issued: ${new Date(content.issueDate).toLocaleString(undefined, { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </p>
                 <p class="text-gray-500">
                   Document No: ${content.documentNumber}
