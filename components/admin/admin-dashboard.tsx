@@ -1,3 +1,22 @@
+/**
+ * AdminDashboard
+ *
+ * Main entry point for the admin dashboard UI.
+ * - Handles tab navigation and renders the appropriate dashboard section.
+ * - Shows navigation, header, and the selected dashboard content.
+ * - Requires authenticated user (admin/HR).
+ *
+ * Tabs:
+ * - Dashboard (overview)
+ * - Manage Interns
+ * - Overtime Requests
+ * - Edit Log Requests
+ * - Completion Requests
+ *
+ * Context:
+ * - Uses useAuth() for user info
+ */
+
 "use client"
 
 import { useState } from "react"
@@ -13,7 +32,6 @@ import { ManageCompletionRequests } from "./manage-completion-requests"
 export function AdminDashboard() {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState("dashboard")
-
   if (!user) return null
 
   const renderContent = () => {
@@ -35,10 +53,7 @@ export function AdminDashboard() {
 
   return (
     <>
-      <AdminNavigation
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
+      <AdminNavigation activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="md:pl-64">
         <div className="min-h-screen bg-gray-50 p-4 md:p-6">
           <div className="mx-auto max-w-6xl space-y-6">

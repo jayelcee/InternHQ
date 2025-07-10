@@ -1,16 +1,11 @@
 /**
- * Centralized time calculation utilities for InternHQ.
- * 
- * Provides consistent time calculation and formatting functions used across the application.
- * 
- * Key utilities:
- * - calculateTimeWorked: Main function for time duration calculations.
- * - calculateInternshipProgress: Calculates total completed hours for an intern.
- * - DAILY_REQUIRED_HOURS: Centralized constant for required daily hours.
- * - Date/time formatting functions for consistent display.
- * 
- * Usage: Import these functions instead of creating local time calculation logic
- * to ensure consistency across all components.
+ * Time calculation and formatting utilities.
+ *
+ * Provides:
+ * - Consistent time calculations (regular/overtime, progress, durations)
+ * - Centralized constants (DAILY_REQUIRED_HOURS, MAX_OVERTIME_HOURS)
+ * - Date/time formatting and extraction helpers
+ * - Edit request and statistics utilities
  */
 
 export const DAILY_REQUIRED_HOURS = 9
@@ -499,7 +494,6 @@ export async function fetchEditRequests(internId?: string | number): Promise<Arr
   // Check if we're in a server environment (Node.js) vs browser
   if (typeof window === 'undefined') {
     // Server-side: skip fetching edit requests for now, return empty array
-    console.log('Server-side execution: skipping edit requests fetch')
     return []
   }
 

@@ -5,6 +5,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 
+/**
+ * Represents an authenticated API request.
+ */
 export interface AuthenticatedRequest {
   userId: string
   role: string
@@ -12,8 +15,9 @@ export interface AuthenticatedRequest {
 }
 
 /**
- * Middleware for authenticating API requests
- * Returns user info if authenticated, otherwise returns error response
+ * Authenticates API requests using the 'auth-token' cookie.
+ * Optionally enforces a required user role.
+ * Returns user info if authenticated, otherwise returns an error response.
  */
 export async function withAuth(
   request: NextRequest,
@@ -53,8 +57,7 @@ export async function withAuth(
         token
       }
     }
-  } catch (error) {
-    console.error("Authentication middleware error:", error)
+  } catch {
     return {
       success: false,
       response: NextResponse.json({ error: "Internal server error" }, { status: 500 })
@@ -63,18 +66,17 @@ export async function withAuth(
 }
 
 /**
- * Wrapper for handling API errors consistently
+ * Handles API errors and returns a standardized error response.
+ * @param error The error thrown
+ * @param operation The operation being performed (for logging)
  */
-export function handleApiError(error: unknown, operation: string): NextResponse {
-  console.error(`${operation} error:`, error)
-  
+export function handleApiError(error: unknown): NextResponse {
   if (error instanceof Error) {
     return NextResponse.json(
       { error: error.message },
       { status: 400 }
     )
   }
-  
   return NextResponse.json(
     { error: "Internal server error" },
     { status: 500 }
@@ -82,30 +84,27 @@ export function handleApiError(error: unknown, operation: string): NextResponse 
 }
 
 /**
- * Middleware for admin-only access with optional user targeting
- * Allows admin to operate on other users, or users to operate on themselves
+ * Middleware for admin-only or self-access.
+ * Allows admins to operate on any user, or users to operate on themselves.
+ * @param request The API request
+ * @param targetUserId Optional userId to target (defaults to self or query param)
  */
 export async function withAdminOrSelfAccess(
   request: NextRequest,
   targetUserId?: string
 ): Promise<{ success: true; auth: AuthenticatedRequest; targetUserId: string } | { success: false; response: NextResponse }> {
   const authResult = await withAuth(request)
-  
   if (!authResult.success) {
     return authResult
   }
-
   const { auth } = authResult
   const finalTargetUserId = targetUserId || request.nextUrl.searchParams.get("userId") || auth.userId
-
-  // Allow admin to access any user, or user to access themselves
   if (auth.role !== "admin" && finalTargetUserId !== auth.userId) {
     return {
       success: false,
       response: NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
   }
-
   return {
     success: true,
     auth,

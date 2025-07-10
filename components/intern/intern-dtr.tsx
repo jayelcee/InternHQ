@@ -1,6 +1,12 @@
 /**
- * InternDTR - Displays intern dashboard with info cards and time record table
- * Supports both intern self-view and admin view of specific interns
+ * DailyTimeRecord (InternDTR)
+ *
+ * Displays intern dashboard with info cards and time record table.
+ * Supports both intern self-view and admin view of specific interns.
+ *
+ * Props:
+ * - internId?: string — (optional) user ID for admin view
+ * - onRefresh?: () => Promise<void> — (optional) callback after edit/delete
  */
 
 "use client"
@@ -11,13 +17,13 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { GraduationCap } from "lucide-react"
-import { 
-  calculateTimeStatistics, 
+import {
+  calculateTimeStatistics,
   DEFAULT_INTERNSHIP_DETAILS,
   filterLogsByInternId
 } from "@/lib/time-utils"
-import { 
-  TimeLogDisplay, 
+import {
+  TimeLogDisplay,
   InternshipDetails
 } from "@/lib/ui-utils"
 import { DailyTimeRecord as TimeRecordTable } from "@/components/daily-time-record"
@@ -43,24 +49,19 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
       const url = `/api/time-logs${internId ? `?userId=${internId}` : ""}`
       const res = await fetch(url, {
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       })
       if (!res.ok) {
         const errorText = await res.text()
         throw new Error(`HTTP ${res.status}: ${errorText}`)
       }
-      
       const data = await res.json()
       const logsArray = Array.isArray(data) ? data : data.logs || []
-      
       const normalizedLogs: TimeLogDisplay[] = logsArray.map((log: Record<string, unknown>) => {
         const timeIn = (log.time_in as string) ?? (log.timeIn as string) ?? null
         const timeOut = (log.time_out as string) ?? (log.timeOut as string) ?? null
         const userId = log.user_id as number | undefined
         const internIdFromLog = log.internId as number | undefined
-
         return {
           id: log.id as number,
           time_in: timeIn,
@@ -69,29 +70,21 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
           status: (log.status as "pending" | "completed") ?? "completed",
           overtime_status: (log.overtime_status as "pending" | "approved" | "rejected") ?? undefined,
           user_id: userId,
-          internId: internIdFromLog ?? userId, // fallback to user_id if internId is not available
+          internId: internIdFromLog ?? userId,
         }
       })
-      
       setLogs(normalizedLogs)
-      
-      // Note: onRefresh is only called from edit/delete operations, not from normal fetch
     } catch (error) {
-      console.error("Error fetching logs:", error)
       setError(`Failed to load logs: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setLoading(false)
     }
   }, [internId])
 
-  // Function to handle refresh after edit/delete operations
+  // Refresh after edit/delete
   const handleDataRefresh = useCallback(async () => {
-    // First refresh local data
     await fetchLogs()
-    // Then call external refresh if provided
-    if (onRefresh) {
-      await onRefresh()
-    }
+    if (onRefresh) await onRefresh()
   }, [fetchLogs, onRefresh])
 
   useEffect(() => {
@@ -126,7 +119,7 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
 
   const internshipDetails: InternshipDetails = profile?.internship ?? DEFAULT_INTERNSHIP_DETAILS
 
-  // Calculate hours and progress using centralized function
+  // Calculate hours and progress
   const [timeStats, setTimeStats] = useState({
     completedHours: 0,
     totalHoursWorked: 0,
@@ -136,25 +129,20 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
   useEffect(() => {
     const updateStats = async () => {
       const filteredLogs = filterLogsByInternId(logs, internId)
-      
       if (filteredLogs.length === 0) {
         setTimeStats({ completedHours: 0, totalHoursWorked: 0, progressPercentage: 0 })
         return
       }
-      
-      // Use centralized calculation with edit request support for consistent progress tracking
       const stats = await calculateTimeStatistics(filteredLogs, internId, {
         includeEditRequests: true,
         requiredHours: internshipDetails.required_hours || 0
       })
-      
       setTimeStats({
         completedHours: Math.min(stats.internshipProgress, internshipDetails.required_hours),
         totalHoursWorked: stats.internshipProgress,
         progressPercentage: stats.progressPercentage
       })
     }
-    
     updateStats()
   }, [logs, internId, internshipDetails])
 
@@ -196,7 +184,6 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
             </div>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="pb-0">
             <CardTitle className="text-lg flex items-center gap-2">
@@ -217,9 +204,7 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
                   )}
                 </span>
               </div>
-              
               <Progress value={progressPercentage} className="h-2 mb-6" />
-              
               <div className="flex gap-8 mt-2">
                 <div>
                   <div className="font-medium">Internship Duration:</div>
@@ -233,7 +218,6 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
                       : "N/A"}
                   </div>
                 </div>
-                
                 <div className="flex flex-col items-center justify-center ml-auto">
                   <Badge
                     variant="outline"
@@ -254,8 +238,7 @@ export function DailyTimeRecord({ internId, onRefresh }: { internId?: string; on
           </CardContent>
         </Card>
       </div>
-
-      <TimeRecordTable 
+      <TimeRecordTable
         logs={logs}
         internId={internId}
         loading={loading}

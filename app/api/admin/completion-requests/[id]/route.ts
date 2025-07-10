@@ -1,3 +1,17 @@
+/**
+ * @file API route for admin to process a specific completion request.
+ * 
+ * POST: Processes a completion request by approving, rejecting, reverting, or deleting.
+ *       Requires admin authentication via 'auth-token' cookie.
+ *       Expects JSON body with 'action' and optional 'admin_notes'.
+ *       Returns 401 if unauthorized, 400 for invalid actions or service errors.
+ *       On success, returns a message indicating the performed action.
+ * 
+ * DELETE: Deletes a specific completion request.
+ *         Requires admin authentication via 'auth-token' cookie.
+ *         Returns 401 if unauthorized, 400 for service errors.
+ *         On success, returns a message indicating deletion.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/auth'
 import { CompletionService } from '@/lib/completion-service'
@@ -50,8 +64,8 @@ export async function POST(
     } else {
       return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
     }
-  } catch (error) {
-    console.error('Error processing completion request:', error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -75,8 +89,8 @@ export async function DELETE(
       return NextResponse.json({ error: result.error }, { status: 400 })
     }
     return NextResponse.json({ message: 'Completion request deleted' })
-  } catch (error) {
-    console.error('Error deleting completion request:', error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

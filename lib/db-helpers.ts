@@ -1,13 +1,15 @@
 /**
- * Common database operation helpers to reduce code duplication
+ * Database helper utilities for common queries, validation, and transactions.
+ *
+ * Exports:
+ * - getUserById: Fetch user by ID
+ * - validators: Common validation helpers
+ * - withTransaction: Transaction wrapper for async operations
  */
 
 import { sql } from "./database"
 import type { User } from "./database"
 
-/**
- * Gets a user by ID with error handling
- */
 export async function getUserById(userId: number | string): Promise<User | null> {
   try {
     const userIdNum = typeof userId === 'string' ? Number(userId) : userId
@@ -17,26 +19,15 @@ export async function getUserById(userId: number | string): Promise<User | null>
       WHERE id = ${userIdNum}
     `
     return users.length > 0 ? users[0] as User : null
-  } catch (error) {
-    console.error('Error fetching user:', error)
+  } catch {
     return null
   }
 }
 
-/**
- * Common validation helpers
- */
 export const validators = {
-  /**
-   * Validates email format
-   */
   isValidEmail(email: string): boolean {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   },
-
-  /**
-   * Validates required fields are present
-   */
   hasRequiredFields<T extends Record<string, unknown>>(
     data: T, 
     fields: (keyof T)[]
@@ -47,25 +38,14 @@ export const validators = {
       missing: missing as string[]
     }
   },
-
-  /**
-   * Validates positive number
-   */
   isPositiveNumber(value: unknown): boolean {
     return typeof value === 'number' && value > 0
   },
-
-  /**
-   * Validates date string format (YYYY-MM-DD)
-   */
   isValidDateString(dateStr: string): boolean {
     return /^\d{4}-\d{2}-\d{2}$/.test(dateStr) && !isNaN(Date.parse(dateStr))
   }
 }
 
-/**
- * Transaction wrapper for complex operations
- */
 export async function withTransaction<T>(
   operation: () => Promise<T>
 ): Promise<{ success: boolean; data?: T; error?: string }> {
@@ -73,7 +53,6 @@ export async function withTransaction<T>(
     const result = await operation()
     return { success: true, data: result }
   } catch (error) {
-    console.error('Transaction failed:', error)
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Transaction failed' 

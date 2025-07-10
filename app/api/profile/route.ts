@@ -1,3 +1,12 @@
+/**
+ * @file API route for fetching and updating user profiles with admin/self access control.
+ * 
+ * GET: Returns user profile if requester is admin or self.
+ *      Returns 404 if not found.
+ * 
+ * PUT: Updates user profile if requester is admin or self.
+ *      Returns 400 for update errors.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { withAdminOrSelfAccess, handleApiError } from "@/lib/api-middleware"
 import { getUserWithDetails, updateUserProfile } from "@/lib/data-access"

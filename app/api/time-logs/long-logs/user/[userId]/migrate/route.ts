@@ -1,14 +1,16 @@
+/**
+ * @file API route to migrate long logs for a specific user.
+ * 
+ * POST: Migrates long logs for the specified user.
+ *       Requires authentication via 'auth-token' cookie.
+ *       Users can migrate their own logs; admins can migrate any user's logs.
+ *       Returns migration result with success, processed count, and errors.
+ *       Returns 401/403 for unauthorized access, 500 on error.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { migrateLongLogsForUser } from "@/lib/data-access"
 
-/**
- * POST /api/time-logs/long-logs/user/[userId]/migrate
- * 
- * Migrate long logs for a specific user.
- * 
- * @returns Migration result with success, processed count, and errors
- */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
@@ -37,8 +39,8 @@ export async function POST(
     
     return NextResponse.json(result)
 
-  } catch (error) {
-    console.error("Migrate user long logs error:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Failed to migrate long logs for user" }, 
       { status: 500 }

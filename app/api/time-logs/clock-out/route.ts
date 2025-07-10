@@ -1,3 +1,10 @@
+/**
+ * @file API route for intern clock-out.
+ * 
+ * POST: Clocks out the authenticated intern.
+ *       Accepts optional custom time, discardOvertime, and overtimeNote in request body.
+ *       Returns 400 for errors, 200 on success.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { withAuth, handleApiError } from "@/lib/api-middleware"
 import { clockOut } from "@/lib/data-access"

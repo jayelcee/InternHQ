@@ -1,36 +1,147 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cybersoft DTR Setup
 
-## Getting Started
+---
 
-First, run the development server:
+## 🚀 Clone the Repository
+
+```bash
+git clone git@git.cybersoftbpo.com:mis/cybersoft-dtr.git
+cd cybersoft-dtr
+```
+
+---
+
+## 🟢 Node.js Environment Setup (with NVM)
+
+**NVM** (Node Version Manager) makes it easy to manage Node.js versions.
+
+### 1. Install NVM
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+```
+
+Reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+Verify NVM installation:
+
+```bash
+command -v nvm
+```
+
+### 2. Install Latest LTS Node.js
+
+```bash
+nvm install --lts
+nvm use --lts
+nvm alias default lts/*
+```
+
+Check versions:
+
+```bash
+node -v
+npm -v
+```
+
+### 3. Install Project Dependencies
+
+```bash
+npm install
+```
+
+---
+
+## 🗄️ PostgreSQL Setup
+
+### 1. Install PostgreSQL (Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+```
+
+Start PostgreSQL service:
+
+```bash
+sudo service postgresql start
+```
+
+### 2. Create PostgreSQL User & Database
+
+Access PostgreSQL prompt as `postgres` superuser:
+
+```bash
+sudo -u postgres psql
+```
+
+Create user and database:
+
+```sql
+CREATE USER intern_admin WITH PASSWORD '2smg-w5FOo';
+CREATE DATABASE ims_db OWNER intern_admin;
+\q
+```
+
+### 3. Configure Environment Variables
+
+Create a `.env` file in your project root:
+
+```bash
+touch .env
+```
+
+Add your PostgreSQL connection string:
+
+```
+DATABASE_URL=postgresql://intern_admin:2smg-w5FOo@localhost:5432/ims_db
+```
+
+### 4. Run SQL Scripts (Schema & Seed Data)
+
+From the `scripts` directory:
+
+```bash
+psql -U intern_admin -h localhost -d ims_db -f 001-schema.sql
+psql -U intern_admin -h localhost -d ims_db -f 002-seed-data.sql
+```
+
+---
+
+## 🏃‍♂️ Run the Application
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🛠️ Development Tips
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Safely Drop Database with Active Connections
 
-## Learn More
+From within the `psql` prompt:
 
-To learn more about Next.js, take a look at the following resources:
+```sql
+-- Terminate all connections to the database EXCEPT your own
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname = 'ims_db' AND pid <> pg_backend_pid();
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Then drop and recreate the database:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```sql
+DROP DATABASE ims_db;
+CREATE DATABASE ims_db OWNER intern_admin;
+```
 
-## Deploy on Vercel
+### Connect to ims_db with Password Prompt
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+psql -U postgres -d ims_db -h localhost
+```

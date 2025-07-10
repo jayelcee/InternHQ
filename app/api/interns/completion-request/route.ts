@@ -1,7 +1,14 @@
 /**
- * API route for intern completion requests
- * POST: Submit a new completion request
- * GET: Fetch intern's completion requests
+ * @file API route for intern completion requests.
+ * 
+ * POST: Submit a new completion request if requirements are met.
+ *       Requires intern authentication.
+ *       Returns 400 if already requested or insufficient hours, 404 if no active internship, 500 on error.
+ *       On success, returns the created request.
+ * 
+ * GET: Fetch all completion requests for the authenticated intern.
+ *      Requires intern authentication.
+ *      Returns 500 on error.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/auth'
@@ -85,8 +92,7 @@ export async function POST(request: NextRequest) {
       request: completionRequest[0]
     })
 
-  } catch (error) {
-    console.error('Error creating completion request:', error)
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -128,8 +134,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(formattedResult)
 
-  } catch (error) {
-    console.error('Error fetching completion requests:', error)
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

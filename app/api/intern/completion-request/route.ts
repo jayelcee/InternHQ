@@ -1,3 +1,11 @@
+/**
+ * @file API route for interns to submit a completion request.
+ * 
+ * POST: Submits a completion request if requirements are met.
+ *       Requires intern authentication.
+ *       Returns 400 if already requested or insufficient hours, 404 if internship not found, 500 on error.
+ *       On success, returns the created request.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "@/lib/api-middleware"
 import { sql } from "@/lib/database"
@@ -59,7 +67,7 @@ export async function POST(request: NextRequest) {
     }))
 
     const stats = await calculateTimeStatistics(formattedLogs, String(userId), {
-      includeEditRequests: false, // Disable edit requests for server-side calculation
+      includeEditRequests: false,
       requiredHours: internship.required_hours
     })
 
@@ -87,8 +95,8 @@ export async function POST(request: NextRequest) {
       message: 'Completion request submitted successfully',
       request: result.request
     })
-  } catch (error) {
-    console.error('Error submitting completion request:', error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

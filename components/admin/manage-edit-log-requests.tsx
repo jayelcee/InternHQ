@@ -1,3 +1,15 @@
+/**
+ * EditLogRequestsAdmin
+ *
+ * Admin interface for managing intern time log edit requests.
+ * - View, filter, and search all edit log requests
+ * - Approve, reject, revert, or delete requests
+ * - Displays summary statistics and supports department/status/date filtering
+ *
+ * Context:
+ * - Only accessible to admins
+ */
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -56,9 +68,7 @@ export function EditLogRequestsAdmin() {
     rejected: requests.filter(r => r.status === "rejected").length,
   }
 
-  /**
-   * Fetches all edit log requests from the API and updates state.
-   */
+  // Fetch all edit log requests
   const fetchRequests = async () => {
     setLoading(true)
     setError(null)
@@ -76,15 +86,9 @@ export function EditLogRequestsAdmin() {
     }
   }
 
-  useEffect(() => {
-    fetchRequests()
-  }, [])
+  useEffect(() => { fetchRequests() }, [])
 
-  /**
-   * Handles actions (approve, reject, revert, delete) on an edit log request.
-   * @param sessionId - The ID of the edit log request
-   * @param action - The action to perform (approve, reject, revert, delete)
-   */
+  // Approve, reject, revert, or delete a request
   const handleAction = async (sessionId: string, action: "approve" | "reject" | "revert" | "delete") => {
     const session = requests.find(s => s.id === Number(sessionId))
     if (!session) return
@@ -95,15 +99,10 @@ export function EditLogRequestsAdmin() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ 
-            removeDuplicates: true,
-            updateReferences: true
-          }),
+          body: JSON.stringify({ removeDuplicates: true, updateReferences: true }),
         })
         if (!res.ok) throw new Error("Failed to revert request")
-      } catch (error) {
-        console.error("Error reverting request:", error)
-      }
+      } catch {}
     } else if (action === "delete") {
       try {
         const res = await fetch(`/api/admin/time-log-edit-requests/${session.id}`, {
@@ -111,57 +110,39 @@ export function EditLogRequestsAdmin() {
           credentials: "include",
         })
         if (!res.ok) throw new Error("Failed to delete request")
-      } catch (error) {
-        console.error("Error deleting request:", error)
-      }
+      } catch {}
     } else {
       try {
         const res = await fetch(`/api/admin/time-log-edit-requests/${session.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ 
-            action,
-            removeDuplicates: true,
-            updateReferences: true
-          }),
+          body: JSON.stringify({ action, removeDuplicates: true, updateReferences: true }),
         })
         if (!res.ok) throw new Error(`Failed to update request with ${action}`)
-      } catch (error) {
-        console.error(`Error performing ${action} on request:`, error)
-      }
+      } catch {}
     }
     await fetchRequests()
     setActionLoading(null)
   }
 
-  const departments = Array.from(
-    new Set(requests.map(r => r.department || ""))
-  ).filter(Boolean)
+  const departments = Array.from(new Set(requests.map(r => r.department || ""))).filter(Boolean)
 
-  // Filters requests based on search, status, department, and date
+  // Filtered requests based on search, status, department, and date
   const filteredRequests = requests.filter(req => {
     const matchesSearch =
       req.internName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (req.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (req.school || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (req.department || "").toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus =
-      statusFilter === "all" || req.status === statusFilter
-    const matchesDept =
-      departmentFilter === "all" || (req.department || "") === departmentFilter
-    const matchesDate =
-      !selectedDate ||
-      (
-        (() => {
-          const dateStr = req.originalTimeIn || req.requestedTimeIn
-          if (!dateStr) return false
-          const date = new Date(dateStr)
-          return (
-            date.toDateString() === selectedDate.toDateString()
-          )
-        })()
-      )
+    const matchesStatus = statusFilter === "all" || req.status === statusFilter
+    const matchesDept = departmentFilter === "all" || (req.department || "") === departmentFilter
+    const matchesDate = !selectedDate || (() => {
+      const dateStr = req.originalTimeIn || req.requestedTimeIn
+      if (!dateStr) return false
+      const date = new Date(dateStr)
+      return date.toDateString() === selectedDate.toDateString()
+    })()
     return matchesSearch && matchesStatus && matchesDept && matchesDate
   })
 
