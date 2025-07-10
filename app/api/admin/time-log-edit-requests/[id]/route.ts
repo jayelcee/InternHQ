@@ -1,15 +1,27 @@
+/**
+ * @file API route for admin to manage time log edit requests by ID.
+ * 
+ * PUT: Approve, reject, or revert a single or continuous time log edit request.
+ *      Requires reviewer authentication via 'auth-token' or 'token' cookie.
+ *      Request body: { action: "approve" | "reject" | "revert" }
+ *      Returns 400 for invalid input, 404 if not found, 500 for errors.
+ *      On success, returns { success: true }.
+ * 
+ * POST: (for /revert) Reverts a time log edit request to its original state.
+ *       Requires reviewer authentication via 'auth-token' or 'token' cookie.
+ *       Returns 400 for invalid ID, 404 if not found, 500 for errors.
+ *       On success, returns { success: true }.
+ * 
+ * DELETE: Deletes a time log edit request.
+ *         Requires authentication via 'auth-token' or 'token' cookie.
+ *         Returns 400 for invalid ID, 404 if not found, 500 for errors.
+ *         On success, returns { success: true }.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { sql } from "@/lib/database"
 import { revertTimeLogToOriginal, updateTimeLogEditRequest, processContinuousEditRequests } from "@/lib/data-access"
 import { verifyToken } from "@/lib/auth"
 
-/**
- * PUT /api/admin/time-log-edit-requests/[id]
- * Handles approval, rejection, or revert of a single or continuous time log edit request.
- * Requires reviewer authentication via token.
- * 
- * Request body: { action: "approve" | "reject" | "revert" }
- */
 export async function PUT(request: NextRequest) {
   // Get current user from token (supports both "token" and "auth-token" cookies)
   const token = request.cookies.get("token")?.value || request.cookies.get("auth-token")?.value
@@ -70,11 +82,6 @@ export async function PUT(request: NextRequest) {
 
 export const dynamic = "force-dynamic"; // Ensure Next.js treats both PUT and POST as valid
 
-/**
- * POST /api/admin/time-log-edit-requests/[id]/revert
- * Reverts a time log edit request to its original state.
- * Requires reviewer authentication via token.
- */
 export async function POST(request: NextRequest) {
   // Check if the path ends with /revert
   const url = request.nextUrl.pathname
@@ -108,11 +115,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * DELETE /api/admin/time-log-edit-requests/[id]
- * Deletes a time log edit request.
- * Requires authentication via token.
- */
 export async function DELETE(request: NextRequest) {
   // Get current user from token - check both token names
   const token = request.cookies.get("token")?.value || request.cookies.get("auth-token")?.value

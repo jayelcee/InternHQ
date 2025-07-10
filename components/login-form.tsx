@@ -1,7 +1,15 @@
+/**
+ * LoginForm Component
+ * 
+ * User login form for DTR system.
+ * - Handles email/password authentication.
+ * - Shows loading and error states.
+ * - Supports password visibility toggle.
+ */
+
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Eye, EyeOff, LogIn, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,21 +25,18 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-
   const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setIsLoading(true)
-
     try {
       const result = await login(email, password)
       if (!result.success) {
         setError(result.error || "Login failed - please check your credentials")
       }
-    } catch (error) {
-      console.error("Login form error:", error)
+    } catch {
       setError("An unexpected error occurred")
     } finally {
       setIsLoading(false)

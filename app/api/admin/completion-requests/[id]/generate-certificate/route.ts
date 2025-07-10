@@ -1,3 +1,12 @@
+/**
+ * @file API route for admin to generate a completion certificate for a specific request.
+ * 
+ * POST: Generates a certificate for the given completion request ID.
+ *       Requires admin authentication via 'auth-token' cookie.
+ *       Expects JSON body with 'admin_signature_name' and 'admin_title'.
+ *       Returns 401 if unauthorized, 400 for missing fields or service errors.
+ *       On success, returns the generated certificate and content.
+ */
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyToken } from '@/lib/auth'
 import { CompletionService } from '@/lib/completion-service'
@@ -45,8 +54,8 @@ export async function POST(
       content: result.content
     })
 
-  } catch (error) {
-    console.error('Error generating certificate:', error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

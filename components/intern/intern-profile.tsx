@@ -1,3 +1,18 @@
+/**
+ * InternProfile
+ *
+ * Displays and manages intern profile information, including:
+ * - Personal info, education, skills, emergency contact, internship details
+ * - Profile editing, validation, and saving
+ * - Progress calculation and time log history
+ * - Admin and self-view support
+ *
+ * Props:
+ * - internId?: string — (optional) user ID for admin view
+ * - onBack?: () => void — (optional) callback for back navigation
+ * - editable?: boolean — (optional) allow editing (default: true)
+ */
+
 "use client"
 
 import { useEffect, useState } from "react"
@@ -24,17 +39,6 @@ import {
   DialogFooter,
   DialogClose,
 } from "@/components/ui/dialog"
-
-/**
- * InternProfile component displays and manages intern profile information.
- * Features include:
- * - Personal information management
- * - Education details
- * - Skills and interests
- * - Emergency contact information
- * - Internship details
- * - Time log history
- */
 
 /**
  * Supervisor interface

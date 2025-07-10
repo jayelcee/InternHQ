@@ -1,40 +1,29 @@
 /**
- * Database initialization helper
- * Ensures required tables exist with graceful error handling
+ * Database initialization utilities for ensuring and creating essential tables.
+ *
+ * Exports:
+ * - ensureTablesExist: Checks if required tables exist, returns true if present, false otherwise.
+ * - initializeDatabase: Creates essential tables if they do not exist.
  */
 import { sql } from './database'
 
 export async function ensureTablesExist(): Promise<boolean> {
   try {
-    console.log('🔍 Checking if completion requests table exists...')
-    
-    // Simple check to see if the table exists
     await sql`SELECT 1 FROM internship_completion_requests LIMIT 1`
-    
-    console.log('✅ Completion requests table exists')
     return true
   } catch (error) {
-    console.log('❌ Completion requests table does not exist or other error:', error)
-    
-    // Check if it's specifically a "relation does not exist" error
     if (error && typeof error === 'object' && 'message' in error) {
       const errorMessage = (error as Error).message?.toLowerCase() || ''
       if (errorMessage.includes('relation') && errorMessage.includes('does not exist')) {
-        console.log('📋 Tables need to be initialized')
         return false
       }
     }
-    
-    // For other errors, assume tables don't exist
     return false
   }
 }
 
 export async function initializeDatabase(): Promise<void> {
   try {
-    console.log('🚀 Initializing database tables...')
-    
-    // Create essential tables for completion requests
     await sql`
       CREATE TABLE IF NOT EXISTS internship_completion_requests (
         id SERIAL PRIMARY KEY,
@@ -50,8 +39,6 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `
-    
-    // Create basic users table if it doesn't exist
     await sql`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -65,8 +52,6 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `
-    
-    // Create basic internship_programs table if it doesn't exist
     await sql`
       CREATE TABLE IF NOT EXISTS internship_programs (
         id SERIAL PRIMARY KEY,
@@ -81,8 +66,6 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `
-    
-    // Create basic schools table if it doesn't exist
     await sql`
       CREATE TABLE IF NOT EXISTS schools (
         id SERIAL PRIMARY KEY,
@@ -94,8 +77,6 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `
-    
-    // Create basic departments table if it doesn't exist
     await sql`
       CREATE TABLE IF NOT EXISTS departments (
         id SERIAL PRIMARY KEY,
@@ -106,10 +87,7 @@ export async function initializeDatabase(): Promise<void> {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       )
     `
-    
-    console.log('✅ Database tables initialized successfully')
   } catch (error) {
-    console.error('❌ Error initializing database:', error)
     throw error
   }
 }

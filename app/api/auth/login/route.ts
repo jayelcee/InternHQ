@@ -1,3 +1,10 @@
+/**
+ * @file API route for user login.
+ * 
+ * POST: Authenticates user with email and password.
+ *       On success, returns user data and sets 'auth-token' cookie.
+ *       Returns 400 for invalid input, 401 for authentication failure, 500 for server error.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { authenticateUser } from "@/lib/auth"
 
@@ -7,8 +14,7 @@ export async function POST(request: NextRequest) {
     let body
     try {
       body = await request.json()
-    } catch (parseError) {
-      console.error("Failed to parse request body:", parseError)
+    } catch {
       return NextResponse.json({ success: false, error: "Invalid request format" }, { status: 400 })
     }
 
@@ -18,10 +24,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Email and password are required" }, { status: 400 })
     }
 
-    console.log("Attempting login for:", email)
-
     const result = await authenticateUser(email, password)
-    console.log("Authentication result:", result.success ? "success" : result.error)
 
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error || "Authentication failed" }, { status: 401 })
@@ -42,12 +45,10 @@ export async function POST(request: NextRequest) {
         maxAge: 24 * 60 * 60, // 24 hours
         path: "/",
       })
-      console.log("Auth token set in cookie")
     }
 
     return response
-  } catch (error) {
-    console.error("Login API error:", error)
+  } catch {
     return NextResponse.json({ success: false, error: "Server error occurred" }, { status: 500 })
   }
 }

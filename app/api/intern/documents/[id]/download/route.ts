@@ -1,3 +1,10 @@
+/**
+ * @file API route for interns to download their DTR or certificate documents.
+ * 
+ * GET: Returns the document as an HTML file for download.
+ *      Requires intern authentication.
+ *      Returns 404 if not found, 500 on error.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { withAuth } from "@/lib/api-middleware"
 import { sql } from "@/lib/database"
@@ -14,17 +21,14 @@ export async function GET(
 
   const { auth } = authResult
   const userId = parseInt(auth.userId)
-  
-  // Await params to fix Next.js 15 requirement
   const resolvedParams = await params
 
   try {
     const documentId = parseInt(resolvedParams.id)
-
-    // Try to find the document in either DTR or certificate tables
     let document = null
     let documentType = null
 
+    // Try to find the document in either DTR or certificate tables
     // Check DTR documents
     const dtrDocs = await sql`
       SELECT 
@@ -107,8 +111,8 @@ export async function GET(
         'Content-Disposition': `attachment; filename="${documentType}-${document.document_number}.html"`
       }
     })
-  } catch (error) {
-    console.error('Error downloading document:', error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
@@ -133,8 +137,6 @@ function generatePDFContent(document: DocumentData): Buffer {
     const day = date.getDate()
     const month = date.toLocaleDateString('en-US', { month: 'long' })
     const year = date.getFullYear()
-    
-    // Add ordinal suffix to day
     const getDayWithSuffix = (day: number): string => {
       if (day >= 11 && day <= 13) return `${day}th`
       switch (day % 10) {
@@ -144,7 +146,6 @@ function generatePDFContent(document: DocumentData): Buffer {
         default: return `${day}th`
       }
     }
-    
     return `${getDayWithSuffix(day)} day of ${month} ${year}`
   }
 

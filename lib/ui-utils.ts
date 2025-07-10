@@ -1,13 +1,11 @@
 /**
- * Common UI component utilities and patterns for consistent behavior
- * 
- * Key utilities:
- * - groupLogsByDate: Centralized log grouping logic used by DTR and other components
- * - formatLogDate: Consistent date formatting across time log displays
- * - Badge styling utilities for consistent color schemes
- * 
- * Usage: Import these functions instead of creating duplicate grouping/formatting
- * logic in individual components.
+ * UI utilities for consistent log grouping, formatting, badge styling, and sorting.
+ *
+ * Provides:
+ * - groupLogsByDate, sortLogsByDate, sortGroupedLogsByDate: Centralized log grouping and sorting
+ * - formatLogDate, getTimeBadgeConfig, getDurationDisplay, getDecimalHoursDisplay: Consistent formatting
+ * - useAsyncAction, useSortDirection: Common UI hooks
+ * - Overtime stats and progress helpers
  */
 
 import { useState, useCallback } from "react"

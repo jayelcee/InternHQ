@@ -1,14 +1,10 @@
 /**
- * Centralized session processing utilities for time log management
- * 
- * This module provides consistent session grouping, overtime calculations,
- * and display logic used across DTR, weekly logs, and admin dashboard.
- * 
- * Key functions:
- * - processTimeLogSessions: Main session processing logic
- * - calculateSessionTotals: Overtime and regular hour calculations
- * - getSessionBadgeProps: Consistent badge styling
- * - groupLogsByContinuousSessions: Session grouping algorithm
+ * Session processing utilities for time log management.
+ *
+ * Provides:
+ * - processTimeLogSessions: Groups logs, calculates regular/overtime, applies daily limits
+ * - Badge and duration helpers for consistent UI
+ * - Utilities for continuous session editing and admin review
  */
 
 import { TimeLogDisplay } from "@/lib/ui-utils"
@@ -188,9 +184,6 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
     const result = calculateTimeWorked(timeIn, endTimeStr)
     const totalSessionHours = result.hoursWorked
     
-    // Debug logging for continuous sessions
-    console.log(`[DEBUG] Continuous session: ${timeIn} to ${endTimeStr} = ${totalSessionHours} hours`)
-    
     // Split the total duration based on daily limit
     if (totalSessionHours <= DAILY_REQUIRED_HOURS) {
       regularHours = totalSessionHours
@@ -199,8 +192,6 @@ function createProcessedSession(logs: TimeLogDisplay[], endTime: Date): Processe
       regularHours = DAILY_REQUIRED_HOURS
       overtimeHours = totalSessionHours - DAILY_REQUIRED_HOURS
     }
-    
-    console.log(`[DEBUG] Split: ${regularHours} regular + ${overtimeHours} overtime`)
   } else {
     // For single log sessions or separate sessions, use original logic
     for (const log of logs) {
@@ -261,8 +252,6 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
   for (const session of sessions) {
     dailyRegularHours += session.regularHours
     dailyOvertimeHours += session.overtimeHours
-    
-    // Aggregate overtime status
     if (session.overtimeStatus === "rejected") {
       overallOvertimeStatus = "rejected"
     } else if (session.overtimeStatus === "approved" && overallOvertimeStatus !== "rejected") {
@@ -271,14 +260,10 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
       overallOvertimeStatus = "pending"
     }
   }
-
-  // Second pass: apply daily limit across all sessions
   if (dailyRegularHours > DAILY_REQUIRED_HOURS) {
     const excess = dailyRegularHours - DAILY_REQUIRED_HOURS
     totalRegularHours = DAILY_REQUIRED_HOURS
     totalOvertimeHours = dailyOvertimeHours + excess
-    
-    // If we have excess regular hours, set overtime status to pending if not already set
     if (overallOvertimeStatus === "none") {
       overallOvertimeStatus = "pending"
     }
@@ -286,15 +271,11 @@ function calculateSessionTotals(sessions: ProcessedSession[]): SessionTotals {
     totalRegularHours = dailyRegularHours
     totalOvertimeHours = dailyOvertimeHours
   }
-
-  // Handle rejected overtime
   if (overallOvertimeStatus === "rejected") {
     totalRegularHours = Math.min(totalRegularHours, DAILY_REQUIRED_HOURS)
     totalOvertimeHours = 0
   }
-
   const hasExcessRegularHours = dailyRegularHours > DAILY_REQUIRED_HOURS
-
   return {
     totalRegularHours,
     totalOvertimeHours,

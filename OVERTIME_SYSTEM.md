@@ -2,156 +2,127 @@
 
 ## Overview
 
-The overtime management system provides a complete workflow for handling intern overtime hours, including automatic splitting of long logs, admin approval processes, and visual status indicators.
+The overtime management system provides a robust, automated workflow for handling intern overtime hours, including multi-tier log splitting, admin approval, and clear status indicators.
 
 ## Key Features
 
 ### 1. Automatic Log Splitting
-- **Trigger**: When interns clock out after working >9 hours in a day
-- **Process**: System automatically splits the log into:
-  - Regular time: First 9 hours (automatically approved)
-  - Overtime: Remaining hours (requires admin approval)
-- **Database**: Creates separate entries in `time_logs` table
+- **Trigger:** When interns clock out after working >9 hours in a day
+- **Process:**
+  - Regular time: First 9 hours (auto-approved)
+  - Overtime: Next 3 hours (9–12, requires admin approval)
+  - Extended overtime: >12 hours (requires admin approval)
+- **Database:** Creates separate entries in `time_logs` for each tier
 
 ### 2. Admin Approval Workflow
-- **Location**: Admin Dashboard → Overtime Logs tab
-- **Actions**: Approve/Reject pending overtime requests
-- **Status Tracking**: Pending → Approved/Rejected with timestamp and approver
+- **Location:** Admin Dashboard → Overtime Logs tab
+- **Actions:** Approve/Reject overtime and extended overtime requests (individually or in bulk)
+- **Status Tracking:** Pending → Approved/Rejected, with timestamp and approver
 
 ### 3. Visual Status Indicators
-- **Pending**: Yellow badges (⏳ awaiting approval)
-- **Approved**: Purple badges (✅ counts toward progress)
-- **Rejected**: Gray badges (❌ doesn't count toward progress)
+- **Pending:** Yellow badge (⏳ awaiting approval)
+- **Approved:** Purple badge (✅ counts toward progress)
+- **Rejected:** Gray badge (❌ does not count)
 
 ## Technical Implementation
 
 ### Core Files
-
-#### API Endpoints
-- `/api/admin/overtime` - Get/Update overtime logs
-- `/api/admin/migrate-long-logs` - One-time migration for existing data
-- `/api/admin/check-long-logs` - Check if migration is needed
-
-#### Components
-- `OvertimeLogsDashboard` - Admin interface for overtime management
-- `OvertimeDisplay` - Reusable component for overtime badge display
-- DTR components - Show overtime status in daily time records
-
-#### Utilities
-- `lib/ui-utils.ts` - Overtime status configuration and helper functions
-- `lib/data-access.ts` - Database operations for overtime management
-- `lib/time-utils.ts` - Time calculation utilities
+- **API Endpoints:**
+  - `/api/admin/overtime` – Get/update overtime logs
+  - `/api/admin/migrate-long-logs` – One-time migration for legacy data
+  - `/api/admin/check-long-logs` – Check if migration is needed
+- **Components:**
+  - `OvertimeLogsDashboard` – Admin interface for overtime management
+  - `OvertimeDisplay` – Badge/status display for overtime
+  - DTR components – Show overtime status in daily records
+- **Utilities:**
+  - `lib/ui-utils.ts` – Overtime badge config and helpers
+  - `lib/data-access.ts` – DB operations for overtime, multi-tier splitting, migration
+  - `lib/time-utils.ts` – Time calculations, constants, and formatting
+  - `lib/session-utils.ts` – Session grouping, continuous session logic
 
 ### Database Schema
-
 ```sql
--- Overtime-related fields in time_logs table
 ALTER TABLE time_logs ADD COLUMN log_type VARCHAR(20) DEFAULT 'regular';
 ALTER TABLE time_logs ADD COLUMN overtime_status VARCHAR(20);
 ALTER TABLE time_logs ADD COLUMN approved_by INTEGER REFERENCES users(id);
 ALTER TABLE time_logs ADD COLUMN approved_at TIMESTAMP;
 ```
 
-### Key Functions
+## Key Functions & Logic
 
-#### Automatic Splitting (`clockOut` in data-access.ts)
-```typescript
-// Automatically splits logs >9 hours during clock-out
-if (totalHours > DAILY_REQUIRED_HOURS) {
-  // Create regular entry (9 hours)
-  // Create overtime entry (remaining hours)
-}
-```
-
-#### Migration Utility (`migrateExistingLongLogs`)
-```typescript
-// One-time function to process historical long logs
-// Splits existing >9 hour logs into regular + overtime
-```
-
-#### Status Management
-```typescript
-// Utility functions for consistent overtime handling
-getOvertimeBadgeConfig(status) // Badge styling
-calculateOvertimeStats(logs)   // Aggregate statistics
-calculateOvertimeHours(logs, status) // Hours by status
-```
+- **Automatic Splitting (`clockOut` in data-access.ts):**
+  - Splits logs >9 hours into regular, overtime (9–12), and extended overtime (>12)
+  - Ensures each log is properly categorized and status set
+- **Migration Utility (`migrateExistingLongLogs`):**
+  - One-time function to process historical logs >9 hours
+  - Splits into regular, overtime, and extended overtime as needed
+- **Status Management:**
+  - `getOvertimeBadgeConfig(status)` – Badge styling
+  - `calculateOvertimeStats(logs)` – Aggregate overtime statistics
+  - `calculateOvertimeHours(logs, status)` – Hours by status
 
 ## Usage Guide
 
 ### For Admins
-
-1. **Reviewing Overtime**
-   - Navigate to Admin Dashboard → Overtime Logs tab
-   - View pending requests with intern details and hours
-   - Use Approve/Reject buttons for each request
-
-2. **Migration (One-time)**
-   - "Split Long Logs" button appears only when needed
-   - Processes historical data to split long logs
-   - Button disappears after all logs are processed
-
-3. **Monitoring Progress**
-   - Only approved overtime counts toward internship progress
+1. **Review Overtime:**
+   - Go to Admin Dashboard → Overtime Logs
+   - View, filter, and search overtime requests
+   - Approve/Reject individually or in bulk
+2. **Migration (One-time):**
+   - "Split Long Logs" button appears if legacy logs exist
+   - Processes all historical logs >9 hours
+   - Button disappears after migration
+3. **Monitoring Progress:**
+   - Only approved overtime/extended overtime counts toward progress
    - Rejected overtime is visible but grayed out
-   - Pending overtime shows in yellow (awaiting decision)
+   - Pending overtime shows in yellow
 
 ### For Interns
-
-1. **Automatic Processing**
-   - Work hours >9 hours automatically create overtime request
-   - No action needed from intern
-   - Can view status in DTR (Daily Time Record)
-
-2. **Status Understanding**
+1. **Automatic Processing:**
+   - Working >9 hours triggers overtime/extended overtime requests automatically
+   - No manual action required
+   - Status visible in DTR (Daily Time Record)
+2. **Status Indicators:**
    - Yellow: Pending admin approval
    - Purple: Approved (counts toward progress)
-   - Gray: Rejected (doesn't count toward progress)
+   - Gray: Rejected (does not count)
 
 ## Configuration
 
 ### Constants
 ```typescript
-DAILY_REQUIRED_HOURS = 9 // Maximum regular hours per day
+DAILY_REQUIRED_HOURS = 9 // Max regular hours per day
+MAX_OVERTIME_HOURS = 3   // Max standard overtime per day
 ```
 
 ### Status Values
 ```typescript
 overtime_status: "pending" | "approved" | "rejected"
-log_type: "regular" | "overtime"
+log_type: "regular" | "overtime" | "extended_overtime"
 ```
 
 ## Best Practices
-
-### Code Organization
-- Use utility functions from `ui-utils.ts` for consistent styling
-- Centralize overtime logic in data-access functions
+- Use utility functions from `ui-utils.ts` for badge styling
+- Centralize overtime logic in `data-access.ts` and `session-utils.ts`
 - Keep components focused on display, logic in utilities
-
-### Performance
 - Migration button only appears when needed (prevents unnecessary API calls)
 - Batch operations for migration (atomic transactions)
 - Efficient filtering and aggregation in queries
-
-### User Experience
 - Clear visual distinction between status types
-- Informative badges with proper color coding
-- Responsive design for mobile admin access
+- Responsive design for admin access
 
 ## Troubleshooting
 
 ### Common Issues
-
 1. **Migration Button Stuck**
    - Check `/api/admin/check-long-logs` endpoint
    - Verify admin permissions
-   - Check for database connectivity
-
+   - Check database connectivity
 2. **Overtime Not Splitting**
-   - Verify `DAILY_REQUIRED_HOURS` constant
+   - Verify `DAILY_REQUIRED_HOURS` and `MAX_OVERTIME_HOURS` constants
    - Check `clockOut` function logic
    - Ensure proper time calculations
-
 3. **Status Not Updating**
    - Verify admin role permissions
    - Check API endpoint responses
@@ -159,13 +130,11 @@ log_type: "regular" | "overtime"
 
 ### Debugging
 - Console logs in migration functions
-- API response checking in network tab
+- API/network tab for responses
 - Database query verification for edge cases
 
 ## Future Enhancements
-
 - Email notifications for overtime approval/rejection
-- Bulk approval/rejection for multiple requests
 - Overtime analytics and reporting
 - Custom overtime policies per department
 - Integration with payroll systems
