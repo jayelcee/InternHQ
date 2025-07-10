@@ -1,7 +1,10 @@
 /**
- * Button component for interns to submit completion requests
- * Displays request status and allows submission of new requests
+ * CompletionRequestButton
+ * - Button for interns to submit internship completion requests.
+ * - Displays request status and previous requests.
+ * - Handles submission and status feedback.
  */
+
 "use client"
 
 import { useState } from "react"
@@ -33,6 +36,9 @@ interface CompletionRequestButtonProps {
   onRefresh?: () => Promise<void>
 }
 
+/**
+ * Renders a button and dialog for submitting and viewing completion requests.
+ */
 export function CompletionRequestButton({ internId, onRefresh }: CompletionRequestButtonProps) {
   const { user } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
@@ -46,13 +52,13 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
     return null
   }
 
+  // Fetch completion requests for the intern
   const fetchCompletionRequests = async () => {
     setLoading(true)
     try {
       const response = await fetch('/api/interns/completion-request', {
         credentials: 'include'
       })
-      
       if (response.ok) {
         const data = await response.json()
         const formattedData = data.map((request: CompletionRequest) => ({
@@ -62,20 +68,22 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
         }))
         setCompletionRequests(formattedData)
       } else {
-        console.error('Failed to fetch completion requests')
+        // Optionally handle fetch error
       }
-    } catch (error) {
-      console.error('Error fetching completion requests:', error)
+    } catch {
+      // Optionally handle fetch error
     } finally {
       setLoading(false)
     }
   }
 
+  // Open dialog and fetch requests
   const handleOpenDialog = () => {
     setIsOpen(true)
     fetchCompletionRequests()
   }
 
+  // Submit a new completion request
   const handleSubmitRequest = async () => {
     setSubmitting(true)
     try {
@@ -86,7 +94,6 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
         },
         credentials: 'include'
       })
-
       if (response.ok) {
         await fetchCompletionRequests()
         if (onRefresh) {
@@ -96,14 +103,14 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
         const error = await response.json()
         alert(error.error || 'Failed to submit completion request')
       }
-    } catch (error) {
-      console.error('Error submitting completion request:', error)
+    } catch {
       alert('Failed to submit completion request')
     } finally {
       setSubmitting(false)
     }
   }
 
+  // Icon for request status
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'pending':
@@ -117,6 +124,7 @@ export function CompletionRequestButton({ internId, onRefresh }: CompletionReque
     }
   }
 
+  // Badge for request status
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':

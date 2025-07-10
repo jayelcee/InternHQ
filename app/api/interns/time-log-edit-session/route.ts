@@ -1,11 +1,20 @@
+/**
+ * @file API route for submitting continuous session time log edit requests.
+ * 
+ * POST: Submits a continuous session edit request for intern time logs.
+ *       If isAdminEdit is true, the edit is auto-approved.
+ *       Request body:
+ *         - logIds: number[] (required)
+ *         - timeIn: string (required)
+ *         - timeOut: string (required)
+ *         - userId: string | number (required)
+ *         - isAdminEdit: boolean (optional)
+ *       Returns 400 for missing fields, 500 for errors.
+ *       On success, returns { success: true }.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { createContinuousSessionEditRequest, processContinuousEditRequests } from "@/lib/data-access"
 
-/**
- * Handles POST requests to /api/interns/time-log-edit-session.
- * Submits a continuous session edit request for intern time logs.
- * If the request is from an admin, auto-approves the edit.
- */
 export async function POST(request: NextRequest) {
   try {
     const { logIds, timeIn, timeOut, userId, isAdminEdit } = await request.json()
@@ -36,9 +45,8 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    // Log unexpected errors for debugging
-    console.error("Error submitting continuous session edit request:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Failed to submit edit request" }, { status: 500 })
   }
 }

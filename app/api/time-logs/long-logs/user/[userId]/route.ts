@@ -1,15 +1,15 @@
+/**
+ * @file API route to check for unsplit long logs for a specific user.
+ * 
+ * GET: Returns { hasLongLogs: boolean, count: number } for the specified user.
+ *      Requires authentication via 'auth-token' cookie.
+ *      Users can check their own logs; admins can check any user's logs.
+ *      Returns 401/403 for unauthorized access, 500 on error.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { checkLongLogsForUser } from "@/lib/data-access"
 
-/**
- * GET /api/time-logs/long-logs/user/[userId]
- * 
- * Check if there are any unsplit long logs for a specific user.
- * Used to show user-specific migration button count in DTR.
- * 
- * @returns Object with hasLongLogs boolean and count number for specific user
- */
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ userId: string }> }
@@ -38,8 +38,8 @@ export async function GET(
     
     return NextResponse.json(result)
 
-  } catch (error) {
-    console.error("Check user long logs error:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Failed to check long logs for user" }, 
       { status: 500 }

@@ -1,3 +1,15 @@
+/**
+ * @file API route for admin to delete a time log entry by ID.
+ * 
+ * DELETE: Deletes a time log entry.
+ *         Requires admin authentication via 'auth-token' cookie.
+ *         Returns 401 if unauthorized, 400 for service errors.
+ *         On success, returns { success: true }.
+ * 
+ * PUT: Editing time logs directly is deprecated.
+ *      Use /api/interns/time-log-edit with isAdminEdit=true for admin edits.
+ *      Always returns 410 Gone.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { deleteTimeLog } from "@/lib/data-access"
@@ -31,8 +43,8 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error("Error deleting time log:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

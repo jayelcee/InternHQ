@@ -1,3 +1,14 @@
+/**
+ * InternDashboard
+ *
+ * Main entry point for the intern dashboard UI. Handles:
+ * - Tab navigation (Dashboard, DTR, Completion, Profile)
+ * - Rendering the appropriate content for each tab
+ * - Displaying the dashboard header and navigation
+ *
+ * Only renders if a user is authenticated.
+ */
+
 "use client"
 
 import { useState } from "react"

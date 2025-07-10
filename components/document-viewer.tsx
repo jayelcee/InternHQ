@@ -1,18 +1,22 @@
 /**
- * Document viewer component for displaying and generating DTR and Certificate documents
- * Handles PDF generation and document formatting
+ * DocumentViewer Component
+ * 
+ * Displays and generates PDF for Daily Time Record (DTR) and Certificate documents.
+ * - Handles PDF generation and formatting for both DTR and Certificate.
+ * - Renders previews in dialogs.
+ * - Uses centralized time/session processing for accurate reporting.
+ * 
+ * Props:
+ *   - dtrContent?: DTRContent
+ *   - certificateContent?: CertificateContent
+ *   - type: 'dtr' | 'certificate'
  */
+
 "use client"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger 
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Download, FileText, Award } from "lucide-react"
 import { TimeLogDisplay, groupLogsByDate, formatLogDate, sortGroupedLogsByDate } from "@/lib/ui-utils"
@@ -226,13 +230,11 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
         const fileName = type === 'dtr' 
           ? `${(content as DTRContent).documentNumber || 'document'}.pdf`
           : `${(content as CertificateContent).certificateNumber || 'document'}.pdf`
-        
-        pdf.save(fileName)
-        
-      } finally {
-        // Clean up the invisible iframe
-        document.body.removeChild(iframe)
-      }
+      pdf.save(fileName)
+    } finally {
+      // Clean up the invisible iframe
+      document.body.removeChild(iframe)
+    }
     } catch (error) {
       console.error('Error generating PDF:', error)
       alert('Failed to generate PDF. Please try again.')
@@ -393,7 +395,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                     ${completedHours.toFixed(2)}h / ${requiredHours}h
                     ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(totalHours - requiredHours).toFixed(2)})
+                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
                       </span>` : ''
                     }
                   </span>
@@ -782,7 +784,6 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
             </Button>
           </DialogTitle>
         </DialogHeader>
-        
         <div className="space-y-4">
           {type === 'dtr' && dtrContent && (
             <DTRPreview content={dtrContent} />
@@ -824,8 +825,6 @@ function DTRPreview({ content }: { content: DTRContent }) {
       internId: 1 // Default intern ID
     }
   })
-
-
 
   // Group logs by intern and date for display count (like daily-time-record and admin dashboard)
   const groupedLogs = groupLogsByDate(transformedLogs);
@@ -917,7 +916,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                   {completedHours.toFixed(2)}h / {requiredHours}h
                   {totalHours > requiredHours && (
                     <span className="text-yellow-600 ml-2 text-sm">
-                      (+{(totalHours - requiredHours).toFixed(2)})
+                      (+{(totalHours - requiredHours).toFixed(2)}h overtime)
                     </span>
                   )}
                 </span>

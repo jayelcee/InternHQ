@@ -2,62 +2,69 @@
 
 ## Architecture Overview
 
-InternHQ is a Next.js application for managing intern time tracking and administration.
+InternHQ is a Next.js application for intern time tracking and administration.
 
 ### Directory Structure
 
 ```
 app/                    # Next.js App Router
-├── api/               # API routes
-│   ├── auth/          # Authentication endpoints
-│   ├── time-logs/     # Time tracking endpoints
-│   ├── admin/         # Admin management endpoints
-│   └── profile/       # User profile endpoints
+├── api/               # API routes (auth, time-logs, admin, profile, etc.)
 ├── globals.css        # Global styles
 ├── layout.tsx         # Root layout
-└── page.tsx          # Home page
+└── page.tsx           # Home page
 
-components/            # Reusable UI components
-├── ui/               # shadcn/ui components
-├── admin/            # Admin-specific components
-├── intern/           # Intern-specific components
+components/             # Reusable UI components
+├── ui/                # shadcn/ui components
+├── admin/             # Admin-specific components
+├── intern/            # Intern-specific components
 ├── daily-time-record.tsx
 ├── time-tracking.tsx
 ├── overtime-tracking.tsx
-└── this-week-logs.tsx
+├── this-week-logs.tsx
+└── document-viewer.tsx
 
-lib/                  # Utility libraries
-├── api-middleware.ts # Consolidated API middleware
-├── auth.ts          # Authentication utilities
-├── database.ts      # Database types and connection
-├── data-access.ts   # Database operations
-├── time-utils.ts    # Time calculation utilities
-├── ui-utils.ts      # UI component utilities
-└── utils.ts         # General utilities
+lib/                    # Utility libraries
+├── api-middleware.ts  # API middleware (auth, error handling)
+├── auth.ts            # Auth utilities
+├── database.ts        # DB types/connection
+├── data-access.ts     # DB operations
+├── time-utils.ts      # Time calculations
+├── ui-utils.ts        # UI utilities
+└── utils.ts           # General utilities
 
-contexts/            # React contexts
-└── auth-context.tsx # Authentication context
+contexts/               # React contexts
+└── auth-context.tsx   # Authentication context
 ```
 
-## Key Utilities
+## Core Utilities
 
 ### API Middleware (`lib/api-middleware.ts`)
-- `withAuth()` - Authenticate requests with role-based access
-- `withAdminOrSelfAccess()` - Admin or self-access control
-- `handleApiError()` - Consistent error handling
+- `withAuth()` – Role-based authentication
+- `withAdminOrSelfAccess()` – Admin/self-access control
+- `handleApiError()` – Consistent error handling
 
 ### Time Utilities (`lib/time-utils.ts`)
-- `calculateTimeWorked()` - Core time calculation with truncation
-- `calculateInternshipProgress()` - Progress tracking
-- `getTruncatedDecimalHours()` - Precise decimal hours
-- Date and time formatting utilities
+- `calculateTimeWorked()` – Core time calculation (truncation, not rounding)
+- `calculateInternshipProgress()` – Progress tracking
+- `getTruncatedDecimalHours()` – Decimal hour precision
+- `calculateDurationWithEditRequests()` – Accurate duration with edit request support
+- `calculateTimeStatistics()` – Unified time stats (regular, overtime, extended overtime)
+- `getContinuousTime()` – Continuous session calculation
+- Date/time formatting helpers
+- Multi-tier overtime/extended overtime logic
 
 ### UI Utilities (`lib/ui-utils.ts`)
-- `TimeLogDisplay` - Unified time log interface
-- `useAsyncAction()` - Loading state management
-- `groupLogsByDate()` - Log grouping for tables
-- `getTimeBadgeConfig()` - Consistent badge styling
-- `fetchWithErrorHandling()` - Wrapped fetch with error handling
+- `TimeLogDisplay` – Unified time log interface
+- `useAsyncAction()` – Loading state management
+- `groupLogsByDate()` – Log grouping for tables
+- `getTimeBadgeConfig()` – Badge styling
+- `fetchWithErrorHandling()` – Safe fetch wrapper
+
+### Session Utilities (`lib/session-utils.ts`)
+- `processTimeLogSessions()` – Group logs into continuous/multi-tier sessions
+- `getTimeBadgeProps()` – Consistent badge display for all session types
+- `getDurationBadgeProps()` – Duration badge styling
+- `processLogsForContinuousEditing()` – Edit dialog session grouping
 
 ## Data Flow
 
@@ -70,120 +77,111 @@ contexts/            # React contexts
 ### Time Tracking
 1. Clock in/out via `/api/time-logs/clock-in|clock-out`
 2. Data stored in PostgreSQL with status tracking
-3. Real-time calculations using `time-utils`
-4. UI updates via React state management
+3. Real-time calculations using `time-utils` and `session-utils`
+4. UI updates via React state
 
 ### Admin Operations
-1. Admin routes use `withAuth(request, "admin")`
-2. Intern management via `/api/admin/interns`
-3. Project assignments via `/api/admin/projects`
-4. Statistics via `/api/admin/stats`
+- Admin routes use `withAuth(request, "admin")`
+- Intern management: `/api/admin/interns`
+- Project assignments: `/api/admin/projects`
+- Statistics: `/api/admin/stats`
+- Overtime management: `/api/admin/overtime`, `/api/admin/migrate-long-logs`, `/api/admin/check-long-logs`
+- Edit log requests: `/api/admin/time-log-edit-requests`
 
 ## Database Schema
 
 ### Core Tables
-- `users` - User accounts (interns/admins)
-- `time_logs` - Time tracking entries
-- `user_profiles` - Extended user information
-- `internship_programs` - Intern program details
-- `schools` - Educational institutions
-- `departments` - Organizational departments
-- `projects` - Work projects
-- `intern_project_assignments` - Project assignments
+- `users` – User accounts (interns/admins)
+- `time_logs` – Time tracking entries (regular, overtime, extended overtime)
+- `user_profiles` – Extended user info
+- `internship_programs` – Program details
+- `schools` – Educational institutions
+- `departments` – Departments
+- `projects` – Work projects
+- `intern_project_assignments` – Project assignments
 
-### Key Features
-- Automatic timestamp updates via triggers
-- UUID primary keys where appropriate
-- Foreign key constraints for data integrity
-- Indexes for query performance
+**Features:**  
+- Automatic timestamp updates (triggers)  
+- UUID primary keys  
+- Foreign key constraints  
+- Indexes for performance
 
-## Component Architecture
+## Component Patterns
 
-### Consolidated Patterns
-- **Time Calculations**: All use `time-utils.ts` functions
-- **API Calls**: Use `fetchWithErrorHandling()` wrapper
-- **Loading States**: Use `useAsyncAction()` hook
-- **Time Display**: Use `TimeLogDisplay` interface
-- **Badge Styling**: Use `getTimeBadgeConfig()` utility
+- **Time Calculations:** Use `time-utils.ts`
+- **API Calls:** Use `fetchWithErrorHandling()`
+- **Loading States:** Use `useAsyncAction()`
+- **Time Display:** Use `TimeLogDisplay`
+- **Badge Styling:** Use `getTimeBadgeConfig()`
+- **Session Grouping:** Use `session-utils.ts` for continuous/multi-tier sessions
 
-### Reusable Components
-- `DailyTimeRecord` - Time log table with filtering
-- `TimeTracking` - Regular hours tracking
-- `OvertimeTracking` - Overtime hours tracking
-- `ThisWeekLogs` - Weekly summary display
+### Key Components
+- `DailyTimeRecord` – Time log table with filtering and overtime status
+- `TimeTracking` – Manual and overtime tracking (regular, overtime, extended overtime)
+- `OvertimeTracking` – Overtime/extended overtime management for interns
+- `ThisWeekLogs` – Weekly summary display
+- `EditTimeLogDialog` – Edit and review time log requests
+- `CompletionRequestButton` – Request internship completion
+- `DocumentViewer` – View and download documents
+- `AdminDashboardContent` – Main admin dashboard
+- `ManageOvertimeRequests` – Admin overtime approval, bulk actions, migration
+- `ManageEditLogRequests` – Admin review of time log edit requests
+- `ManageInterns` – Admin intern management
+- `ManageCompletionRequests` – Admin completion request management
+- `InternDashboardContent` – Intern dashboard
+- `InternDTR` – Intern daily time record
+- `InternProfile` – Intern profile view/edit
+- `InternshipCompletion` – Intern completion request and status
 
-## Best Practices Implemented
+## Best Practices
 
-### Time Calculations
-- **Truncation over rounding** for precise hours
-- **Centralized calculations** to prevent inconsistencies
-- **UTC handling** with local date utilities
-
-### API Security
-- **Consistent authentication** via middleware
-- **Role-based access control** 
-- **Input validation** on all endpoints
-- **Error handling** without information leakage
-
-### Database Operations
-- **Prepared statements** via postgres library
-- **Transaction support** for complex operations
-- **Connection pooling** for performance
-- **Type safety** with TypeScript interfaces
-
-### UI Consistency
-- **Unified interfaces** for data structures
-- **Consistent styling** via utility functions
-- **Loading states** with proper UX feedback
-- **Error boundaries** for graceful failures
+- **Time:** Always use `time-utils.ts` (truncation, UTC handling, multi-tier logic)
+- **API:** Consistent auth, role-based access, input validation, error handling
+- **DB:** Prepared statements, transactions, pooling, type safety
+- **UI:** Unified interfaces, consistent styling, loading states, error boundaries
+- **Session Logic:** Use `session-utils.ts` for grouping, editing, and admin review
 
 ## Development Guidelines
 
-### Adding New Features
-1. Define TypeScript interfaces in `lib/database.ts`
-2. Create data access functions in `lib/data-access.ts`
-3. Add API routes with proper middleware
-4. Create UI components using existing utilities
-5. Add comprehensive error handling
+- Define types in `lib/database.ts`
+- Add data access in `lib/data-access.ts`
+- Use middleware for API routes
+- Build UI with existing utilities and patterns
+- Ensure comprehensive error handling
 
-### Time-Related Changes
-- Always use functions from `time-utils.ts`
-- Test with different timezones
-- Verify truncation vs rounding behavior
-- Update type definitions if needed
+**Time-related:**  
+- Use `time-utils.ts`  
+- Test with various timezones  
+- Verify truncation vs rounding and multi-tier splitting
 
-### Database Changes
-1. Update schema in `scripts/001-schema.sql`
-2. Add new interfaces to `lib/database.ts`
-3. Create migration scripts if needed
-4. Update data access functions
-5. Test with sample data
+**Database:**  
+- Update schema in `scripts/001-schema.sql`  
+- Add interfaces to `lib/database.ts`  
+- Create migrations as needed  
+- Test with sample data
 
-## Maintenance Notes
+## Maintenance
 
-### Regular Tasks
-- Monitor log file sizes and rotate as needed
-- Review and optimize database queries
-- Update dependencies and security patches
+- Monitor log sizes, rotate as needed
+- Optimize queries
+- Update dependencies
 - Backup database regularly
 
-### Known Considerations
-- Time calculations use truncation for precision
-- Authentication tokens expire after 24 hours
-- Database connections are pooled for performance
+**Notes:**  
+- Time uses truncation for precision and multi-tier overtime logic  
+- Auth tokens expire after 24h  
+- DB connections are pooled  
 - All times stored in UTC, displayed in local time
 
-## Testing Strategy
+## Testing
 
-### Recommended Test Areas
-1. **Time Calculations** - Various scenarios and edge cases
-2. **Authentication** - Token validation and expiration
-3. **Database Operations** - CRUD operations and constraints
-4. **API Endpoints** - Request/response validation
-5. **UI Components** - User interactions and state management
+- **Time Calculations:** Edge cases, timezones, multi-tier overtime
+- **Authentication:** Token validation/expiration
+- **Database:** CRUD, constraints
+- **API:** Request/response validation
+- **UI:** User interactions, state, overtime/extended overtime flows
 
-### Test Data
-- Use consistent test users with known data
-- Test with various time zones
-- Include edge cases (midnight, DST changes)
-- Test with different user roles and permissions
+**Test Data:**  
+- Use known test users  
+- Test timezones, edge cases (midnight, DST, >9h, >12h)  
+- Test all roles/permissions

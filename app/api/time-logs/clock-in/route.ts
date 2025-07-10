@@ -1,3 +1,10 @@
+/**
+ * @file API route for intern clock-in.
+ * 
+ * POST: Clocks in the authenticated intern.
+ *       Accepts optional custom time in request body.
+ *       Returns 400 for errors, 200 on success.
+ */
 import { type NextRequest, NextResponse } from "next/server"
 import { withAuth, handleApiError } from "@/lib/api-middleware"
 import { clockIn } from "@/lib/data-access"
@@ -15,7 +22,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const customTime = body?.time
-    // Clock in as regular or overtime based on hours already worked today
 
     const result = await clockIn(authResult.auth.userId, customTime)
 

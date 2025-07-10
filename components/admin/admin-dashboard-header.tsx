@@ -1,3 +1,18 @@
+/**
+ * AdminDashboardHeader
+ *
+ * Displays the admin dashboard header with the current tab title/description and user profile dropdown.
+ * - Shows the active tab's title and description.
+ * - Displays the logged-in admin's initials, name, email, and role.
+ * - Provides a dropdown menu for user actions (logout).
+ *
+ * Props:
+ * - activeTab: string (optional) — the current dashboard tab key
+ *
+ * Context:
+ * - Uses useAuth() for user info and logout
+ */
+
 "use client"
 
 import React from "react"

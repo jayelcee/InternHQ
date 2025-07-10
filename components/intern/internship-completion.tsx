@@ -1,7 +1,13 @@
 /**
- * Internship completion component for intern dashboard
- * Shows completion progress, allows submission of requests, and displays approved documents
+ * InternshipCompletion
+ *
+ * Component for the intern dashboard that:
+ * - Shows internship completion progress
+ * - Allows submission of completion requests
+ * - Displays status and official documents (DTR, Certificate)
+ * - Handles document download and status tracking
  */
+
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
@@ -10,19 +16,19 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
   DialogFooter,
   DialogDescription
 } from "@/components/ui/dialog"
-import { 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
+import {
+  CheckCircle,
+  XCircle,
+  Clock,
   Award,
   FileText,
   Download,

@@ -1,7 +1,17 @@
 /**
- * Manages internship completion requests for administrators
- * Allows admins to review, approve, or reject completion requests and generate documents
+ * ManageCompletionRequests
+ *
+ * Admin interface for managing internship completion requests.
+ * - View, filter, and search all completion requests
+ * - Approve, reject, revert, or delete requests with admin notes
+ * - Generate official documents (DTR, certificate) for approved requests
+ * - Displays summary statistics and supports department/status/date filtering
+ *
+ * Context:
+ * - Uses useAuth() for user info
+ * - Only accessible to admin users
  */
+
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -11,40 +21,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger, 
-  DialogDescription,
-  DialogFooter
-} from "@/components/ui/dialog"
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from "@/components/ui/table"
-import { 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  FileText, 
-  Award,
-  Calendar,
-  RotateCcw,
-  Trash2
-} from "lucide-react"
-import { 
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
-} from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { CheckCircle, XCircle, Clock, FileText, Award, Calendar, RotateCcw, Trash2, Search } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as CalendarComponent } from "@/components/ui/calendar"
 import { format } from "date-fns"
-import { Search } from "lucide-react"
 
 interface CompletionRequest {
   id: number
@@ -69,6 +52,129 @@ interface CompletionRequest {
   reviewer_last_name?: string
   has_dtr?: boolean
   has_certificate?: boolean
+}
+
+// DocumentActions must be defined before ManageCompletionRequests uses it
+interface DocumentActionsProps {
+  requestId: number
+  has_dtr?: boolean
+  has_certificate?: boolean
+  onDocumentGenerated?: () => void
+}
+
+function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenerated }: DocumentActionsProps) {
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [showDocumentDialog, setShowDocumentDialog] = useState(false)
+  const [adminSignature, setAdminSignature] = useState('')
+  const [adminTitle, setAdminTitle] = useState('')
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
+
+  const generateDocument = async (type: 'dtr' | 'certificate') => {
+    if (!adminSignature || !adminTitle) {
+      alert('Please provide admin signature name and title')
+      return
+    }
+    setIsGenerating(true)
+    try {
+      const response = await fetch(`/api/admin/completion-requests/${requestId}/generate-${type}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ admin_signature_name: adminSignature, admin_title: adminTitle })
+      })
+      if (response.ok) {
+        const message = `${type === 'dtr' ? 'DTR' : 'Certificate'} generated successfully!`
+        setSuccessMessage(message)
+        setShowSuccessDialog(true)
+        setShowDocumentDialog(false)
+        setAdminSignature('')
+        setAdminTitle('')
+        onDocumentGenerated?.()
+      } else {
+        const error = await response.json()
+        alert(error.error || `Failed to generate ${type}`)
+      }
+    } catch {
+      alert(`Failed to generate ${type}`)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  return (
+    <>
+      <Dialog open={showDocumentDialog} onOpenChange={setShowDocumentDialog}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">
+            <FileText className="w-4 h-4" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Generate Official Documents</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-signature">Admin Signature Name</Label>
+              <Input
+                id="admin-signature"
+                value={adminSignature}
+                onChange={(e) => setAdminSignature(e.target.value)}
+                placeholder="Enter your full name for signature"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="admin-title">Admin Title</Label>
+              <Input
+                id="admin-title"
+                value={adminTitle}
+                onChange={(e) => setAdminTitle(e.target.value)}
+                placeholder="Enter your title (e.g., HR Manager, Director)"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => generateDocument('dtr')}
+                disabled={isGenerating || has_dtr}
+                className="flex-1"
+                title={has_dtr ? "DTR already exists" : "Generate DTR"}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                {isGenerating ? 'Generating...' : has_dtr ? 'DTR Generated' : 'Generate DTR'}
+              </Button>
+              <Button
+                onClick={() => generateDocument('certificate')}
+                disabled={isGenerating || has_certificate}
+                className="flex-1"
+                title={has_certificate ? "Certificate already exists" : "Generate Certificate"}
+              >
+                <Award className="w-4 h-4 mr-2" />
+                {isGenerating ? 'Generating...' : has_certificate ? 'Certificate Generated' : 'Generate Certificate'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Document Generated</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-center">
+            <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-2" />
+            <div>{successMessage}</div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowSuccessDialog(false)} autoFocus>
+              OK
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
 }
 
 export function ManageCompletionRequests() {
@@ -112,16 +218,13 @@ export function ManageCompletionRequests() {
     return matchesSearch && matchesStatus && matchesDept && matchesDate
   })
 
+  // Fetch all completion requests
   const fetchCompletionRequests = async () => {
     setLoading(true)
     try {
-      const response = await fetch('/api/admin/completion-requests', {
-        credentials: 'include'
-      })
-      
+      const response = await fetch('/api/admin/completion-requests', { credentials: 'include' })
       if (response.ok) {
         const data = await response.json()
-        // Handle both array and empty responses
         const requestArray = Array.isArray(data) ? data : []
         const formattedData = requestArray.map((request: CompletionRequest) => ({
           ...request,
@@ -130,13 +233,9 @@ export function ManageCompletionRequests() {
         }))
         setCompletionRequests(formattedData)
       } else {
-        console.error('Failed to fetch completion requests:', response.status, response.statusText)
-        // Set empty array on error
         setCompletionRequests([])
       }
-    } catch (error) {
-      console.error('Error fetching completion requests:', error)
-      // Set empty array on error
+    } catch {
       setCompletionRequests([])
     } finally {
       setLoading(false)
@@ -144,37 +243,33 @@ export function ManageCompletionRequests() {
   }
 
   useEffect(() => {
-    if (user?.role === 'admin') {
-      fetchCompletionRequests()
-    }
+    if (user?.role === 'admin') fetchCompletionRequests()
   }, [user?.role])
 
+  // Approve, reject, revert, or delete a request
   const handleProcessRequest = async (id: number, action: 'approve' | 'reject' | 'revert' | 'delete', admin_notes?: string) => {
     setProcessingId(id)
     try {
       const response = await fetch(`/api/admin/completion-requests/${id}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ action, admin_notes })
       })
-
       if (response.ok) {
         await fetchCompletionRequests()
       } else {
         const error = await response.json()
         alert(error.error || 'Failed to process request')
       }
-    } catch (error) {
-      console.error('Error processing request:', error)
+    } catch {
       alert('Failed to process request')
     } finally {
       setProcessingId(null)
     }
   }
 
+  // Status badge helper
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
@@ -188,6 +283,7 @@ export function ManageCompletionRequests() {
     }
   }
 
+  // Open approve/reject dialog
   const openActionDialog = (id: number, type: 'approve' | 'reject') => {
     setActionRequestId(id)
     setActionType(type)
@@ -196,6 +292,7 @@ export function ManageCompletionRequests() {
     setTimeout(() => notesInputRef.current?.focus(), 100)
   }
 
+  // Confirm approve/reject
   const confirmAction = async () => {
     if (!adminNotes.trim()) {
       notesInputRef.current?.focus()
@@ -210,12 +307,14 @@ export function ManageCompletionRequests() {
     }
   }
 
+  // Open revert/delete dialog
   const openConfirmDialog = (id: number, type: 'revert' | 'delete') => {
     setConfirmRequestId(id)
     setConfirmActionType(type)
     setShowConfirmDialog(true)
   }
 
+  // Confirm revert/delete
   const executeConfirmedAction = async () => {
     if (confirmRequestId && confirmActionType) {
       await handleProcessRequest(confirmRequestId, confirmActionType)
@@ -225,10 +324,7 @@ export function ManageCompletionRequests() {
     }
   }
 
-  if (user?.role !== 'admin') {
-    return null
-  }
-
+  if (user?.role !== 'admin') return null
   if (loading) {
     return (
       <div className="space-y-6">
@@ -565,139 +661,5 @@ export function ManageCompletionRequests() {
         </DialogContent>
       </Dialog>
     </div>
-  )
-}
-
-interface DocumentActionsProps {
-  requestId: number
-  has_dtr?: boolean
-  has_certificate?: boolean
-  onDocumentGenerated?: () => void
-}
-
-function DocumentActions({ requestId, has_dtr, has_certificate, onDocumentGenerated }: DocumentActionsProps) {
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [showDocumentDialog, setShowDocumentDialog] = useState(false)
-  const [adminSignature, setAdminSignature] = useState('')
-  const [adminTitle, setAdminTitle] = useState('')
-  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
-
-  const generateDocument = async (type: 'dtr' | 'certificate') => {
-    if (!adminSignature || !adminTitle) {
-      alert('Please provide admin signature name and title')
-      return
-    }
-
-    setIsGenerating(true)
-    try {
-      const response = await fetch(`/api/admin/completion-requests/${requestId}/generate-${type}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          admin_signature_name: adminSignature,
-          admin_title: adminTitle
-        })
-      })
-
-      if (response.ok) {
-        const message = `${type === 'dtr' ? 'DTR' : 'Certificate'} generated successfully!`
-        setSuccessMessage(message)
-        setShowSuccessDialog(true)
-        setShowDocumentDialog(false)
-        setAdminSignature('')
-        setAdminTitle('')
-        // Refresh parent component to update button states
-        onDocumentGenerated?.()
-      } else {
-        const error = await response.json()
-        alert(error.error || `Failed to generate ${type}`)
-      }
-    } catch (error) {
-      console.error(`Error generating ${type}:`, error)
-      alert(`Failed to generate ${type}`)
-    } finally {
-      setIsGenerating(false)
-    }
-  }
-
-  return (
-    <>
-      <Dialog open={showDocumentDialog} onOpenChange={setShowDocumentDialog}>
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm">
-            <FileText className="w-4 h-4" />
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Generate Official Documents</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="admin-signature">Admin Signature Name</Label>
-              <Input
-                id="admin-signature"
-                value={adminSignature}
-                onChange={(e) => setAdminSignature(e.target.value)}
-                placeholder="Enter your full name for signature"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="admin-title">Admin Title</Label>
-              <Input
-                id="admin-title"
-                value={adminTitle}
-                onChange={(e) => setAdminTitle(e.target.value)}
-                placeholder="Enter your title (e.g., HR Manager, Director)"
-              />
-            </div>
-            
-            <div className="flex gap-2">
-              <Button
-                onClick={() => generateDocument('dtr')}
-                disabled={isGenerating || has_dtr}
-                className="flex-1"
-                title={has_dtr ? "DTR already exists" : "Generate DTR"}
-              >
-                <FileText className="w-4 h-4 mr-2" />
-                {isGenerating ? 'Generating...' : has_dtr ? 'DTR Generated' : 'Generate DTR'}
-              </Button>
-              <Button
-                onClick={() => generateDocument('certificate')}
-                disabled={isGenerating || has_certificate}
-                className="flex-1"
-                title={has_certificate ? "Certificate already exists" : "Generate Certificate"}
-              >
-                <Award className="w-4 h-4 mr-2" />
-                {isGenerating ? 'Generating...' : has_certificate ? 'Certificate Generated' : 'Generate Certificate'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      {/* Success Dialog */}
-      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Document Generated</DialogTitle>
-          </DialogHeader>
-          <div className="py-2 text-center">
-            <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-2" />
-            <div>{successMessage}</div>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setShowSuccessDialog(false)} autoFocus>
-              OK
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   )
 }

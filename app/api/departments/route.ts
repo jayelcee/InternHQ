@@ -1,3 +1,9 @@
+/**
+ * @file API route for fetching all departments.
+ * 
+ * GET: Returns an array of department objects.
+ *      On error, returns 500 with error message.
+ */
 import { NextResponse } from "next/server"
 import { sql } from "@/lib/database"
 

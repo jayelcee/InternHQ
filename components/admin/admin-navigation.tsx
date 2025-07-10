@@ -1,3 +1,16 @@
+/**
+ * AdminNavigation
+ *
+ * Sidebar and mobile navigation for the admin dashboard.
+ * - Displays navigation items for all admin dashboard sections.
+ * - Handles tab switching and highlights the active tab.
+ * - Responsive: sidebar for desktop, sheet menu for mobile.
+ *
+ * Props:
+ * - activeTab: string — the current active tab key
+ * - onTabChange: (tab: string) => void — callback to change the active tab
+ */
+
 "use client"
 
 import { useState } from "react"

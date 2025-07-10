@@ -1,12 +1,22 @@
+/**
+ * @file API route for admin to update or delete a specific overtime log.
+ * 
+ * PUT: Approves, rejects, or reverts an overtime log to pending.
+ *      Requires admin authentication via 'auth-token' cookie.
+ *      Expects JSON body with 'status' ('approved', 'rejected', or 'pending').
+ *      Returns 401 if unauthorized, 400 for invalid input or service errors.
+ *      On success, returns { success: true }.
+ * 
+ * DELETE: Permanently deletes an overtime or extended overtime log.
+ *         Requires admin authentication via 'auth-token' cookie.
+ *         Returns 401 if unauthorized, 404 if not found.
+ *         On success, returns { success: true }.
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { updateOvertimeStatus } from "@/lib/data-access"
 import { verifyToken } from "@/lib/auth"
 import { sql } from "@/lib/database"
 
-/**
- * PUT /api/admin/overtime/[id]
- * Approve, reject, or revert overtime log to pending (admin only)
- */
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,8 +53,8 @@ export async function PUT(
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error("Error updating overtime status:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Failed to update overtime status" },
       { status: 500 }
@@ -52,10 +62,6 @@ export async function PUT(
   }
 }
 
-/**
- * DELETE /api/admin/overtime/[id]
- * Permanently delete overtime log (admin only)
- */
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -97,8 +103,8 @@ export async function DELETE(
     `
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error("Error deleting overtime log:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Failed to delete overtime log" },
       { status: 500 }

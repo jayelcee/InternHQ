@@ -1,15 +1,15 @@
+/**
+ * @file API route for admin to migrate long time logs to the new 3-tier system.
+ * 
+ * POST: Splits existing long logs (>9 hours) into regular and overtime portions.
+ *       Requires admin authentication via 'auth-token' cookie.
+ *       Returns 401 if unauthorized, 403 if not admin.
+ *       On success, returns processed count and errors (if any).
+ */
 import { NextRequest, NextResponse } from "next/server"
 import { verifyToken } from "@/lib/auth"
 import { migrateExistingLongLogs } from "@/lib/data-access"
 
-/**
- * POST /api/admin/migrate-long-logs
- * 
- * One-time migration endpoint to split existing long logs (>9 hours) into 
- * regular and overtime portions. This is an admin-only operation.
- * 
- * @returns Migration result with processed count and any errors
- */
 export async function POST(request: NextRequest) {
   try {
     // Authenticate admin user
@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
           errors: result.errors
         }, { status: 500 })
 
-  } catch (error) {
-    console.error("Migration endpoint error:", error)
+  } catch {
+    // Gracefully handle unexpected errors
     return NextResponse.json(
       { error: "Internal server error during migration" },
       { status: 500 }
