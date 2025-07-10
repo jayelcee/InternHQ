@@ -235,7 +235,7 @@ export class DocumentGenerationService {
                     ${completedHours.toFixed(2)}h / ${requiredHours}h
                     ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(totalHours - requiredHours).toFixed(2)})
+                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
                       </span>` : ''
                     }
                   </span>

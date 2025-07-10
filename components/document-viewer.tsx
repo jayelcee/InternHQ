@@ -395,7 +395,7 @@ export function DocumentViewer({ dtrContent, certificateContent, type }: Documen
                     ${completedHours.toFixed(2)}h / ${requiredHours}h
                     ${totalHours > requiredHours ? 
                       `<span style="color: #d97706; margin-left: 8px; font-size: 14px;">
-                        (+${(totalHours - requiredHours).toFixed(2)})
+                        (+${(totalHours - requiredHours).toFixed(2)}h overtime)
                       </span>` : ''
                     }
                   </span>
@@ -916,7 +916,7 @@ function DTRPreview({ content }: { content: DTRContent }) {
                   {completedHours.toFixed(2)}h / {requiredHours}h
                   {totalHours > requiredHours && (
                     <span className="text-yellow-600 ml-2 text-sm">
-                      (+{(totalHours - requiredHours).toFixed(2)})
+                      (+{(totalHours - requiredHours).toFixed(2)}h overtime)
                     </span>
                   )}
                 </span>
