@@ -1,7 +1,7 @@
 -- ================================================================
--- InternHQ Database Schema
+-- Cybersoft DTR Database Schema
 -- ================================================================
--- Complete database schema for the InternHQ internship management system
+-- Complete database schema for the Cybersoft DTR internship management system
 -- 
 -- Table Creation Order:
 -- 1. Core entities (users, schools, supervisors)

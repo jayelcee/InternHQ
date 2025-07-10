@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(user)
   } catch (error) {
-    return handleApiError(error, "Get profile")
+    return handleApiError(error)
   }
 }
 
@@ -54,6 +54,6 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    return handleApiError(error, "Update profile")
+    return handleApiError(error)
   }
 }
