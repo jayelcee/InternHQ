@@ -70,7 +70,7 @@ export async function withAuth(
  * @param error The error thrown
  * @param operation The operation being performed (for logging)
  */
-export function handleApiError(error: unknown, operation: string): NextResponse {
+export function handleApiError(error: unknown): NextResponse {
   if (error instanceof Error) {
     return NextResponse.json(
       { error: error.message },
