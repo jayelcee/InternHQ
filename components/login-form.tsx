@@ -52,8 +52,8 @@ export function LoginForm() {
               <User className="h-6 w-6 text-blue-600" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your DTR account to continue</CardDescription>
+          <CardTitle className="text-2xl font-bold">InternHQ</CardTitle>
+          <CardDescription>Use the credentials provided for open testing.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
