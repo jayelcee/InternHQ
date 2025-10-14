@@ -1,6 +1,9 @@
 -- InternHQ Seed Data
 -- Minimal seed for development/testing
 
+-- SET TIMEZONE TO PHILIPPINES
+SET timezone = 'Asia/Manila';
+
 -- EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
@@ -133,8 +136,8 @@ ON CONFLICT (user_id, project_id) DO NOTHING;
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
 SELECT 
     (SELECT id FROM users WHERE email = 'intern@internhq.com'),
-    (date_value || ' ' || time_in)::timestamptz,
-    (date_value_out || ' ' || time_out)::timestamptz,
+    (date_value || ' ' || time_in || ' Asia/Manila')::timestamptz,
+    (date_value_out || ' ' || time_out || ' Asia/Manila')::timestamptz,
     'completed',
     'regular'
 FROM (VALUES
@@ -151,8 +154,8 @@ FROM (VALUES
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
 SELECT 
     (SELECT id FROM users WHERE email = 'jasmine.camasura@internhq.com'),
-    (date_value || ' ' || time_in)::timestamptz,
-    (date_value_out || ' ' || time_out)::timestamptz,
+    (date_value || ' ' || time_in || ' Asia/Manila')::timestamptz,
+    (date_value_out || ' ' || time_out || ' Asia/Manila')::timestamptz,
     'completed',
     'regular'
 FROM (VALUES
@@ -214,8 +217,8 @@ FROM (VALUES
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
 SELECT 
     (SELECT id FROM users WHERE email = 'quinn.atkins@internhq.com'),
-    (date_value || ' ' || time_in)::timestamptz,
-    (date_value_out || ' ' || time_out)::timestamptz,
+    (date_value || ' ' || time_in || ' Asia/Manila')::timestamptz,
+    (date_value_out || ' ' || time_out || ' Asia/Manila')::timestamptz,
     'completed',
     'regular'
 FROM (VALUES
@@ -235,8 +238,8 @@ FROM (VALUES
 INSERT INTO time_logs (user_id, time_in, time_out, status, log_type)
 SELECT 
     (SELECT id FROM users WHERE email = 'austin.ford@internhq.com'),
-    (date_value || ' ' || time_in)::timestamptz,
-    (date_value_out || ' ' || time_out)::timestamptz,
+    (date_value || ' ' || time_in || ' Asia/Manila')::timestamptz,
+    (date_value_out || ' ' || time_out || ' Asia/Manila')::timestamptz,
     'completed',
     'regular'
 FROM (VALUES

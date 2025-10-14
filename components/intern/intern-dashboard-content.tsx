@@ -310,7 +310,7 @@ export function InternDashboardContent() {
     const totalHoursToday = totalMs / (1000 * 60 * 60)
     if (!auto && totalHoursToday < DAILY_REQUIRED_HOURS && !isOvertimeIn && !isExtendedOvertimeIn) {
       const confirm = window.confirm(
-        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Cybersoft standard is ${DAILY_REQUIRED_HOURS} hours. Are you sure you want to time out?`
+        `You have only worked ${totalHoursToday.toFixed(2)} hours today. Company standard is ${DAILY_REQUIRED_HOURS} hours. Are you sure you want to time out?`
       )
       if (!confirm) {
         setActionLoading(false)

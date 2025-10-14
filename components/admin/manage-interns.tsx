@@ -559,7 +559,7 @@ export function ManageInternsDashboard() {
                 value={newIntern.email}
                 onChange={(e) => setNewIntern({ ...newIntern, email: e.target.value })}
                 className="col-span-3"
-                placeholder="first.last@cybersoftbpo.com"
+                placeholder="first.last@internhq.com"
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">

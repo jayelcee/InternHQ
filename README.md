@@ -3,8 +3,8 @@
 ## 🚀 Clone the Repository
 
 ```bash
-git clone git@git.cybersoftbpo.com:mis/cybersoft-dtr.git
-cd cybersoft-dtr
+git clone https://github.com/jayelcee/InternHQ.git
+cd InternHQ
 ```
 
 ---

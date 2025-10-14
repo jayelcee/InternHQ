@@ -1,5 +1,5 @@
 /**
- * Database connection and type definitions for the Cybersoft DTR system.
+ * Database connection and type definitions for the InternHQ system.
  *
  * Exports:
  * - sql: PostgreSQL connection instance (uses DATABASE_URL env variable)

@@ -8,7 +8,7 @@
  * - Edit request and statistics utilities
  */
 
-export const DAILY_REQUIRED_HOURS = 9
+export const DAILY_REQUIRED_HOURS = 8
 export const MAX_OVERTIME_HOURS = 3
 
 /**
