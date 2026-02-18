@@ -1,145 +1,67 @@
-# InternHQ Setup Guide
+# InternHQ
 
-## 🚀 Clone the Repository
+InternHQ is a web-based Daily Time Record (DTR) and internship tracking system built with Next.js and PostgreSQL.
+
+## Documentation
+
+- [User Guide](./USER_GUIDE.md)
+- [Codebase Documentation](./CODEBASE_DOCUMENTATION.md)
+- [Overtime System](./OVERTIME_SYSTEM.md)
+
+## Quick Start
+
+### 1) Clone and install dependencies
 
 ```bash
 git clone https://github.com/jayelcee/InternHQ.git
 cd InternHQ
-```
-
----
-
-## 🟢 Node.js Environment Setup (with NVM)
-
-**NVM** (Node Version Manager) makes it easy to manage Node.js versions.
-
-### 1. Install NVM
-
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-```
-
-Reload your shell:
-
-```bash
-source ~/.bashrc
-```
-
-Verify NVM installation:
-
-```bash
-command -v nvm
-```
-
-### 2. Install Latest LTS Node.js
-
-```bash
-nvm install --lts
-nvm use --lts
-nvm alias default lts/*
-```
-
-Check versions:
-
-```bash
-node -v
-npm -v
-```
-
-### 3. Install Project Dependencies
-
-```bash
 npm install
 ```
 
----
+### 2) Set up environment variables
 
-## 🗄️ PostgreSQL Setup
+Create a `.env` file in the project root:
 
-### 1. Install PostgreSQL (Ubuntu)
-
-```bash
-sudo apt update
-sudo apt install postgresql postgresql-contrib
+```env
+DATABASE_URL=postgresql://<db_user>:<db_password>@localhost:5432/<db_name>
 ```
 
-Start PostgreSQL service:
+### 3) Set up PostgreSQL
 
-```bash
-sudo service postgresql start
-```
+Install PostgreSQL if needed, then create your own local database and user credentials.
 
-### 2. Create PostgreSQL User & Database
-
-Access PostgreSQL prompt as `postgres` superuser:
-
-```bash
-sudo -u postgres psql
-```
-
-Create user and database:
+Example:
 
 ```sql
-CREATE USER intern_admin WITH PASSWORD '2smg-w5FOo';
-CREATE DATABASE ims_db OWNER intern_admin;
-\q
+CREATE USER your_db_user WITH PASSWORD 'your_secure_password';
+CREATE DATABASE your_db_name OWNER your_db_user;
 ```
 
-### 3. Configure Environment Variables
-
-Create a `.env` file in your project root:
-
-```bash
-touch .env
-```
-
-Add your PostgreSQL connection string:
-
-```
-DATABASE_URL=postgresql://intern_admin:2smg-w5FOo@localhost:5432/ims_db
-```
-
-### 4. Run SQL Scripts (Schema & Seed Data)
+### 4) Run database scripts
 
 From the `scripts` directory:
 
 ```bash
-psql -U intern_admin -h localhost -d ims_db -f 001-schema.sql
-psql -U intern_admin -h localhost -d ims_db -f 002-seed-data.sql
+psql -U your_db_user -h localhost -d your_db_name -f 001-schema.sql
+psql -U your_db_user -h localhost -d your_db_name -f 002-seed-data.sql
 ```
 
----
-
-## 🏃‍♂️ Run the Application
+### 5) Run the app
 
 ```bash
 npm run dev
 ```
 
----
+Open `http://localhost:3000` in your browser.
 
-## 🛠️ Development Tips
+## Tech Stack
 
-### Safely Drop Database with Active Connections
+- Next.js
+- React
+- TypeScript
+- PostgreSQL
 
-From within the `psql` prompt:
+## Notes
 
-```sql
--- Terminate all connections to the database EXCEPT your own
-SELECT pg_terminate_backend(pid)
-FROM pg_stat_activity
-WHERE datname = 'ims_db' AND pid <> pg_backend_pid();
-```
-
-Then drop and recreate the database:
-
-```sql
-DROP DATABASE ims_db;
-CREATE DATABASE ims_db OWNER intern_admin;
-```
-
-### Connect to ims_db with Password Prompt
-
-```bash
-psql -U postgres -d ims_db -h localhost
-```
+- Do not commit real secrets in `.env`.
+- Use environment-specific credentials for local, staging, and production.
